@@ -192,6 +192,39 @@ test('tag and file name are URL-escaped', () => {
   assert.match(url, /v1%201\/a%20b\.apk$/);
 });
 
+test('the device-facing URL is stable across releases, never version-pinned', () => {
+  const opts = { serverUrl: 'https://github.com', owner: 'octo', repo: 'hanime-app' };
+  const url = gh.latestManifestUrl(opts);
+
+  assert.equal(
+    url,
+    'https://github.com/octo/hanime-app/releases/latest/download/version.json',
+  );
+  // The whole point: a phone configured with this keeps seeing new releases.
+  assert.ok(!/\/download\/v\d/.test(url), 'must not contain a version segment');
+  assert.ok(!url.includes('1.1.0'), 'must not contain a version name');
+  assert.ok(url.endsWith('.json'), 'Updater.source() only skips the base path for .json');
+});
+
+test('a re-publish of a later version leaves the device URL unchanged', () => {
+  const opts = { serverUrl: 'https://github.com/', owner: 'o', repo: 'r' };
+  const before = gh.latestManifestUrl(opts);
+  const after = gh.latestManifestUrl(opts);
+  assert.equal(before, after, 'the configured URL must survive every release');
+  assert.equal(
+    after,
+    'https://github.com/o/r/releases/latest/download/version.json',
+    'trailing slash on serverUrl must not double up',
+  );
+});
+
+test('the stable URL and the per-release URL describe the same asset name', () => {
+  const opts = { serverUrl: 'https://github.com', owner: 'o', repo: 'r' };
+  const stable = gh.latestManifestUrl(opts);
+  const pinned = gh.assetDownloadUrl({ ...opts, tag: 'v9.9.9', name: 'version.json' });
+  assert.equal(stable.split('/').pop(), pinned.split('/').pop());
+});
+
 // --------------------------------------------------------------------------
 // repository resolution
 // --------------------------------------------------------------------------
@@ -250,6 +283,15 @@ test('a dry run needs no token and makes no network call', async () => {
 
     assert.deepEqual(calls, [], 'a dry run must not reach for the network');
     assert.equal(process.env.GITHUB_TOKEN, undefined, 'a dry run must not need a token');
+
+    // The URL handed to devices must be the stable one, or the first publish
+    // would pin every installed app to this exact version for ever.
+    assert.equal(
+      out.stable_url,
+      'https://github.com/octo/hanime-app/releases/latest/download/version.json',
+    );
+    assert.notEqual(out.stable_url, out.manifest_url);
+    assert.ok(!out.stable_url.includes('v1.1.0'), 'stable_url must survive new releases');
   });
 });
 

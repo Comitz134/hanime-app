@@ -87,6 +87,21 @@ export function assetDownloadUrl({ serverUrl, owner, repo, tag, name }) {
   return `${base}/${owner}/${repo}/releases/download/${encodeURIComponent(tag)}/${encodeURIComponent(name)}`;
 }
 
+/**
+ * The URL to configure on devices.
+ *
+ * Deliberately NOT the version-pinned path above: a phone pointed at
+ * `.../download/v1.0.2/version.json` would keep checking v1.0.2 for ever and
+ * never learn about v1.0.3. GitHub's `/releases/latest/download/<asset>`
+ * always redirects to the newest non-draft, non-prerelease, so one constant
+ * URL survives every future publish — which is exactly what a cold-start
+ * check needs.
+ */
+export function latestManifestUrl({ serverUrl, owner, repo, name = 'version.json' }) {
+  const base = String(serverUrl ?? '').replace(/\/+$/, '');
+  return `${base}/${owner}/${repo}/releases/latest/download/${encodeURIComponent(name)}`;
+}
+
 /** Parse `owner/repo` out of the flag or GITHUB_REPOSITORY. */
 export function resolveRepo(raw) {
   const value = String(raw ?? '').trim();
@@ -187,6 +202,8 @@ export async function publish(options = {}) {
       manifest_url: assetDownloadUrl({
         serverUrl, owner, repo, tag, name: manifestName,
       }),
+      // What a device should actually be pointed at.
+      stable_url: latestManifestUrl({ serverUrl, owner, repo, name: manifestName }),
       manifest,
     };
   }
@@ -260,6 +277,7 @@ export async function publish(options = {}) {
     release_url: htmlUrl,
     apk_url: apkAsset.browser_download_url ?? apkUrl,
     manifest_url: assetDownloadUrl({ serverUrl, owner, repo, tag, name: manifestName }),
+    stable_url: latestManifestUrl({ serverUrl, owner, repo, name: manifestName }),
     manifest,
     bytes_uploaded: apkBytes.length,
   };
@@ -282,8 +300,12 @@ async function main() {
     console.log(`  apk      ${result.apk_url} (${result.bytes_uploaded} bytes)`);
     console.log(`  sha256   ${result.manifest.sha256}`);
     console.log('');
-    console.log('Set this on devices (⋮ menu → Update source):');
-    console.log(`  ${result.manifest_url}`);
+    console.log('Set this on devices once (⋮ menu → Update source):');
+    console.log(`  ${result.stable_url}`);
+    console.log('  (stable — it always resolves to the newest release, so it never');
+    console.log('   needs changing again)');
+    console.log('');
+    console.log(`  per-release copy: ${result.manifest_url}`);
   } catch (e) {
     console.error(e.message ?? e);
     process.exit(1);

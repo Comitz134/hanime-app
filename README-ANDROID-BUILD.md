@@ -210,8 +210,23 @@ node scripts/publish-github.mjs               # creates the release and uploads 
 ```
 
 Re-running replaces both assets on the same tag, so the manifest can never
-outlive its APK. Then paste the printed `version.json` URL into the app's
-**⋮ menu → Update source** once; every later release is found from there.
+outlive its APK.
+
+The script prints **two** URLs, and the one to configure on devices is the
+second:
+
+| URL | Use |
+|---|---|
+| `…/releases/latest/download/version.json` | **configure this once** — always resolves to the newest release |
+| `…/releases/download/v1.0.2/version.json` | per-release copy, for pinning or auditing |
+
+Never configure the pinned one: a phone pointed at `…/v1.0.2/version.json`
+would check that exact version on every cold start and never learn about
+v1.0.3. The stable form is why one setting survives every future publish.
+Paste it into **⋮ menu → Update source** once.
+
+Then rebuild with `-PupdateUrl=<that URL>` to bake it into a build, or set it
+at runtime in the app.
 
 The version number is read from `data/apk/release.json`, which
 `publish-apk.mjs` wrote by parsing the APK with `aapt2` — it is never passed in
