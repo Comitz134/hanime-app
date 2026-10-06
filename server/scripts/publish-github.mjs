@@ -292,6 +292,11 @@ async function main() {
       console.log(`dry run — nothing uploaded for ${result.tag} on ${result.repo}`);
       console.log(`  apk      ${result.apk.url} (${result.apk.size} bytes)`);
       console.log(`  manifest ${result.manifest_url}`);
+      console.log('');
+      console.log('Set this on devices once (⋮ menu → Update source):');
+      console.log(`  ${result.stable_url}`);
+      console.log('  (stable — always resolves to the newest release, never needs changing)');
+      console.log('');
       console.log(JSON.stringify(result.manifest, null, 2));
       return;
     }

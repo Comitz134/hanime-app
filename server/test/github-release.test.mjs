@@ -308,6 +308,53 @@ test('with nothing published the script says so instead of guessing', async () =
   await assert.rejects(() => gh.publish({ dryRun: true, repo: 'o/r' }), /publish-apk/);
 });
 
+test('the CLI prints the device URL a user is meant to copy', async () => {
+  // Runs the real command rather than the exported function: argument parsing
+  // and the console output are exactly what a human will rely on.
+  writeRelease();
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const run = promisify(execFile);
+
+  const script = path.resolve(import.meta.dirname, '../scripts/publish-github.mjs');
+  const { stdout, stderr } = await run(process.execPath, [
+    script,
+    '--dry-run',
+    '--repo',
+    'octo/hanime-app',
+  ], {
+    env: { ...process.env, APK_DIR: TMP, GITHUB_TOKEN: '' },
+  });
+
+  assert.equal(stderr, '', 'a dry run must not warn or error');
+  assert.match(stdout, /Set this on devices once/);
+
+  // The contract: the very next line after the instruction is the URL a human
+  // will paste. It must be the stable route — a pinned one would freeze every
+  // installed app on this exact version.
+  const lines = stdout.split('\n');
+  const at = lines.findIndex((l) => l.includes('Set this on devices'));
+  assert.ok(at >= 0, 'must print a device configuration instruction');
+
+  const configured = (lines[at + 1] ?? '').trim();
+  assert.equal(
+    configured,
+    'https://github.com/octo/hanime-app/releases/latest/download/version.json',
+    'the URL a user is told to configure must be the stable one',
+  );
+  assert.ok(!/\/download\/v\d/.test(configured), 'must not be version-pinned');
+
+  // The pinned URL may still appear, but only as a labelled per-release copy.
+  const pinned = gh.assetDownloadUrl({
+    serverUrl: 'https://github.com',
+    owner: 'octo',
+    repo: 'hanime-app',
+    tag: 'v1.1.0',
+    name: 'version.json',
+  });
+  assert.ok(stdout.includes(pinned), 'the per-release copy should still be reported');
+});
+
 // --------------------------------------------------------------------------
 // the release actually on disk
 // --------------------------------------------------------------------------
