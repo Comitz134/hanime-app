@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>signer</title>
+<!--
+  Host page for hanime.tv's signature module.
+
+  The bundle is browser code: it registers a `window` listener for the event
+  "e" and publishes `window.ssignature` / `window.stime`. On the real site a
+  fetch layer fires that event before every request. Here Java fires it and
+  reads the pair back, because Java is the thing making the upstream calls.
+
+  Loaded from https://hanime.tv/signer.html so the module sees a normal web
+  origin rather than file://, which some emscripten builds refuse to run under.
+-->
+<style>body{background:#111;color:#666;font:12px monospace;margin:0;padding:8px}</style>
+</head>
+<body>
+<div id="state">booting…</div>
+<script src="htv-signer.js"></script>
+<script>
+(function () {
+  var el = document.getElementById('state');
+  function tick() {
+    if (typeof window.ssignature !== 'undefined') {
+      el.textContent = 'ready';
+      el.dataset.ready = '1';
+      window.__signerReady = true;
+      return;
+    }
+    setTimeout(tick, 25);
+  }
+  setTimeout(function () {
+    if (typeof window.ssignature === 'undefined') {
+      el.textContent = 'timeout — no signature after 15s';
+      el.dataset.ready = '0';
+      window.__signerReady = false;
+    }
+  }, 15000);
+  tick();
+})();
+</script>
+</body>
+</html>

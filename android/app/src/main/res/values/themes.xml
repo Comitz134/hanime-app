@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Deliberately built on platform themes rather than AppCompat: the shell has
+      no widgets that need it, and staying off it keeps the APK small and the
+      dependency list at one.
+
+      The colours are the same measured tokens the web client uses, so the
+      chrome around the page does not read as a different product:
+        background hsl(0 0% 6.7%)   -> #111111
+        card       hsl(0 0% 9.8%)   -> #191919
+        primary    hsl(29.5 100% 88%) -> #FFE0C2
+        onPrimary  hsl(183.2 54.3% 6.9%) -> #081A1B
+    -->
+    <style name="Theme.Shell" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/shell_background</item>
+        <item name="android:colorPrimary">@color/shell_primary</item>
+        <item name="android:colorAccent">@color/shell_primary</item>
+        <item name="android:statusBarColor">@color/shell_background</item>
+        <item name="android:navigationBarColor">@color/shell_background</item>
+        <item name="android:textColorPrimary">@color/shell_foreground</item>
+        <item name="android:textColorSecondary">@color/shell_muted</item>
+    </style>
+
+    <style name="Theme.Shell.Dialog" parent="@android:style/Theme.Material.Dialog.Alert">
+        <item name="android:colorAccent">@color/shell_primary</item>
+        <item name="android:textColorPrimary">@color/shell_foreground</item>
+    </style>
+</resources>

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The app talks to a server the user runs, which is normally plain HTTP on a
+  LAN or on 10.0.2.2 from an emulator. Android blocks cleartext by default, so
+  it is permitted here rather than globally in the manifest alone.
+
+  Everything else still goes over TLS: the media CDN is https and needs no
+  exemption. If you front the proxy with TLS, set an https:// address in the
+  Server screen and this exemption stops being used.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

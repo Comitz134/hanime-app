@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The web client's measured tokens, so the shell matches the product. -->
+    <color name="shell_background">#111111</color>
+    <color name="shell_card">#191919</color>
+    <color name="shell_foreground">#EEEEEE</color>
+    <color name="shell_muted">#B4B4B4</color>
+    <color name="shell_primary">#FFE0C2</color>
+    <color name="shell_on_primary">#081A1B</color>
+    <color name="shell_border">#201E18</color>
+</resources>

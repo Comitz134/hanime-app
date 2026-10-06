@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Full-bleed WebView: the product is a page, so the shell stays out of the way.
+  The only chrome is a two-pixel progress bar and a low-alpha overflow button,
+  both of which sit over the page rather than above it.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/shell_background">
+
+    <WebView
+        android:id="@+id/web"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/shell_background" />
+
+    <ProgressBar
+        android:id="@+id/progress"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="3dp"
+        android:layout_gravity="top"
+        android:indeterminate="false"
+        android:max="100"
+        android:progressTint="@color/shell_primary"
+        android:progressBackgroundTint="@android:color/transparent"
+        android:visibility="gone" />
+
+    <!-- Shown only when the server cannot be reached, so a dead address is a
+         readable screen instead of a blank one. -->
+    <LinearLayout
+        android:id="@+id/error"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="32dp"
+        android:visibility="gone"
+        android:background="@color/shell_background">
+
+        <TextView
+            android:id="@+id/error_title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/webview_error_title"
+            android:textColor="@color/shell_foreground"
+            android:textSize="17sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/error_body"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:gravity="center"
+            android:textColor="@color/shell_muted"
+            android:textSize="13sp"
+            android:lineSpacingMultiplier="1.5" />
+
+        <Button
+            android:id="@+id/error_action"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="@string/reload"
+            android:textColor="@color/shell_on_primary"
+            android:backgroundTint="@color/shell_primary" />
+    </LinearLayout>
+
+    <!--
+      The overflow. A platform menu would need an ActionBar, which would take a
+      permanent strip of a page that is designed to be full-screen, so the menu
+      floats and fades back.
+    -->
+    <ImageButton
+        android:id="@+id/overflow"
+        android:layout_width="44dp"
+        android:layout_height="44dp"
+        android:layout_gravity="top|end"
+        android:layout_margin="8dp"
+        android:alpha="0.35"
+        android:background="?android:attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/menu_server"
+        android:src="@drawable/ic_overflow"
+        android:tint="@color/shell_foreground" />
+</FrameLayout>

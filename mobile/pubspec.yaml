@@ -1,0 +1,22 @@
+name: library_app
+description: Mobile client for a self-hosted hanime proxy.
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # plain REST against our own server — no upstream SDK, no auth dance
+  http: ^1.2.2
+  # disk caching matters here: covers are ~200 KB each and the grid is long
+  cached_network_image: ^3.4.1
+  # first-party player; ExoPlayer (Android) and AVPlayer (iOS) both decode the
+  # HLS the relay serves, and neither needs custom headers on our own URLs
+  video_player: ^2.9.2
+  shared_preferences: ^2.3.2
+
+flutter:
+  uses-material-design: true

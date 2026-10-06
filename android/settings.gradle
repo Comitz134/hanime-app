@@ -1,0 +1,25 @@
+// Android shell for the self-hosted proxy.
+//
+// One module, no dependencies beyond the Android framework. The product itself
+// is the web client the server already serves and which was verified working at
+// localhost:8787 — this module wraps it in a WebView and adds a native
+// self-updater, which is the only part that cannot live in the page.
+
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.name = 'hanime-shell'
+include ':app'

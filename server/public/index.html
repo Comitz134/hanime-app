@@ -1,0 +1,1677 @@
+<!DOCTYPE html>
+<html lang="en" class="dark summer-dark notranslate" translate="no">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#111111">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="/app.webmanifest">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@100..900&display=swap">
+<title>Library</title>
+<style>
+/* ---------------------------------------------------------------------------
+   Tokens lifted from the live reference via getComputedStyle, not eyeballed.
+   Values are bare HSL triplets consumed through hsl(var(--x)), same shape the
+   source site uses, so a re-theme is a token swap rather than a rewrite.
+   --------------------------------------------------------------------------- */
+:root {
+  --background: 0 0% 6.7%;
+  --foreground: 0 0% 93.3%;
+  --card: 0 0% 9.8%;
+  --card-foreground: 0 0% 93.3%;
+  --popover: 0 0% 9.8%;
+  --muted: 0 0% 13.3%;
+  --muted-foreground: 0 0% 70.6%;
+  --accent: 0 0% 16.5%;
+  --accent-foreground: 0 0% 93.3%;
+  --border: 45 14.3% 11%;
+  --input: 0 0% 28.2%;
+  --primary: 29.5 100% 88%;
+  --primary-foreground: 183.2 54.3% 6.9%;
+  --ring: 29.5 100% 88%;
+  --secondary: 28.2 17.5% 19%;
+  --brand-300: 29.5 100% 92%;
+  --brand-400: 29.5 100% 89.2%;
+  --brand-500: 29.5 100% 88%;
+  --brand-600: 29 85% 76%;
+  --radius: .5rem;
+  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-serif: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+  --ease-out-expo: cubic-bezier(.16, 1, .3, 1);
+}
+
+* , *::before, *::after { box-sizing: border-box; border-color: hsl(var(--border)); }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: var(--font-mono);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -.01em; }
+button, input, select { font: inherit; color: inherit; background: none; border: 0; }
+button { cursor: pointer; }
+img { display: block; }
+::selection { background: hsl(var(--primary) / .28); }
+
+/* thin scrollbars, matching the reference's restrained chrome */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: hsl(var(--accent)); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: hsl(var(--input)); }
+
+:focus-visible { outline: none; box-shadow: 0 0 0 1px hsl(var(--ring)); }
+
+.container {
+  width: 100%;
+  max-width: 1600px;
+  margin-inline: auto;
+  padding: 1rem .5rem;
+}
+@media (min-width: 640px)  { .container { padding: 1.5rem 1rem; } }
+@media (min-width: 1024px) { .container { padding: 1.5rem 1.5rem; } }
+
+.stack > * + * { margin-top: 1rem; }
+@media (min-width: 640px)  { .stack > * + * { margin-top: 1.5rem; } }
+@media (min-width: 1024px) { .stack > * + * { margin-top: 2rem; } }
+
+.divider { height: 1px; width: 100%; background: hsl(var(--border)); flex-shrink: 0; }
+
+/* --------------------------------------------------------------------------
+   Floating pill nav
+   -------------------------------------------------------------------------- */
+.nav-wrap {
+  position: fixed; inset-inline: 0; top: .5rem; z-index: 9999;
+  padding-top: env(safe-area-inset-top);
+  pointer-events: none;
+  display: flex; justify-content: center;
+  padding-top: calc(.5rem + env(safe-area-inset-top));
+}
+.nav {
+  pointer-events: auto;
+  display: flex; align-items: center; gap: .75rem;
+  padding: .5rem;
+  border-radius: 999px;
+  border: 1px solid rgb(255 255 255 / .1);
+  background: rgb(0 0 0 / .1);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 10px 30px -12px rgb(0 0 0 / .7);
+  width: 80%;
+  justify-content: space-between;
+  /* entrance: the reference mounts the bar faded and translated */
+  opacity: 0;
+  transform: translateY(-6px);
+  animation: nav-in .5s var(--ease-out-expo) .08s forwards;
+}
+@keyframes nav-in { to { opacity: 1; transform: none; } }
+@media (min-width: 768px) { .nav { width: auto; justify-content: flex-start; } }
+
+.brand { display: flex; align-items: center; gap: .5rem; padding-inline: .5rem; }
+.brand-mark {
+  width: 1.5rem; height: 1.5rem; color: hsl(var(--brand-300));
+  /* idle wobble, matching the reference's gently unsettled logo */
+  animation: wobble 5.5s ease-in-out infinite;
+}
+@keyframes wobble {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  25%      { transform: translateY(-2px) rotate(-4.8deg); }
+  75%      { transform: translateY(-1px) rotate(3.2deg); }
+}
+.brand-word { font-size: .8125rem; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; }
+
+.nav-links { display: none; align-items: center; gap: .25rem; }
+@media (min-width: 768px) { .nav-links { display: flex; } }
+.nav-link {
+  padding: .5rem .75rem; border-radius: 999px; font-size: .8125rem;
+  color: hsl(var(--muted-foreground)); transition: color .2s, background .2s;
+  text-decoration: none; white-space: nowrap;
+}
+.nav-link:hover { color: hsl(var(--foreground)); background: hsl(var(--accent) / .6); }
+.nav-link[aria-current="page"] { color: hsl(var(--primary-foreground)); background: hsl(var(--primary)); }
+
+.nav-actions { display: flex; align-items: center; gap: .25rem; }
+.icon-btn {
+  width: 2rem; height: 2rem; display: grid; place-items: center;
+  border-radius: 999px; color: hsl(var(--muted-foreground));
+  transition: color .2s, background .2s;
+}
+.icon-btn:hover { color: hsl(var(--foreground)); background: hsl(var(--accent) / .7); }
+.icon-btn[aria-expanded="true"] { color: hsl(var(--primary-foreground)); background: hsl(var(--primary)); }
+.icon-btn svg { width: 1rem; height: 1rem; }
+
+/* --------------------------------------------------------------------------
+   Hero
+   -------------------------------------------------------------------------- */
+.hero {
+  position: relative; width: 100%; overflow: hidden;
+  border-radius: calc(var(--radius) * 1.5);
+  border: 1px solid hsl(var(--border) / .4);
+  background: hsl(var(--card) / .3);
+  min-height: 400px;
+}
+@media (min-width: 640px)  { .hero { min-height: 510px; } }
+@media (min-width: 1024px) { .hero { min-height: 610px; } }
+
+.hero-slide {
+  position: absolute; inset: 0;
+  opacity: 0; visibility: hidden;
+  transition: opacity .76s linear, visibility .76s linear;
+}
+.hero-slide[data-active="true"] { opacity: 1; visibility: visible; }
+.hero-bg { position: absolute; inset: -4px; }
+.hero-bg img { width: 100%; height: 100%; object-fit: cover; }
+.hero-scrim {
+  position: absolute; inset: 0;
+  background:
+    linear-gradient(to top, hsl(var(--background)) 12%, hsl(var(--background) / .55) 48%, transparent 85%),
+    linear-gradient(to right, hsl(var(--background) / .82), transparent 62%);
+}
+.hero-hairline {
+  position: absolute; inset-inline: 0; top: 0; height: 1px;
+  background: linear-gradient(to right, transparent, hsl(var(--brand-500) / .6), transparent);
+}
+
+.hero-body {
+  position: relative; height: 100%;
+  display: flex; flex-direction: column; justify-content: flex-end;
+  padding: 1.5rem;
+}
+@media (min-width: 640px)  { .hero-body { padding: 2.5rem; } }
+@media (min-width: 1024px) { .hero-body { padding: 3rem; } }
+
+.hero-kicker { display: flex; align-items: center; gap: .75rem; margin-bottom: 1rem; }
+.hero-dash { position: relative; height: 1px; width: 2rem; overflow: hidden; background: hsl(var(--border)); }
+@media (min-width: 640px) { .hero-dash { width: 2.5rem; } }
+.hero-dash::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(to right, transparent, hsl(var(--brand-500)), transparent);
+  animation: sheen 2.6s linear infinite;
+}
+@keyframes sheen { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+.hero-kicker span {
+  font-size: .6875rem; letter-spacing: .22em; text-transform: uppercase;
+  color: hsl(var(--brand-400));
+}
+
+.hero-title {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: 1.5rem;
+  line-height: 1.1;
+  letter-spacing: -.02em;
+  text-wrap: balance;
+  max-width: 34ch;
+  margin-bottom: .9rem;
+  /* staggered entrance — the reference brings the heading up last */
+  transform: translateY(.5rem); opacity: 0;
+  transition: transform .7s var(--ease-out-expo) .1s, opacity .7s var(--ease-out-expo) .1s;
+}
+@media (min-width: 640px)  { .hero-title { font-size: 2.25rem; } }
+@media (min-width: 1024px) { .hero-title { font-size: 3rem; } }
+.hero-slide[data-active="true"] .hero-title { transform: none; opacity: 1; }
+
+.hero-tags { display: flex; flex-wrap: wrap; gap: .375rem; margin-bottom: 1.25rem; }
+.hero-tag {
+  font-size: .6875rem; padding: .25rem .625rem; border-radius: 999px;
+  background: hsl(var(--accent) / .7); color: hsl(var(--muted-foreground));
+  border: 1px solid hsl(var(--border));
+  backdrop-filter: blur(6px);
+}
+
+.hero-cta { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.pill {
+  display: inline-flex; align-items: center; gap: .5rem;
+  padding: .75rem 1.5rem; border-radius: 999px;
+  font-size: .875rem; font-weight: 600; text-decoration: none;
+  transition: all .3s;
+}
+.pill-primary { background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); }
+.pill-primary:hover { background: hsl(var(--brand-600)); transform: translateY(-1px); }
+.pill-ghost { border: 1px solid hsl(var(--border)); color: hsl(var(--foreground)); }
+.pill-ghost:hover { border-color: hsl(var(--input)); background: hsl(var(--accent) / .5); }
+
+.hero-dots { position: absolute; right: 1.5rem; bottom: 1.5rem; display: flex; gap: .375rem; }
+@media (min-width: 640px) { .hero-dots { right: 2.5rem; bottom: 2.5rem; } }
+.hero-dot {
+  width: 1.5rem; height: 2px; border-radius: 999px;
+  background: hsl(var(--foreground) / .25); transition: background .3s, width .3s;
+}
+.hero-dot[data-active="true"] { background: hsl(var(--primary)); width: 2.25rem; }
+
+/* --------------------------------------------------------------------------
+   Search + filter bar
+   -------------------------------------------------------------------------- */
+.bar { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+.search-shell { position: relative; flex: 1 1 16rem; min-width: 0; }
+.search-shell svg.lead {
+  position: absolute; left: .75rem; top: 50%; transform: translateY(-50%);
+  width: 1rem; height: 1rem; color: hsl(var(--muted-foreground) / .6); pointer-events: none;
+}
+#q {
+  width: 100%; height: 2.75rem;
+  border-radius: 1rem;
+  background: hsl(var(--card) / .5);
+  border: 1px solid hsl(var(--border) / .6);
+  padding-left: 2.5rem; padding-right: 2.5rem;
+  font-size: .8125rem; font-weight: 500;
+}
+#q::placeholder { color: hsl(var(--muted-foreground) / .5); }
+#q:focus { border-color: hsl(var(--primary) / .5); }
+.search-clear {
+  position: absolute; right: .6rem; top: 50%; transform: translateY(-50%);
+  width: 1.4rem; height: 1.4rem; display: none; place-items: center;
+  border-radius: 999px; color: hsl(var(--muted-foreground)); font-size: .9rem;
+}
+.search-shell[data-filled="true"] .search-clear { display: grid; }
+.search-clear:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
+
+select#sort {
+  height: 2.75rem; border-radius: 1rem; padding: 0 2rem 0 .875rem;
+  background: hsl(var(--card) / .5);
+  border: 1px solid hsl(var(--border) / .6);
+  font-size: .8125rem; font-weight: 500;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23b4b4b4' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right .6rem center; background-size: .9rem;
+}
+select#sort:focus { border-color: hsl(var(--primary) / .5); }
+
+/* --------------------------------------------------------------------------
+   Section header
+   -------------------------------------------------------------------------- */
+.sec-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin-bottom: 1rem; }
+.sec-head-l { display: flex; align-items: center; gap: .5rem; min-width: 0; }
+.sec-head h2 { font-size: 1.25rem; }
+@media (min-width: 640px) { .sec-head h2 { font-size: 1.5rem; } }
+.sec-count {
+  font-size: .6875rem; color: hsl(var(--muted-foreground));
+  padding: .2rem .5rem; border-radius: 999px;
+  background: hsl(var(--accent) / .6); border: 1px solid hsl(var(--border));
+}
+
+/* --------------------------------------------------------------------------
+   Carousels (horizontal rows)
+   -------------------------------------------------------------------------- */
+.rail {
+  display: flex; gap: .5rem; padding-bottom: 1rem;
+  overflow-x: auto; scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  cursor: grab;
+  overscroll-behavior-x: contain;
+}
+.rail::-webkit-scrollbar { display: none; }
+.rail.dragging { cursor: grabbing; scroll-snap-type: none; }
+@media (min-width: 640px) { .rail { gap: .75rem; } }
+
+.chip {
+  flex: 0 0 auto; scroll-snap-align: start;
+  display: flex; align-items: center; gap: .5rem;
+  padding: .5rem .875rem; border-radius: 999px;
+  background: hsl(var(--card) / .55);
+  border: 1px solid hsl(var(--border));
+  font-size: .75rem; color: hsl(var(--muted-foreground));
+  white-space: nowrap; transition: all .25s;
+}
+.chip:hover { border-color: hsl(var(--input)); color: hsl(var(--foreground)); }
+.chip[aria-pressed="true"] {
+  background: hsl(var(--primary)); border-color: hsl(var(--primary));
+  color: hsl(var(--primary-foreground)); font-weight: 600;
+}
+.chip-n { font-size: .625rem; opacity: .6; }
+
+/* --------------------------------------------------------------------------
+   Poster grid + card
+   -------------------------------------------------------------------------- */
+.grid {
+  display: grid;
+  gap: .75rem;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+}
+@media (min-width: 480px) { .grid { grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 1rem; } }
+@media (min-width: 640px) { .grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); } }
+@media (min-width: 1024px){ .grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 1.25rem; } }
+
+.card { cursor: pointer; }
+.card-frame {
+  position: relative; overflow: hidden;
+  border-radius: var(--radius);
+  border: 1px solid rgb(255 255 255 / .08);
+  aspect-ratio: 2 / 3;
+  background: hsl(var(--card));
+  transition: border-color .3s, transform .45s var(--ease-out-expo), box-shadow .3s;
+}
+@media (min-width: 640px) { .card-frame { border-radius: calc(var(--radius) + .25rem); } }
+.card:hover .card-frame {
+  border-color: rgb(255 255 255 / .2);
+  transform: translateY(-3px);
+  box-shadow: 0 24px 48px -20px rgb(0 0 0 / .6);
+}
+.card-frame img {
+  width: 100%; height: 100%; object-fit: cover;
+  transition: transform .6s var(--ease-out-expo);
+}
+.card:hover .card-frame img { transform: scale(1.045); }
+.card-fallback {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  font-size: .6875rem; color: hsl(var(--muted-foreground)); padding: .5rem; text-align: center;
+}
+.card-scrim {
+  position: absolute; inset-inline: 0; bottom: 0; height: 55%;
+  background: linear-gradient(to top, hsl(var(--background) / .92), transparent);
+  pointer-events: none;
+}
+.card-badge {
+  position: absolute; left: .5rem; bottom: .5rem;
+  font-size: .625rem; padding: .15rem .45rem; border-radius: 999px;
+  background: rgb(0 0 0 / .7); color: #fff;
+  backdrop-filter: blur(4px);
+}
+.card-play {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  opacity: 0; transition: opacity .3s;
+}
+.card:hover .card-play { opacity: 1; }
+.card-play span {
+  width: 2.5rem; height: 2.5rem; border-radius: 999px; display: grid; place-items: center;
+  background: hsl(var(--primary) / .92); color: hsl(var(--primary-foreground));
+  box-shadow: 0 10px 30px -8px rgb(0 0 0 / .8);
+}
+.card-body { padding: .5rem .125rem 0; }
+.card-title {
+  font-size: .75rem; font-weight: 500; line-height: 1.35;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; margin: 0 0 .15rem;
+}
+@media (min-width: 640px) { .card-title { font-size: .8125rem; } }
+.card-meta {
+  font-size: .625rem; color: hsl(var(--muted-foreground));
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 0;
+}
+
+/* skeleton */
+.skeleton { border-radius: var(--radius); background: hsl(var(--card)); overflow: hidden; position: relative; }
+.skeleton::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, hsl(var(--accent) / .7), transparent);
+  animation: shimmer 1.4s linear infinite;
+}
+@keyframes shimmer { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+
+/* --------------------------------------------------------------------------
+   Pager + footer
+   -------------------------------------------------------------------------- */
+.pager { display: flex; align-items: center; justify-content: center; gap: .75rem; padding: 1.75rem 0 2.5rem; }
+.pager-info { font-size: .75rem; color: hsl(var(--muted-foreground)); }
+.page-btn {
+  padding: .625rem 1.25rem; border-radius: 999px; font-size: .8125rem; font-weight: 600;
+  border: 1px solid hsl(var(--border)); color: hsl(var(--foreground));
+  transition: all .25s;
+}
+.page-btn:hover:not(:disabled) { border-color: hsl(var(--input)); background: hsl(var(--accent) / .5); }
+.page-btn:disabled { opacity: .35; cursor: default; }
+
+/* --------------------------------------------------------------------------
+   Playlists
+   -------------------------------------------------------------------------- */
+.pl-card {
+  flex: 0 0 auto; width: 8.5rem; scroll-snap-align: start; cursor: pointer;
+}
+@media (min-width: 640px) { .pl-card { width: 10.5rem; } }
+.pl-art {
+  position: relative; display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: 1fr;
+  aspect-ratio: 1 / 1; overflow: hidden;
+  border-radius: var(--radius); border: 1px solid rgb(255 255 255 / .08);
+  background: hsl(var(--card)); transition: border-color .3s, transform .4s var(--ease-out-expo);
+}
+@media (min-width: 640px) { .pl-art { border-radius: calc(var(--radius) + .25rem); } }
+.pl-card:hover .pl-art { border-color: rgb(255 255 255 / .2); transform: translateY(-3px); }
+.pl-art img { width: 100%; height: 100%; object-fit: cover; }
+.pl-art[data-count="1"] { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+.pl-art[data-count="1"] img { grid-column: 1 / -1; grid-row: 1 / -1; }
+.pl-art-empty { grid-column: 1 / -1; display: grid; place-items: center; font-size: .6875rem; color: hsl(var(--muted-foreground)); }
+.pl-more {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  background: rgb(0 0 0 / .55); font-size: .8125rem; font-weight: 600;
+  color: #fff; backdrop-filter: blur(2px);
+}
+.pl-name {
+  font-size: .75rem; font-weight: 500; margin: .5rem 0 .1rem; line-height: 1.35;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.pl-meta { font-size: .625rem; color: hsl(var(--muted-foreground)); margin: 0; }
+.pl-flags { display: inline-flex; gap: .25rem; margin-left: .3rem; }
+.pl-flag { font-size: .5625rem; padding: 0 .3rem; border-radius: 999px; background: hsl(var(--accent)); }
+
+.connect-card {
+  border-radius: var(--radius); border: 1px solid hsl(var(--border));
+  background: hsl(var(--card) / .4); padding: 1rem;
+}
+@media (min-width: 640px) { .connect-card { padding: 1.25rem; } }
+.connect-card h3 { font-size: .9375rem; margin-bottom: .375rem; }
+.connect-card p { font-size: .75rem; color: hsl(var(--muted-foreground)); margin: 0 0 .75rem; line-height: 1.6; }
+.connect-card code {
+  font-family: var(--font-mono); font-size: .6875rem;
+  background: hsl(var(--accent)); padding: .1rem .35rem; border-radius: .25rem;
+}
+.connect-row { display: flex; gap: .5rem; flex-wrap: wrap; }
+#cookie-input {
+  flex: 1 1 16rem; min-width: 0; height: 2.75rem; border-radius: 1rem;
+  background: hsl(var(--background)); border: 1px solid hsl(var(--border) / .8);
+  padding: 0 .875rem; font-size: .75rem;
+}
+#cookie-input:focus { border-color: hsl(var(--primary) / .5); }
+.connect-msg { font-size: .75rem; margin-top: .75rem; }
+.connect-msg[data-kind="ok"] { color: hsl(var(--brand-400)); }
+.connect-msg[data-kind="err"] { color: #ff8b9a; }
+
+.sess-chip { display: inline-flex; align-items: center; gap: .375rem; }
+.sess-dot { width: .375rem; height: .375rem; border-radius: 999px; background: hsl(var(--input)); }
+.sess-dot[data-live="true"] { background: hsl(var(--brand-500)); }
+
+.pl-items { display: grid; gap: .75rem; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); margin-top: 1rem; }
+@media (min-width: 640px) { .pl-items { grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 1rem; } }
+.unresolved {
+  border-radius: var(--radius); border: 1px dashed hsl(var(--border));
+  display: grid; place-items: center; padding: .5rem; aspect-ratio: 2 / 3;
+  font-size: .625rem; color: hsl(var(--muted-foreground)); text-align: center;
+}
+
+.footer { border-top: 1px solid hsl(var(--border)); background: hsl(var(--card) / .3); margin-top: 3rem; }
+.footer-inner { text-align: center; }
+.footer h2 { font-family: var(--font-serif); font-size: 1.5rem; font-weight: 400; margin-bottom: .5rem; }
+.footer p { font-size: .75rem; color: hsl(var(--muted-foreground)); margin: .25rem 0; }
+.footer-mark { display: inline-flex; align-items: center; gap: .5rem; margin-bottom: 1rem; }
+.footer-mark svg { width: 1.25rem; height: 1.25rem; color: hsl(var(--brand-300)); }
+
+/* --------------------------------------------------------------------------
+   Detail overlay
+   -------------------------------------------------------------------------- */
+.sheet {
+  position: fixed; inset: 0; z-index: 10000;
+  background: hsl(var(--background) / .82);
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  display: none; overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.sheet.open { display: block; animation: fade-in .22s ease forwards; }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+.sheet-panel {
+  max-width: 1000px; margin: 0 auto;
+  padding: calc(1rem + env(safe-area-inset-top)) .5rem 4rem;
+}
+@media (min-width: 640px) { .sheet-panel { padding-inline: 1rem; } }
+@media (min-width: 1024px){ .sheet-panel { padding-inline: 1.5rem; } }
+
+.sheet-top { display: flex; align-items: center; gap: .5rem; margin-bottom: 1rem; position: sticky; top: 0; z-index: 2; }
+.sheet-top .spacer { flex: 1; }
+.back-btn {
+  display: inline-flex; align-items: center; gap: .4rem;
+  padding: .5rem 1rem; border-radius: 999px;
+  border: 1px solid hsl(var(--border)); background: hsl(var(--card) / .7);
+  backdrop-filter: blur(10px);
+  font-size: .8125rem; font-weight: 600; transition: all .25s;
+}
+.back-btn:hover { border-color: hsl(var(--input)); background: hsl(var(--accent) / .6); }
+
+.player-card {
+  border-radius: 1rem; overflow: hidden;
+  border: 1px solid hsl(var(--border) / .6);
+  background: hsl(var(--card) / .4);
+}
+video { width: 100%; display: block; background: #000; aspect-ratio: 16 / 9; }
+
+.quality { display: flex; flex-wrap: wrap; gap: .375rem; padding: .75rem; }
+.q-btn {
+  padding: .4rem .9rem; border-radius: 999px; font-size: .75rem;
+  border: 1px solid hsl(var(--border)); color: hsl(var(--muted-foreground)); transition: all .22s;
+}
+.q-btn:hover { border-color: hsl(var(--input)); color: hsl(var(--foreground)); }
+.q-btn[aria-pressed="true"] {
+  background: hsl(var(--primary)); border-color: hsl(var(--primary));
+  color: hsl(var(--primary-foreground)); font-weight: 600;
+}
+
+.detail-head { margin-top: 1.25rem; }
+.detail-title {
+  font-family: var(--font-serif); font-weight: 400;
+  font-size: 1.5rem; line-height: 1.15; margin-bottom: .5rem;
+}
+@media (min-width: 640px) { .detail-title { font-size: 2rem; } }
+.detail-meta { font-size: .75rem; color: hsl(var(--muted-foreground)); margin-bottom: .875rem; }
+.detail-tags { display: flex; flex-wrap: wrap; gap: .375rem; margin-bottom: 1.25rem; }
+.detail-desc { font-size: .8125rem; line-height: 1.7; color: hsl(var(--fg, var(--foreground)) / .82); white-space: pre-wrap; }
+.detail-desc:empty { display: none; }
+
+.note { font-size: .8125rem; color: hsl(var(--muted-foreground)); padding: .75rem; }
+.center-spin { display: grid; place-items: center; padding: 3rem; }
+.spinner {
+  width: 1.75rem; height: 1.75rem; border-radius: 999px;
+  border: 2px solid hsl(var(--border)); border-top-color: hsl(var(--primary));
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+}
+/* ------------------------------------------------------- public playlist cards */
+
+.pp-owner {
+  display: flex;
+  align-items: center;
+  gap: .375rem;
+  min-width: 0;
+  margin-top: .125rem;
+}
+.pp-owner img {
+  width: 1.125rem;
+  height: 1.125rem;
+  border-radius: 999px;
+  object-fit: cover;
+  flex: none;
+  opacity: .85;
+}
+.pp-owner-name {
+  font-size: .75rem;
+  color: hsl(var(--muted-foreground));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pl-owner-link { color: hsl(var(--primary)); text-decoration: none; }
+.pl-owner-link:hover { text-decoration: underline; }
+
+#in-playlists { margin-top: 1.5rem; }
+.in-pl-head {
+  font-family: var(--font-display);
+  font-size: 1.0625rem;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  color: hsl(var(--foreground));
+  margin: 0 0 .625rem;
+}
+.in-pl-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: .375rem;
+  max-width: 16rem;
+}
+.in-pl-chip em {
+  font-style: normal;
+  font-size: .6875rem;
+  color: hsl(var(--muted-foreground));
+  flex: none;
+}
+.pp-card { cursor: pointer; }
+button.pp-tag {
+  font: inherit;
+  cursor: pointer;
+  background: none;
+}
+button.pp-tag:hover { border-color: hsl(var(--primary)); color: hsl(var(--primary)); }
+button.pp-tag em {
+  font-style: normal;
+  opacity: .6;
+  font-size: .6875rem;
+}
+</style>
+</head>
+<body>
+
+<!-- floating pill nav -->
+<div class="nav-wrap">
+  <div class="nav">
+    <div class="brand">
+      <button class="brand-mark" id="brand-btn" aria-label="Home" title="Home">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" width="24" height="24">
+          <circle cx="12" cy="12" r="4.4"/>
+          <ellipse cx="12" cy="12" rx="10.2" ry="3.6" transform="rotate(-22 12 12)"/>
+        </svg>
+      </button>
+      <span class="brand-word" id="brand-word">Library</span>
+    </div>
+
+    <nav class="nav-links">
+      <a class="nav-link" href="#browse" aria-current="page">Browse</a>
+      <a class="nav-link" href="#genres">Genres</a>
+      <a class="nav-link" href="#studios">Studios</a>
+    </nav>
+
+    <div class="nav-actions">
+      <button class="icon-btn" id="sort-toggle" aria-label="Sort" aria-expanded="false" title="Sort">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <path d="M4 7h16M6 12h12M9 17h6"/>
+        </svg>
+      </button>
+      <button class="icon-btn" id="search-toggle" aria-label="Search" aria-expanded="false" title="Search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<div class="stack" style="padding-bottom:4rem">
+  <main class="container stack">
+
+    <!-- hero -->
+    <section class="hero" id="hero" aria-label="Featured">
+      <div class="hero-slide" data-active="true" id="hero-a"><div class="hero-body"></div></div>
+      <div class="hero-slide" id="hero-b"><div class="hero-body"></div></div>
+      <div class="hero-dots" id="hero-dots"></div>
+    </section>
+
+    <!-- search + sort -->
+    <section aria-label="Filters">
+      <div class="bar">
+        <label class="search-shell" id="search-shell">
+          <svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+            <circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/>
+          </svg>
+          <input id="q" type="search" inputmode="search" enterkeyhint="search"
+                 placeholder="Search titles, studios, tags…" autocomplete="off" spellcheck="false">
+          <button class="search-clear" id="search-clear" type="button" aria-label="Clear search">&times;</button>
+        </label>
+        <select id="sort" aria-label="Sort order">
+          <option value="released_at_unix:desc">Newest</option>
+          <option value="views:desc">Most viewed</option>
+          <option value="likes:desc">Most liked</option>
+          <option value="released_at_unix:asc">Oldest</option>
+          <option value="name:asc">A–Z</option>
+        </select>
+      </div>
+    </section>
+
+    <!-- genres rail -->
+    <section id="genres">
+      <div class="sec-head">
+        <div class="sec-head-l"><h2>Browse Genres</h2></div>
+        <button class="chip" id="clear-tags" type="button" hidden>Clear</button>
+      </div>
+      <div class="rail" id="tag-rail" aria-label="Genres"></div>
+    </section>
+
+    <div class="divider"></div>
+
+    <!-- public playlists -->
+    <section id="public-playlists">
+      <div class="sec-head">
+        <div class="sec-head-l">
+          <h2>Public Playlists</h2>
+          <span class="sec-count" id="pp-count">…</span>
+        </div>
+        <button class="chip" id="pp-more" type="button">Scan more</button>
+      </div>
+
+      <label class="search-shell" id="pp-search-shell" style="max-width:32rem">
+        <svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/>
+        </svg>
+        <input id="pp-q" type="search" inputmode="search" placeholder="Search public playlists, creators and their titles…" autocomplete="off">
+        <button class="search-clear" id="pp-clear" type="button" aria-label="Clear">&times;</button>
+      </label>
+
+      <div class="rail" id="pp-rail" style="margin-top:1rem" aria-label="Public playlists"></div>
+      <p class="note" id="pp-note" hidden></p>
+    </section>
+
+    <div class="divider"></div>
+
+    <!-- playlists -->
+    <section id="playlists">
+      <div class="sec-head">
+        <div class="sec-head-l">
+          <h2>Your Playlists</h2>
+          <span class="sec-count sess-chip" id="sess-chip"><span class="sess-dot" id="sess-dot"></span><span id="sess-label">checking…</span></span>
+        </div>
+        <button class="chip" id="sess-reset" type="button" hidden>Disconnect</button>
+      </div>
+
+      <div id="connect-slot"></div>
+
+      <div id="playlists-body" hidden>
+        <label class="search-shell" id="pl-search-shell" style="max-width:28rem">
+          <svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+            <circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/>
+          </svg>
+          <input id="pl-q" type="search" inputmode="search" placeholder="Search playlists and their contents…" autocomplete="off">
+          <button class="search-clear" id="pl-clear" type="button" aria-label="Clear">&times;</button>
+        </label>
+        <div class="rail" id="pl-rail" style="margin-top:1rem" aria-label="Playlists"></div>
+        <p class="note" id="pl-note" hidden></p>
+      </div>
+    </section>
+
+    <div class="divider"></div>
+
+    <!-- browse grid -->
+    <section id="browse">
+      <div class="sec-head">
+        <div class="sec-head-l">
+          <h2>All Titles</h2>
+          <span class="sec-count" id="total-count">…</span>
+        </div>
+        <span class="sec-count" id="active-label" hidden></span>
+      </div>
+      <div class="grid" id="grid"></div>
+      <div class="pager" id="pager" hidden>
+        <button class="page-btn" id="prev">Prev</button>
+        <span class="pager-info" id="pageinfo"></span>
+        <button class="page-btn" id="next">Next</button>
+      </div>
+    </section>
+
+    <div class="divider" id="studios"></div>
+
+    <!-- studios rail -->
+    <section>
+      <div class="sec-head">
+        <div class="sec-head-l"><h2>Studios</h2></div>
+      </div>
+      <div class="rail" id="brand-rail" aria-label="Studios"></div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div class="footer-mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+          <circle cx="12" cy="12" r="4.4"/>
+          <ellipse cx="12" cy="12" rx="10.2" ry="3.6" transform="rotate(-22 12 12)"/>
+        </svg>
+        <strong style="font-size:.8125rem;letter-spacing:.16em;text-transform:uppercase">Library</strong>
+      </div>
+      <h2>Served from your own bench.</h2>
+      <p id="footer-stat">Catalog and streams resolve through the local proxy.</p>
+      <div class="divider" style="margin:1.5rem 0"></div>
+      <p style="font-size:.6875rem">Local client. Not affiliated with any upstream service.</p>
+    </div>
+  </footer>
+</div>
+
+<!-- detail + player -->
+<div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="Title details">
+  <div class="sheet-panel">
+    <div class="sheet-top">
+      <button class="back-btn" id="sheet-close">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m15 18-6-6 6-6"/></svg>
+        Back
+      </button>
+      <span class="spacer"></span>
+      <span class="sec-count" id="sheet-count" hidden></span>
+    </div>
+    <div id="sheet-body"></div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js" crossorigin></script>
+<script type="module">
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+const state = {
+  page: 0, perPage: 30, q: '', tags: [], brand: '', sort: 'released_at_unix:desc',
+  pages: 1, total: 0, featured: [], slide: 0,
+};
+
+const api = async (path) => {
+  const res = await fetch(path);
+  if (!res.ok) throw new Error(`${path} → ${res.status}`);
+  return res.json();
+};
+
+const fmtCount = (n) => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K' : String(n);
+
+/* ------------------------------------------------------------------ hero */
+
+function heroSlideHtml(v) {
+  const tags = (v.tags ?? []).slice(0, 4);
+  return `
+    <div class="hero-hairline"></div>
+    <div class="hero-bg"><img src="${esc(v.cover ?? '')}" alt="" fetchpriority="high"></div>
+    <div class="hero-scrim"></div>
+    <div class="hero-body">
+      <div class="hero-kicker"><span class="hero-dash"></span><span>${esc(v.brand ?? 'Featured')}</span></div>
+      <h2 class="hero-title">${esc(v.name)}</h2>
+      <div class="hero-tags">
+        ${tags.map((t) => `<span class="hero-tag">${esc(t)}</span>`).join('')}
+        <span class="hero-tag">${fmtCount(v.views)} views</span>
+      </div>
+      <div class="hero-cta">
+        <button class="pill pill-primary" data-open="${esc(v.slug)}">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+          Play
+        </button>
+        <button class="pill pill-ghost" data-open="${esc(v.slug)}">Details</button>
+      </div>
+    </div>`;
+}
+
+let heroTimer;
+function mountHero() {
+  const [a, b] = [$('#hero-a'), $('#hero-b')];
+  [a, b].forEach((el, i) => { el.innerHTML = heroSlideHtml(state.featured[i]); });
+  $('#hero-dots').innerHTML = state.featured
+    .map((_, i) => `<button class="hero-dot" data-i="${i}" data-active="${i === 0}" aria-label="Slide ${i + 1}"></button>`).join('');
+
+  const show = (i) => {
+    state.slide = i;
+    a.dataset.active = String(i === 0);
+    b.dataset.active = String(i === 1);
+    $$('#hero-dots .hero-dot').forEach((d) => { d.dataset.active = String(Number(d.dataset.i) === i); });
+  };
+  show(0);
+
+  const cycle = () => {
+    clearInterval(heroTimer);
+    if (state.featured.length < 2) return;
+    heroTimer = setInterval(() => show((state.slide + 1) % 2), 8200);
+  };
+  cycle();
+
+  $('#hero-dots').onclick = (e) => {
+    const d = e.target.closest('.hero-dot');
+    if (!d) return;
+    show(Number(d.dataset.i));
+    cycle();
+  };
+}
+
+/* ------------------------------------------------------------------ cards */
+
+function cardHtml(v) {
+  return `<article class="card" data-slug="${esc(v.slug)}" tabindex="0" role="button" aria-label="${esc(v.name)}">
+    <div class="card-frame">
+      <img loading="lazy" decoding="async" src="${esc(v.cover ?? '')}" alt="">
+      <div class="card-fallback" hidden>${esc(v.name)}</div>
+      <div class="card-scrim"></div>
+      <span class="card-badge">${fmtCount(v.views)}</span>
+      <div class="card-play"><span>
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+      </span></div>
+    </div>
+    <div class="card-body">
+      <h3 class="card-title">${esc(v.name)}</h3>
+      <p class="card-meta">${esc(v.brand ?? '')}${v.released_at ? ' · ' + esc(v.released_at.slice(0, 4)) : ''}</p>
+    </div>
+  </article>`;
+}
+
+/* ------------------------------------------------------------------ data */
+
+let debounce;
+async function loadTags() {
+  const { data } = await api('/api/tags');
+  // only tags with real coverage make useful filters
+  const top = data.filter((t) => t.count >= 25).slice(0, 30);
+  $('#tag-rail').innerHTML = top
+    .map((t) => `<button class="chip" data-tag="${esc(t.name)}" aria-pressed="false">${esc(t.name)} <span class="chip-n">${t.count}</span></button>`)
+    .join('');
+}
+
+async function loadBrands() {
+  const { data } = await api('/api/brands');
+  $('#brand-rail').innerHTML = data.slice(0, 30)
+    .map((b) => `<button class="chip" data-brand="${esc(b.name)}">${esc(b.name)} <span class="chip-n">${b.count}</span></button>`)
+    .join('');
+}
+
+async function loadGrid() {
+  const grid = $('#grid');
+  const [order_by, ordering] = state.sort.split(':');
+  const params = new URLSearchParams({ page: state.page, per_page: state.perPage, order_by, ordering });
+  if (state.q) params.set('q', state.q);
+  if (state.tags.length) params.set('tags', state.tags.join(','));
+  if (state.brand) params.set('brand', state.brand);
+
+  if (!grid.children.length) {
+    grid.innerHTML = Array.from({ length: 18 }, () => '<div class="skeleton" style="aspect-ratio:2/3"></div>').join('');
+  }
+
+  try {
+    const body = await api('/api/videos?' + params);
+    state.total = body.total;
+    state.pages = Math.max(1, body.pages);
+    $('#total-count').textContent = `${body.total}`;
+    $('#footer-stat').textContent = `${body.total} titles indexed · catalog cached locally.`;
+
+    grid.innerHTML = body.data.map(cardHtml).join('') ||
+      `<p class="note">Nothing matches that yet.</p>`;
+
+    const label = $('#active-label');
+    const bits = [...state.tags, state.brand && `studio: ${state.brand}`, state.q && `“${state.q}”`].filter(Boolean);
+    label.hidden = !bits.length;
+    label.textContent = bits.join(' · ');
+
+    $('#pager').hidden = state.pages <= 1;
+    $('#pageinfo').textContent = `page ${state.page + 1} / ${state.pages}`;
+    $('#prev').disabled = state.page === 0;
+    $('#next').disabled = state.page + 1 >= state.pages;
+  } catch (e) {
+    grid.innerHTML = `<p class="note">Load failed — ${esc(e.message)}</p>`;
+  }
+}
+
+async function loadFeatured() {
+  const body = await api('/api/videos?per_page=2&order_by=views&ordering=desc');
+  state.featured = body.data;
+  if (state.featured.length) mountHero();
+}
+
+/* ------------------------------------------------------------------ playlists */
+
+let plIndex = [];
+
+/* ----------------------------------------------------------- public playlists */
+//
+// hanime.tv has no playlist index and no public playlist API — guests get 403
+// on every playlist path. The only way to read them is the server-rendered
+// page, and the only way to find them is the "Related Playlists" rail on a
+// video page plus each owner's channel. The proxy crawls that graph and serves
+// it here. Wording matters: this section is the crawl, not the site's own
+// (nonexistent) index.
+
+let ppIndex = [];
+let ppQuery = '';
+
+function ppMatchBadge(p) {
+  if (p.match_kind === 'title') return '<span class="pl-flag">title</span>';
+  if (p.match_kind === 'content') {
+    // "entries" means an entry title matched; "studio or tag" means the
+    // playlist is mostly that thing — different results, labelled differently.
+    const what = p.matched_on === 'studio_or_tag' ? 'studio or tag' : `${p.match_count} inside`;
+    return `<span class="pl-flag">${esc(what)}</span>`;
+  }
+  return '';
+}
+
+function ppCard(p) {
+  const cover = p.cover_url ? `<img loading="lazy" src="${esc(p.cover_url)}" alt="">` : '<span class="pl-art-empty">no cover</span>';
+  const owner = p.owner_name
+    ? `<span class="pp-owner">
+         ${p.owner_avatar_url ? `<img loading="lazy" src="${esc(p.owner_avatar_url)}" alt="">` : ''}
+         <span class="pp-owner-name">${esc(p.owner_name)}</span>
+       </span>`
+    : '';
+  return `<article class="pl-card pp-card" data-pp="${esc(p.slug)}" tabindex="0" role="button" aria-label="${esc(p.title)}">
+    <div class="pl-art" data-count="1">${cover}${p.truncated ? '<span class="pl-more">partial</span>' : ''}</div>
+    <h3 class="pl-name">${esc(p.title)}</h3>
+    ${owner}
+    <p class="pl-meta">${p.item_count} ${p.item_count === 1 ? 'title' : 'titles'}${
+      p.fetched ? '' : ' · entries not pulled yet'
+    }${ppMatchBadge(p) ? `<span class="pl-flags">${ppMatchBadge(p)}</span>` : ''}</p>
+  </article>`;
+}
+
+async function loadPublicPlaylists(q = ppQuery) {
+  const rail = $('#pp-rail');
+  if (!rail) return;
+  ppQuery = q;
+  rail.innerHTML = Array.from({ length: 5 }, () => '<div class="pl-card"><div class="skeleton" style="aspect-ratio:1"></div></div>').join('');
+
+  const note = $('#pp-note');
+  try {
+    const params = new URLSearchParams({ limit: '60' });
+    if (q) params.set('q', q);
+    const body = await api('/api/public/playlists?' + params);
+    ppIndex = body.playlists ?? [];
+
+    const stats = body.stats ?? {};
+    $('#pp-count').textContent = `${stats.playlists ?? 0} crawled · ${fmtCount(stats.items ?? 0)} titles`;
+    rail.innerHTML = body.playlists.map(ppCard).join('');
+
+    if (!body.playlists.length) {
+      note.hidden = false;
+      note.textContent = q
+        ? `No crawled playlist matches “${q}”. The index only holds what has been discovered so far — scan more to widen it.`
+        : 'The index is empty. Hit Scan more to start discovering public playlists.';
+    } else {
+      note.hidden = true;
+    }
+  } catch (e) {
+    rail.innerHTML = '';
+    note.hidden = false;
+    note.textContent = `Could not load public playlists — ${e.message}`;
+  }
+}
+
+async function openPublicPlaylist(slug) {
+  const sheet = $('#sheet');
+  sheet.classList.add('open');
+  document.body.style.overflow = 'hidden';
+  sheet.scrollTop = 0;
+  $('#sheet-count').hidden = true;
+  $('#sheet-body').innerHTML = '<div class="center-spin"><div class="spinner"></div></div>';
+
+  let p;
+  try {
+    p = await api('/api/public/playlists/' + encodeURIComponent(slug));
+  } catch (e) {
+    $('#sheet-body').innerHTML = `<p class="note">Could not open this playlist — ${esc(e.message)}</p>`;
+    return;
+  }
+
+  const items = p.items ?? [];
+  $('#sheet-count').hidden = false;
+  $('#sheet-count').textContent = `${items.length} ${items.length === 1 ? 'title' : 'titles'}`;
+
+  const ownerLine = p.owner_name
+    ? `<a class="pl-owner-link" href="/api/public/playlists?owner=${encodeURIComponent(p.owner_channel_slug ?? '')}" data-pp-owner="${esc(p.owner_channel_slug ?? '')}">${esc(p.owner_name)}</a>`
+    : 'unknown creator';
+
+  $('#sheet-body').innerHTML = `
+    <div class="detail-head">
+      <h2 class="detail-title">${esc(p.title)}</h2>
+      <div class="detail-meta">by ${ownerLine} · ${items.length} titles · ${p.playable ?? 0} playable${
+        p.unresolved ? ` · ${p.unresolved} not in the local catalog` : ''}${
+        p.truncated ? ' · upstream truncated this list' : ''}</div>
+      <div class="detail-tags">
+        <span class="hero-tag">public</span>
+        ${p.views ? `<span class="hero-tag">${fmtCount(p.views)} views</span>` : ''}
+        ${p.updated_at ? `<span class="hero-tag">updated ${esc(String(p.updated_at).slice(0, 10))}</span>` : ''}
+        ${(p.tags ?? []).slice(0, 8).map((t) => `<button class="hero-tag pp-tag" type="button" data-pp-tag="${esc(t.text)}">${esc(t.text)}${t.count ? ` <em>${t.count}</em>` : ''}</button>`).join('')}
+        ${(p.brands ?? []).slice(0, 6).map((b) => `<button class="hero-tag pp-tag" type="button" data-pp-brand="${esc(b.title)}">${esc(b.title)}${b.in_playlist_count ? ` <em>${b.in_playlist_count}</em>` : ''}</button>`).join('')}
+      </div>
+    </div>
+    <div class="pl-items">
+      ${items.map((i) => i.resolved === false ? `
+        <div class="unresolved" title="Not present in the local catalog">${esc(i.name ?? i.slug ?? 'unknown')}</div>` : `
+        <article class="card" data-slug="${esc(i.slug)}" tabindex="0" role="button" aria-label="${esc(i.name)}">
+          <div class="card-frame">
+            <img loading="lazy" src="${esc(i.cover_url ?? '')}" alt="">
+            <div class="card-fallback" hidden>${esc(i.name)}</div>
+            <div class="card-scrim"></div>
+            <div class="card-play"><span><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span></div>
+          </div>
+          <div class="card-body">
+            <h3 class="card-title">${esc(i.name ?? i.slug)}</h3>
+            <p class="card-meta">${esc(i.brand ?? '')}</p>
+          </div>
+        </article>`).join('')}
+    </div>`;
+}
+
+// Tapping a studio or tag chip inside a playlist searches for it, so a
+// playlist becomes a way into the rest of the index rather than a dead end.
+document.addEventListener('click', (e) => {
+  const chip = e.target.closest('[data-pp-tag], [data-pp-brand]');
+  if (!chip) return;
+  e.preventDefault();
+  closeSheet();
+  const term = chip.dataset.ppTag ?? chip.dataset.ppBrand;
+  const input = $('#pp-q');
+  input.value = term;
+  $('#pp-search-shell').dataset.filled = 'true';
+  loadPublicPlaylists(term);
+  document.getElementById('public-playlists')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+
+/** Which public playlists a given video appears in — the reverse lookups. */
+async function playlistsForVideo(slug) {
+  const slot = $('#in-playlists');
+  if (!slot) return;
+  let body;
+  try {
+    body = await api(`/api/public/videos/${encodeURIComponent(slug)}/playlists`);
+  } catch {
+    slot.remove();
+    return;
+  }
+  if (!body.playlists?.length) { slot.remove(); return; }
+  slot.hidden = false;
+  slot.innerHTML = `
+    <h3 class="in-pl-head">In ${body.total} public ${body.total === 1 ? 'playlist' : 'playlists'}</h3>
+    <div class="rail">${body.playlists.map((p) => `
+      <button class="chip in-pl-chip" type="button" data-pp="${esc(p.slug)}">
+        ${esc(p.title)}${p.item_count ? ` <em>${p.item_count}</em>` : ''}
+      </button>`).join('')}</div>`;
+}
+
+function wirePublicPlaylists() {
+  const q = $('#pp-q');
+  const clear = $('#pp-clear');
+  if (q) {
+    let t = null;
+    q.oninput = () => {
+      clearTimeout(t);
+      t = setTimeout(() => loadPublicPlaylists(q.value.trim()), 220);
+    };
+    q.onkeydown = (e) => { if (e.key === 'Enter') { clearTimeout(t); loadPublicPlaylists(q.value.trim()); } };
+  }
+  if (clear) clear.onclick = () => { q.value = ''; loadPublicPlaylists(''); };
+
+  const more = $('#pp-more');
+  if (more) more.onclick = async () => {
+    more.disabled = true;
+    const was = more.textContent;
+    more.textContent = 'Scanning…';
+    try {
+      await fetch('/api/public/crawl', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ count: 60, max_playlists: 400, max_channels: 60 }),
+      });
+      // The pass outlives the request; poll until it reports done, then reload.
+      for (let i = 0; i < 120; i++) {
+        await new Promise((r) => setTimeout(r, 1500));
+        const st = await api('/api/public/crawl');
+        if (!st.crawling) { await loadPublicPlaylists(); break; }
+      }
+    } catch (e) {
+      $('#pp-note').hidden = false;
+      $('#pp-note').textContent = `Scan failed — ${e.message}`;
+    } finally {
+      more.disabled = false;
+      more.textContent = was;
+    }
+  };
+
+  loadPublicPlaylists('');
+}
+
+/* ------------------------------------------------------------------ playlists */
+
+function plArt(p) {
+  const covers = (p.preview ?? []).map((x) => x.cover).filter(Boolean).slice(0, 4);
+  if (!covers.length) {
+    return `<div class="pl-art" data-count="1"><span class="pl-art-empty">no cover</span></div>`;
+  }
+  const shown = covers.slice(0, 3);
+  const extra = (p.count ?? 0) - shown.length;
+  return `<div class="pl-art" data-count="${Math.min(covers.length, 4)}">
+    ${shown.map((c) => `<img loading="lazy" src="${esc(c)}" alt="">`).join('')}
+    ${extra > 0 ? `<span class="pl-more">+${extra}</span>` : ''}
+  </div>`;
+}
+
+function plCard(p) {
+  const flags = [
+    p.synthetic ? 'derived' : null,
+    p.unresolved ? `${p.unresolved} unresolved` : null,
+    p.match ? p.match === 'title' ? 'title match' : `${p.match_count} in list` : null,
+  ].filter(Boolean);
+  return `<article class="pl-card" data-playlist="${esc(p.slug)}" tabindex="0" role="button" aria-label="${esc(p.title)}">
+    ${plArt(p)}
+    <h3 class="pl-name">${esc(p.title)}</h3>
+    <p class="pl-meta">${p.count} ${p.count === 1 ? 'title' : 'titles'}${
+      flags.length ? `<span class="pl-flags">${flags.map((f) => `<span class="pl-flag">${esc(f)}</span>`).join('')}</span>` : ''
+    }</p>
+  </article>`;
+}
+
+function connectCard(reason) {
+  const why = {
+    no_session: 'No account connected yet.',
+    expired: 'The stored cookie no longer authenticates — it has probably expired.',
+    empty: 'No cookie was supplied.',
+  }[reason] ?? (reason ? `Session check failed: ${reason}` : 'No account connected yet.');
+
+  return `<div class="connect-card">
+    <h3>Connect an account to see your playlists</h3>
+    <p>
+      Public playlists need no account — see <em>Public Playlists</em> above.
+      Your own playlists are different: they arrive inside the account session
+      payload, so the proxy needs a cookie from a browser you are already
+      logged in with. ${esc(why)}
+    </p>
+    <p>
+      1. Log in on hanime.tv &nbsp;→&nbsp; 2. DevTools &nbsp;→&nbsp; Network &nbsp;→&nbsp; any request to
+      <code>auth.hanime.tv</code> &nbsp;→&nbsp; 3. copy its <code>Cookie</code> request header.
+      The password is never used and never stored.
+    </p>
+    <div class="connect-row">
+      <input id="cookie-input" type="password" placeholder="session=…" autocomplete="off" spellcheck="false">
+      <button class="pill pill-primary" id="cookie-send">Connect</button>
+    </div>
+    <div class="connect-msg" id="cookie-msg" hidden></div>
+  </div>`;
+}
+
+function wireConnect() {
+  const send = $('#cookie-send');
+  if (!send) return;
+  const input = $('#cookie-input');
+  const msg = $('#cookie-msg');
+  const submit = async () => {
+    const cookie = input.value.trim();
+    if (!cookie) return;
+    send.disabled = true;
+    msg.hidden = false;
+    msg.dataset.kind = '';
+    msg.textContent = 'Checking…';
+    try {
+      const res = await fetch('/api/session', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ cookie }),
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        msg.dataset.kind = 'err';
+        msg.textContent = body.hint ?? body.reason ?? 'Rejected.';
+        return;
+      }
+      input.value = '';
+      msg.dataset.kind = 'ok';
+      msg.textContent = `Connected as ${body.user ?? 'account'} — ${body.playlists} playlists.`;
+      await loadSession();
+    } catch (e) {
+      msg.dataset.kind = 'err';
+      msg.textContent = `Request failed: ${e.message}`;
+    } finally {
+      send.disabled = false;
+    }
+  };
+  send.onclick = submit;
+  input.onkeydown = (e) => { if (e.key === 'Enter') submit(); };
+}
+
+async function loadSession() {
+  let info;
+  try {
+    info = await api('/api/session');
+  } catch (e) {
+    $('#sess-label').textContent = 'unreachable';
+    $('#connect-slot').innerHTML = connectCard(e.message);
+    wireConnect();
+    return;
+  }
+
+  const live = info.live === true;
+  $('#sess-dot').dataset.live = String(live);
+  $('#sess-label').textContent = live
+    ? (info.user?.username ? `@${info.user.username}` : 'connected')
+    : 'not connected';
+  $('#sess-reset').hidden = !info.configured;
+
+  if (live) {
+    $('#connect-slot').innerHTML = '';
+    $('#playlists-body').hidden = false;
+    await loadPlaylists();
+  } else {
+    $('#playlists-body').hidden = true;
+    $('#connect-slot').innerHTML = connectCard(info.reason);
+    wireConnect();
+  }
+}
+
+async function loadPlaylists() {
+  const q = ($('#pl-q')?.value ?? '').trim();
+  const note = $('#pl-note');
+  const rail = $('#pl-rail');
+  if (!rail) return;
+  rail.innerHTML = Array.from({ length: 6 }, () => '<div class="pl-card"><div class="skeleton" style="aspect-ratio:1"></div></div>').join('');
+
+  try {
+    const body = await api('/api/playlists' + (q ? `?q=${encodeURIComponent(q)}` : ''));
+    if (!body.configured) { await loadSession(); return; }
+    plIndex = body.playlists;
+
+    const s = body.stats ?? {};
+    rail.innerHTML = body.playlists.map(plCard).join('');
+
+    if (q && !body.playlists.length) {
+      note.hidden = false;
+      note.textContent = `Nothing in your playlists matches “${q}”.`;
+    } else {
+      note.hidden = true;
+    }
+    $('#sess-label').textContent = `${s.total_playlists ?? 0} playlists`;
+  } catch (e) {
+    rail.innerHTML = '';
+    note.hidden = false;
+    note.textContent = `Could not load playlists — ${e.message}`;
+  }
+}
+
+async function openPlaylist(slug) {
+  const sheet = $('#sheet');
+  sheet.classList.add('open');
+  document.body.style.overflow = 'hidden';
+  sheet.scrollTop = 0;
+  $('#sheet-count').hidden = true;
+  $('#sheet-body').innerHTML = '<div class="center-spin"><div class="spinner"></div></div>';
+
+  let p;
+  try {
+    p = await api('/api/playlists/' + encodeURIComponent(slug));
+  } catch (e) {
+    $('#sheet-body').innerHTML = `<p class="note">Could not open this playlist — ${esc(e.message)}</p>`;
+    return;
+  }
+
+  const items = p.items ?? [];
+  const resolved = items.filter((i) => i.resolved);
+  const unresolved = items.length - resolved.length;
+
+  $('#sheet-count').hidden = false;
+  $('#sheet-count').textContent = `${items.length} ${items.length === 1 ? 'title' : 'titles'}`;
+
+  $('#sheet-body').innerHTML = `
+    <div class="detail-head">
+      <h2 class="detail-title">${esc(p.title)}</h2>
+      <div class="detail-meta">${items.length} titles · ${resolved.length} playable${
+        unresolved ? ` · ${unresolved} not in the local catalog` : ''}</div>
+    </div>
+    <div class="pl-items">
+      ${items.map((i) => i.resolved ? `
+        <article class="card" data-slug="${esc(i.slug)}" tabindex="0" role="button" aria-label="${esc(i.title)}">
+          <div class="card-frame">
+            <img loading="lazy" src="${esc(i.cover ?? '')}" alt="">
+            <div class="card-fallback" hidden>${esc(i.title)}</div>
+            <div class="card-scrim"></div>
+            <div class="card-play"><span><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span></div>
+          </div>
+          <div class="card-body">
+            <h3 class="card-title">${esc(i.title)}</h3>
+            <p class="card-meta">${esc(i.brand ?? '')}</p>
+          </div>
+        </article>` : `
+        <div class="unresolved" title="Not present in the local catalog">${esc(i.title)}</div>`).join('')}
+    </div>`;
+}
+
+/* ------------------------------------------------------------------ detail */
+
+let activeHls = null;
+
+function closeSheet() {
+  const vid = $('#vid');
+  if (vid) { vid.pause(); vid.removeAttribute('src'); vid.load(); }
+  if (activeHls) { activeHls.destroy(); activeHls = null; }
+  $('#sheet').classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+async function openVideo(slug) {
+  const sheet = $('#sheet');
+  sheet.classList.add('open');
+  document.body.style.overflow = 'hidden';
+  sheet.scrollTop = 0;
+  $('#sheet-body').innerHTML = '<div class="center-spin"><div class="spinner"></div></div>';
+  $('#sheet-count').hidden = true;
+
+  let v;
+  try {
+    v = await api('/api/videos/' + encodeURIComponent(slug));
+  } catch (e) {
+    $('#sheet-body').innerHTML = `<p class="note">Could not load this title — ${esc(e.message)}</p>`;
+    return;
+  }
+
+  $('#sheet-count').hidden = false;
+  $('#sheet-count').textContent = fmtCount(v.views) + ' views';
+
+  $('#sheet-body').innerHTML = `
+    <div class="player-card">
+      <div id="player-slot"><div class="center-spin"><div class="spinner"></div></div></div>
+    </div>
+    <div class="detail-head">
+      <h2 class="detail-title">${esc(v.name)}</h2>
+      <div class="detail-meta">${esc(v.brand ?? 'Unknown studio')} · ${fmtCount(v.views)} views · ${fmtCount(v.likes)} likes${
+        v.released_at ? ' · ' + esc(v.released_at.slice(0, 4)) : ''}</div>
+      <div class="detail-tags">${(v.tags ?? []).map((t) => `<span class="hero-tag">${esc(t)}</span>`).join('')}</div>
+      <p class="detail-desc">${esc((v.description ?? '').replace(/<[^>]+>/g, ' ').replace(/\s{2,}/g, ' ').trim())}</p>
+    </div>
+    <div id="in-playlists" hidden></div>`;
+
+  // Reverse lookup: which public playlists carry this title. Independent of
+  // playback, so a failure here never delays the stream.
+  playlistsForVideo(slug).catch(() => {});
+
+  await mountPlayer(slug);
+}
+
+async function mountPlayer(slug) {
+  const slot = $('#player-slot');
+  let sources;
+  try {
+    ({ sources } = await api(`/api/videos/${encodeURIComponent(slug)}/sources`));
+  } catch (e) {
+    slot.innerHTML = `<p class="note">Could not resolve a stream — ${esc(e.message)}</p>`;
+    return;
+  }
+  if (!sources?.length) {
+    slot.innerHTML = '<p class="note">No playable source was returned for this entry.</p>';
+    return;
+  }
+
+  slot.innerHTML = `
+    <video id="vid" controls playsinline preload="metadata"></video>
+    <div class="quality">${sources
+      .map((s, i) => `<button class="q-btn" data-i="${i}" aria-pressed="${i === 0}">${esc(s.label)}</button>`)
+      .join('')}</div>`;
+
+  const vid = $('#vid');
+
+  // Chrome and Firefox ship no native HLS demuxer; Safari and every iOS browser
+  // do. Prefer Media Source Extensions when they exist, because some Android
+  // WebViews answer `maybe` to canPlayType('application/vnd.apple.mpegurl')
+  // while implementing no demuxer at all — the element then reports
+  // readyState 4 and never decodes a single frame. Leaving the native route for
+  // browsers with no MSE keeps iOS on its hardware path.
+  const attach = (url) => {
+    if (activeHls) { activeHls.destroy(); activeHls = null; }
+    if (window.Hls?.isSupported()) {
+      activeHls = new window.Hls({ enableWorker: true, lowLatencyMode: false });
+      activeHls.on(window.Hls.Events.ERROR, (_e, data) => {
+        if (!data.fatal) return;
+        slot.insertAdjacentHTML('beforeend', `<p class="note">Playback error — ${esc(data.details)}</p>`);
+      });
+      activeHls.loadSource(url);
+      activeHls.attachMedia(vid);
+      return;
+    }
+    vid.src = url;
+  };
+
+  attach(sources[0].url);
+
+  $$('.q-btn', slot).forEach((btn) => {
+    btn.onclick = () => {
+      const pos = vid.currentTime, wasPlaying = !vid.paused;
+      vid.addEventListener('loadedmetadata', () => {
+        if (pos > 0) vid.currentTime = pos;
+        if (wasPlaying) vid.play().catch(() => {});
+      }, { once: true });
+      attach(sources[Number(btn.dataset.i)].url);
+      $$('.q-btn', slot).forEach((b) => { b.setAttribute('aria-pressed', String(b === btn)); });
+    };
+  });
+}
+
+/* ------------------------------------------------------------------ drag rails */
+
+function makeDraggable(rail) {
+  let down = false, startX = 0, startScroll = 0, moved = 0;
+  rail.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'touch') return;   // native touch scroll is better
+    down = true; moved = 0; startX = e.clientX; startScroll = rail.scrollLeft;
+    rail.classList.add('dragging');
+  });
+  rail.addEventListener('pointermove', (e) => {
+    if (!down) return;
+    const dx = e.clientX - startX;
+    moved = Math.abs(dx);
+    rail.scrollLeft = startScroll - dx;
+  });
+  const up = () => { down = false; rail.classList.remove('dragging'); };
+  rail.addEventListener('pointerup', up);
+  rail.addEventListener('pointerleave', up);
+  rail.addEventListener('pointercancel', up);
+  // suppress the click that ends a drag, or grabbing a rail would open a card
+  rail.addEventListener('click', (e) => { if (moved > 6) { e.preventDefault(); e.stopPropagation(); } }, true);
+}
+
+/* ------------------------------------------------------------------ wiring */
+
+function refresh() { state.page = 0; loadGrid(); }
+
+$('#q').addEventListener('input', (e) => {
+  const val = e.target.value;
+  $('#search-shell').dataset.filled = String(!!val);
+  clearTimeout(debounce);
+  debounce = setTimeout(() => { state.q = val.trim(); refresh(); }, 240);
+});
+$('#search-clear').onclick = () => {
+  $('#q').value = ''; $('#search-shell').dataset.filled = 'false'; state.q = ''; refresh(); $('#q').focus();
+};
+$('#sort').addEventListener('change', (e) => { state.sort = e.target.value; refresh(); });
+
+$('#tag-rail').addEventListener('click', (e) => {
+  const chip = e.target.closest('.chip');
+  if (!chip) return;
+  const tag = chip.dataset.tag;
+  const i = state.tags.indexOf(tag);
+  if (i >= 0) state.tags.splice(i, 1); else state.tags.push(tag);
+  chip.setAttribute('aria-pressed', String(i < 0));
+  $('#clear-tags').hidden = state.tags.length === 0;
+  refresh();
+  document.getElementById('browse')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+$('#clear-tags').onclick = () => {
+  state.tags = [];
+  $$('#tag-rail .chip').forEach((c) => c.setAttribute('aria-pressed', 'false'));
+  $('#clear-tags').hidden = true;
+  refresh();
+};
+
+$('#brand-rail').addEventListener('click', (e) => {
+  const chip = e.target.closest('.chip');
+  if (!chip) return;
+  state.brand = state.brand === chip.dataset.brand ? '' : chip.dataset.brand;
+  $$('#brand-rail .chip').forEach((c) => { c.style.borderColor = c === chip ? 'hsl(var(--primary))' : ''; });
+  refresh();
+  document.getElementById('browse')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+
+$('#prev').onclick = () => { if (state.page > 0) { state.page--; loadGrid().then(() => scrollTo({ top: 0, behavior: 'smooth' })); } };
+$('#next').onclick = () => { if (state.page + 1 < state.pages) { state.page++; loadGrid().then(() => scrollTo({ top: 0, behavior: 'smooth' })); } };
+
+$('#grid').addEventListener('click', (e) => {
+  const card = e.target.closest('.card');
+  if (card) openVideo(card.dataset.slug);
+});
+$('#grid').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const card = e.target.closest('.card');
+  if (card) { e.preventDefault(); openVideo(card.dataset.slug); }
+});
+document.addEventListener('click', (e) => {
+  const opener = e.target.closest('[data-open]');
+  if (opener) openVideo(opener.dataset.open);
+});
+
+// A card inside a playlist opens the video in place, replacing the playlist
+// sheet with the player. Delegated on the sheet so it survives re-rendering.
+$('#sheet-body').addEventListener('click', (e) => {
+  const card = e.target.closest('.pl-items .card');
+  if (card?.dataset.slug) openVideo(card.dataset.slug);
+});
+$('#sheet-body').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const card = e.target.closest('.pl-items .card');
+  if (card?.dataset.slug) { e.preventDefault(); openVideo(card.dataset.slug); }
+});
+
+$('#sheet-close').onclick = closeSheet;
+$('#sheet').addEventListener('click', (e) => { if (e.target === $('#sheet')) closeSheet(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheet(); });
+
+$('#search-toggle').onclick = () => {
+  const open = $('#search-toggle').getAttribute('aria-expanded') !== 'true';
+  $('#search-toggle').setAttribute('aria-expanded', String(open));
+  if (open) { $('#q').focus(); scrollTo({ top: 0, behavior: 'smooth' }); }
+  else $('#q').blur();
+};
+$('#sort-toggle').onclick = () => {
+  const open = $('#sort-toggle').getAttribute('aria-expanded') !== 'true';
+  $('#sort-toggle').setAttribute('aria-expanded', String(open));
+  $('#sort').focus();
+};
+
+$('#brand-btn').onclick = () => scrollTo({ top: 0, behavior: 'smooth' });
+
+// Playlist search is its own box: title matches and content matches rank
+// differently, and folding them into the catalog search would blur both.
+let plDebounce;
+$('#pl-q')?.addEventListener('input', (e) => {
+  const val = e.target.value;
+  $('#pl-search-shell').dataset.filled = String(!!val);
+  clearTimeout(plDebounce);
+  plDebounce = setTimeout(loadPlaylists, 240);
+});
+$('#pl-clear')?.addEventListener('click', () => {
+  $('#pl-q').value = '';
+  $('#pl-search-shell').dataset.filled = 'false';
+  loadPlaylists();
+});
+$('#sess-reset')?.addEventListener('click', async () => {
+  await fetch('/api/session', { method: 'DELETE' });
+  await loadSession();
+});
+$('#pl-rail')?.addEventListener('click', (e) => {
+  const card = e.target.closest('.pl-card');
+  if (card) openPlaylist(card.dataset.playlist);
+});
+$('#pl-rail')?.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const card = e.target.closest('.pl-card');
+  if (card) { e.preventDefault(); openPlaylist(card.dataset.playlist); }
+});
+
+// Public playlist cards, plus the "in N playlists" chips inside a video sheet.
+document.addEventListener('click', (e) => {
+  const card = e.target.closest('[data-pp]');
+  if (!card) return;
+  e.preventDefault();
+  openPublicPlaylist(card.dataset.pp);
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const card = e.target.closest('[data-pp]');
+  if (card) { e.preventDefault(); openPublicPlaylist(card.dataset.pp); }
+});
+$('#pp-q')?.addEventListener('input', (e) => {
+  $('#pp-search-shell').dataset.filled = String(!!e.target.value);
+});
+
+// broken covers collapse to the title rather than a torn frame
+document.addEventListener('error', (e) => {
+  if (e.target.tagName !== 'IMG') return;
+  const fb = e.target.parentElement?.querySelector('.card-fallback');
+  if (fb) { e.target.remove(); fb.hidden = false; } else { e.target.style.visibility = 'hidden'; }
+}, true);
+
+$$('.rail').forEach(makeDraggable);
+
+// Boot. Deliberately an async IIFE rather than top-level await: this script is
+// served to an installed Android app, and the WebView that ships with Android
+// 11 is Chromium 83, where top-level await in a module is a syntax error. One
+// syntax error kills the whole script, so the page came up blank. Everything
+// from Chromium 61 runs when it is wrapped like this.
+(async () => {
+  try {
+    await Promise.all([loadTags(), loadBrands(), loadFeatured()]);
+    await loadGrid();
+  } catch (e) {
+    $('#grid').innerHTML = `<p class="note">Could not reach the proxy — ${esc(e.message)}</p>`;
+  }
+
+  // Playlists are independent of the catalog: a failure here must not blank the grid.
+  wirePublicPlaylists();
+  loadSession().catch(() => {});
+})();
+</script>
+</body>
+</html>

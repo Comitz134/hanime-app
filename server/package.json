@@ -1,0 +1,15 @@
+{
+  "name": "hanime-proxy",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Self-hosted hanime.tv API + HLS proxy. Zero runtime dependencies.",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "start": "node src/server.mjs",
+    "dev": "node --watch src/server.mjs",
+    "selftest": "node --test \"test/*.test.mjs\""
+  }
+}

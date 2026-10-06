@@ -1,0 +1,10 @@
+// Root build. AGP 8.6.1 pairs with Gradle 8.9 and JDK 17, which is the exact
+// toolchain documented in README-ANDROID-BUILD.md.
+
+plugins {
+    id 'com.android.application' version '8.6.1' apply false
+}
+
+tasks.register('clean', Delete) {
+    delete rootProject.layout.buildDirectory
+}

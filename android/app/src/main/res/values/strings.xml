@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">hanime</string>
+    <string name="settings_title">Update source</string>
+
+    <string name="server_label">Server address</string>
+    <string name="server_hint">http://192.168.1.20:8787</string>
+    <string name="server_help">The machine running the proxy. Use 10.0.2.2 for an Android emulator, or your computer\'s LAN address for a phone on the same network.</string>
+    <string name="save">Save</string>
+    <string name="cancel">Cancel</string>
+    <string name="reload">Reload</string>
+    <string name="saved">Server address saved.</string>
+    <string name="bad_url">That is not a valid http:// or https:// address.</string>
+
+    <string name="menu_server">Update source</string>
+    <string name="menu_update">Check for updates</string>
+    <string name="menu_browser">Open in browser</string>
+    <string name="menu_reload">Reload</string>
+
+    <string name="update_checking">Checking for updates…</string>
+    <string name="update_none">You are on the latest version (%1$s).</string>
+    <string name="update_available">Version %1$s is available (you have %2$s).</string>
+    <string name="update_download">Download and install</string>
+    <string name="update_later">Later</string>
+    <string name="update_downloading">Downloading…</string>
+    <string name="update_verifying">Verifying…</string>
+    <string name="update_failed">Update failed: %1$s</string>
+    <string name="update_checksum_mismatch">Downloaded file did not match the published checksum. Nothing was installed.</string>
+    <string name="update_unreachable">Could not reach the server to check for updates.</string>
+    <string name="update_no_endpoint">No update source is configured for this build.</string>
+    <string name="update_install_prompt">Handing the update to Android\'s installer. Android will ask you to allow installing from this app the first time.</string>
+    <string name="update_notes">What changed:\n%1$s</string>
+
+    <string name="webview_unreachable">Cannot reach %1$s.\n\nCheck the address in the Server menu, then reload.</string>
+    <string name="webview_error_title">Connection failed</string>
+</resources>

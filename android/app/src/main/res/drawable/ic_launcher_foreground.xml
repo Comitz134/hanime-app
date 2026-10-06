@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Original geometry: three eyes on a plate. Adaptive-icon canvases are 108x108
+  with a 66x66 safe zone, so the mark is drawn inside that and nothing important
+  sits near the crop.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- The plate -->
+    <path
+        android:fillColor="#FFE0C2"
+        android:pathData="M54,22a32,32 0 1,0 0.1,0z" />
+
+    <!-- Three eyes, the middle one larger and set lower: the judgemental one -->
+    <path
+        android:fillColor="#081A1B"
+        android:pathData="M40,46a5,7 0 1,0 0.1,0z" />
+    <path
+        android:fillColor="#081A1B"
+        android:pathData="M68,46a5,7 0 1,0 0.1,0z" />
+    <path
+        android:fillColor="#081A1B"
+        android:pathData="M54,58a7.5,10 0 1,0 0.1,0z" />
+
+    <!-- A small highlight so the mark is legible on a light background too -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.35"
+        android:pathData="M54,25.5a28.5,28.5 0 0,1 20,8.4a32,32 0 0,1 -20,-8.4z" />
+</vector>

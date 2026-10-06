@@ -1,0 +1,102 @@
+// The shell itself. One activity, one updater, no third-party dependencies.
+//
+// VERSION_CODE is the number the updater compares against the server's
+// /api/app/version. Bump it for every release; VERSION_NAME is display only.
+
+plugins {
+    id 'com.android.application'
+}
+
+// Release signing. The key must stay the same across releases or Android
+// refuses to install the update over an existing install — it treats a
+// different signer as a different app. keystore.properties is kept beside the
+// project and is deliberately not in version control.
+def keystorePropsFile = rootProject.file('keystore.properties')
+def keystoreProps = new Properties()
+if (keystorePropsFile.exists()) {
+    keystorePropsFile.withInputStream { keystoreProps.load(it) }
+}
+
+android {
+    namespace 'app.hanime.shell'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'app.hanime.shell'
+        minSdk 26          // adaptive icons + modern WebView APIs; Android 8.0+
+        targetSdk 34
+        versionCode 3
+        versionName '1.0.2'
+
+        // Where the updater asks for new builds. Empty means "no update source
+        // configured": the check reports that instead of dialling a dead host.
+        //
+        // Two shapes are accepted at runtime, so the app is not tied to this
+        // project's own proxy:
+        //   a) any static *.json URL  (a folder rsynced to any file host)
+        //   b) a base URL, in which case the app requests <base>/api/app/version
+        // Override at build time with -PupdateUrl=...
+        buildConfigField 'String', 'UPDATE_URL',
+                '"' + (project.findProperty('updateUrl') ?: '') + '"'
+
+        // Kept for the settings screen's "use the default" shortcut.
+        buildConfigField 'String', 'DEFAULT_SERVER_URL',
+                '"' + (project.findProperty('serverUrl') ?: 'http://10.0.2.2:8787') + '"'
+    }
+
+    signingConfigs {
+        release {
+            if (keystoreProps.containsKey('storeFile')) {
+                storeFile rootProject.file(keystoreProps['storeFile'])
+                storePassword keystoreProps['storePassword']
+                keyAlias keystoreProps['keyAlias']
+                keyPassword keystoreProps['keyPassword']
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            if (keystoreProps.containsKey('storeFile')) {
+                signingConfig signingConfigs.release
+            }
+        }
+        debug {
+            applicationIdSuffix '.debug'
+            versionNameSuffix '-debug'
+        }
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    packagingOptions {
+        resources.excludes += ['META-INF/*.kotlin_module']
+    }
+}
+
+dependencies {
+    // One dependency, and only for FileProvider: the self-updater has to hand
+    // the downloaded APK to the system installer across a process boundary,
+    // which is exactly what this provides. Everything else is the framework.
+    implementation 'androidx.core:core:1.13.1'
+}
+
+// Surface the version the APK will actually carry, so a release is never
+// published under a stale number.
+tasks.register('printVersion') {
+    doLast {
+        println "versionCode=${android.defaultConfig.versionCode}"
+        println "versionName=${android.defaultConfig.versionName}"
+        println "applicationId=${android.defaultConfig.applicationId}"
+    }
+}

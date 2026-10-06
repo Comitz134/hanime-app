@@ -1,0 +1,47 @@
+# never commit a session cookie — it is a bearer credential
+.session.json
+.session.json.*
+*.session.json
+
+node_modules/
+.DS_Store
+
+# crawled playlist index — a whole-library crawl is hundreds of MB and is
+# reproducible from the crawl script, so it is not source.
+server/data/
+server/data-test/
+server/data/*.tmp
+
+# --- credentials ------------------------------------------------------------
+# A GitHub token here would let anyone publish as this project, and a leaked
+# keystore would let anyone ship an update to installed phones.
+
+.env
+.env.*
+!.env.example
+*.env
+
+# the signing identity. Losing this makes future updates impossible; leaking
+# it lets a third party sign binaries as this app. Never commit.
+android/keystore/
+android/keystore.properties
+
+# --- machine-local / generated ---------------------------------------------
+# sdk.dir differs per machine (this one lives at F:\atc\android-sdk).
+android/local.properties
+
+# build outputs — reproducible from source with gradle
+android/app/build/
+android/build/
+android/.gradle/
+*.apk
+*.aab
+
+# downloaded toolchain (JDK, Android SDK, Gradle) — 319 MB, not source
+toolchain/
+
+# --- scratch ---------------------------------------------------------------
+*.tmp
+*.log
+.DS_Store
+Thumbs.db

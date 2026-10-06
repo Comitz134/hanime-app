@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The single directory the updater hands to the system installer. Only the
+  app's own updates cache is exposed — not external storage, not the app root —
+  so a granted URI cannot be walked into anything else.
+-->
+<paths>
+    <cache-path name="updates" path="updates/" />
+</paths>
