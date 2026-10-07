@@ -161,8 +161,14 @@ first time it opens (`ShellCatalog: catalog warm: 3429 entries in …`).
 
 The shell checks on **every cold start**. Where it looks is configurable:
 
-- build time: `-PupdateUrl=…` → `BuildConfig.UPDATE_URL`
-- runtime: **⋮ menu → Update source** (stored in `SharedPreferences`)
+- default: this project's own GitHub release channel —
+  `https://github.com/Comitz134/hanime-app/releases/latest/download/version.json`
+- build time: `-PupdateUrl=…` → `BuildConfig.UPDATE_URL` (overrides the default)
+- runtime: **⋮ menu → Update source** (stored in `SharedPreferences`, wins over both)
+
+The default matters: an app that has to be handed an update URL before it will
+update itself is not self-updating. A plain `gradle :app:assembleRelease` with no
+properties at all produces a build that can already reach the next release.
 
 Both accept either shape:
 
@@ -171,8 +177,8 @@ Both accept either shape:
 | `https://example.com/updates/app.json` | that file directly |
 | `https://example.com/updates` | `https://example.com/updates/api/app/version` |
 
-Empty means **not configured**, which the app reports in ~100 ms instead of
-dialling a dead host for ten seconds.
+Passing `-PupdateUrl=` explicitly means **not configured**, which the app reports
+in ~100 ms instead of dialling a dead host for ten seconds.
 
 Flow: detect (`version_code` strictly greater) → **auto-download** → verify
 sha256 **and** byte count → hand to Android's installer through the FileProvider
@@ -217,16 +223,17 @@ second:
 
 | URL | Use |
 |---|---|
-| `…/releases/latest/download/version.json` | **configure this once** — always resolves to the newest release |
-| `…/releases/download/v1.0.2/version.json` | per-release copy, for pinning or auditing |
+| `…/releases/latest/download/version.json` | **the one to use** — always resolves to the newest release |
+| `…/releases/download/v<versionName>/version.json` | per-release copy, for pinning or auditing |
 
-Never configure the pinned one: a phone pointed at `…/v1.0.2/version.json`
+Never configure the pinned one: a phone pointed at `…/v1.0.3/version.json`
 would check that exact version on every cold start and never learn about
-v1.0.3. The stable form is why one setting survives every future publish.
-Paste it into **⋮ menu → Update source** once.
+v1.0.4. The stable form is why one setting survives every future publish, and
+why it is the compiled-in default.
 
-Then rebuild with `-PupdateUrl=<that URL>` to bake it into a build, or set it
-at runtime in the app.
+That stable URL is already the compiled-in default (`build.gradle`), so a plain
+release build needs nothing passed to it. Override with `-PupdateUrl=<other>`
+only to point a build somewhere else, or set it at runtime in the app.
 
 The version number is read from `data/apk/release.json`, which
 `publish-apk.mjs` wrote by parsing the APK with `aapt2` — it is never passed in
@@ -247,19 +254,25 @@ process running anywhere**:
 
 ```json
 { "total": "3429", "gridCards": 30, "plCards": 60, "notes": [],
-  "playback": { "mse": true, "t1": 0.133, "t2": 5.53, "advanced": true,
-                "w2": 1280, "buffered": 23.59, "paused": false,
-                "mediaError": null } }
+  "playback": { "mse": true, "t1": 1.853, "t2": 4.009, "advanced": true,
+                "w1": 1280, "w2": 1280, "rs1": 4, "buffered": 44.61,
+                "paused": false, "mediaError": null } }
 ```
+
+That run is the v4 / 1.0.3 release APK (`1101875` bytes, sha256
+`c83d34ad…`), installed over the previous build with the same signer.
 
 - browse: 3,429 titles, 30 cards rendered
 - playlists: 60 cards from the bundled dataset, no "index is empty" note
-- playback: clock advanced 0.13 s → 5.53 s, 1280-wide frames, 23.6 s buffered
+- playback: clock advanced 1.85 s → 4.01 s, 1280-wide frames, 44.6 s buffered
 - signer: 64-hex `x-signature`, `x-time` in seconds
 - HLS chain: playlist `#EXTM3U` → AES key 16 bytes (`30:31:32:33…`) →
   segment 1,941,104 bytes of `video/mp2t`
-- updater: `update check: NOT_CONFIGURED` in ~100 ms with no source set
-- server suite: `npm run selftest` → 95/95, exit 0
+- updater: `update check: UP_TO_DATE 1.0.3` — the app reached GitHub, followed
+  the `/releases/latest/download/` redirect to `release-assets.githubusercontent.com`,
+  parsed the manifest and compared versions, all with no configuration
+  (the same check reported `NOT_CONFIGURED` before the URL was compiled in)
+- server suite: `npm run selftest` → 99/99, exit 0
 
 Probes live in `android/tools/` (`webview-probe.mjs` + `*-probe.js`); they need
 `adb forward tcp:9222 localabstract:webview_devtools_remote_<pid>`, which the

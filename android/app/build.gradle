@@ -25,8 +25,8 @@ android {
         applicationId 'app.hanime.shell'
         minSdk 26          // adaptive icons + modern WebView APIs; Android 8.0+
         targetSdk 34
-        versionCode 3
-        versionName '1.0.2'
+        versionCode 4
+        versionName '1.0.3'
 
         // Where the updater asks for new builds. Empty means "no update source
         // configured": the check reports that instead of dialling a dead host.
@@ -36,8 +36,15 @@ android {
         //   a) any static *.json URL  (a folder rsynced to any file host)
         //   b) a base URL, in which case the app requests <base>/api/app/version
         // Override at build time with -PupdateUrl=...
-        buildConfigField 'String', 'UPDATE_URL',
-                '"' + (project.findProperty('updateUrl') ?: '') + '"'
+        //
+        // The default is this project's own GitHub release channel, because an
+        // app that has to be handed an update URL before it will update itself
+        // is not self-updating. Note the /releases/latest/ form: pinning the tag
+        // (.../download/v1.0.3/version.json) would keep reporting 1.0.3 for ever
+        // and never notice 1.0.4.
+        def updateUrl = project.findProperty('updateUrl')
+                ?: 'https://github.com/Comitz134/hanime-app/releases/latest/download/version.json'
+        buildConfigField 'String', 'UPDATE_URL', '"' + updateUrl + '"'
 
         // Kept for the settings screen's "use the default" shortcut.
         buildConfigField 'String', 'DEFAULT_SERVER_URL',
