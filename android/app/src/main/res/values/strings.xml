@@ -3,14 +3,54 @@
     <string name="app_name">hanime</string>
     <string name="settings_title">Update source</string>
 
-    <string name="server_label">Server address</string>
-    <string name="server_hint">http://192.168.1.20:8787</string>
-    <string name="server_help">The machine running the proxy. Use 10.0.2.2 for an Android emulator, or your computer\'s LAN address for a phone on the same network.</string>
+    <string name="server_label">Update source address</string>
+    <string name="server_hint">https://example.com/version.json</string>
+    <string name="server_help">Where new builds are published. Either a version.json file, or a base address that serves /api/app/version — both publish the same manifest. Leave it alone and the app uses its built-in source (this project\'s GitHub releases). It checks on every start, and nothing installs without your consent. A build you made yourself with -PupdateUrl= has no built-in source unless you set one here.</string>
     <string name="save">Save</string>
     <string name="cancel">Cancel</string>
     <string name="reload">Reload</string>
-    <string name="saved">Server address saved.</string>
+    <string name="saved">Update source saved.</string>
     <string name="bad_url">That is not a valid http:// or https:// address.</string>
+    <string name="settings_status_title">Status</string>
+    <string name="settings_installed">Installed: %1$s (versionCode %2$d)</string>
+    <string name="settings_source_now">Update source: %1$s</string>
+    <string name="settings_source_none">(none — this build has no built-in source)</string>
+    <string name="settings_last_check">Last check: %1$s · %2$s</string>
+    <string name="settings_never_checked">Last check: never</string>
+    <string name="settings_check_now">Check now</string>
+    <string name="settings_checking">Checking…</string>
+    <string name="settings_found">Version %1$s is available. The app will download it and offer to install.</string>
+    <string name="settings_copy">Copy diagnostics</string>
+    <string name="settings_copied">Diagnostics copied to the clipboard.</string>
+
+    <string name="last_up_to_date">up to date (%1$s)</string>
+    <string name="last_available">%1$s available</string>
+    <string name="last_downloaded">downloaded %1$s</string>
+    <string name="last_not_configured">no update source configured</string>
+    <string name="last_failed">failed — %1$s</string>
+    <string name="last_unknown">no result recorded</string>
+
+    <string name="diag_header">hanime shell diagnostics</string>
+    <string name="diag_package">applicationId: %1$s</string>
+    <string name="diag_source">effective source: %1$s</string>
+    <string name="diag_builtin">built-in source: %1$s</string>
+    <string name="diag_override">saved override: %1$s</string>
+    <string name="diag_none">(none)</string>
+    <string name="diag_never">never</string>
+    <string name="diag_last_check">last check: %1$s · %2$s %3$s</string>
+    <string name="diag_last_source">last check asked: %1$s</string>
+    <string name="diag_webview">webview: %1$s</string>
+    <string name="diag_covers">cached covers: %1$d KB</string>
+
+    <string name="library_export_done">Library exported.</string>
+    <string name="library_export_failed">Could not write that file — nothing was exported.</string>
+    <string name="library_import_failed">Could not read that file.</string>
+
+    <string name="pip_unsupported">Picture in picture is not available on this device.</string>
+
+    <string name="settings_reset">Use the built-in source</string>
+    <string name="settings_reset_done">Using the built-in update source.</string>
+    <string name="settings_no_builtin">This build has no built-in source — enter one above.</string>
 
     <string name="menu_server">Update source</string>
     <string name="menu_update">Check for updates</string>
@@ -28,9 +68,12 @@
     <string name="update_checksum_mismatch">Downloaded file did not match the published checksum. Nothing was installed.</string>
     <string name="update_unreachable">Could not reach the server to check for updates.</string>
     <string name="update_no_endpoint">No update source is configured for this build.</string>
+    <string name="update_source_used">Source: %1$s</string>
+    <string name="update_fell_back">Updates now come from %2$s, because the saved source %1$s could not be reached.</string>
+    <string name="update_builtin_failed">The app\'s own source failed too:\n%1$s</string>
     <string name="update_install_prompt">Handing the update to Android\'s installer. Android will ask you to allow installing from this app the first time.</string>
     <string name="update_notes">What changed:\n%1$s</string>
 
-    <string name="webview_unreachable">Cannot reach %1$s.\n\nCheck the address in the Server menu, then reload.</string>
+    <string name="webview_unreachable">Cannot reach %1$s.\n\nCheck the address in ⋮ → Update source, then reload.</string>
     <string name="webview_error_title">Connection failed</string>
 </resources>

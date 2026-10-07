@@ -50,11 +50,29 @@ final class Updater {
         final Kind kind;
         final UpdateInfo info;
         final String message;
+        /**
+         * Set when a saved source failed and the built-in one was tried
+         * instead — the address that failed, so the UI can name it.
+         */
+        final String fellBackFrom;
+        /** Set only when that fallback also failed, with its reason. */
+        final String alsoFailed;
 
         private Outcome(Kind kind, UpdateInfo info, String message) {
+            this(kind, info, message, null, null);
+        }
+
+        private Outcome(Kind kind, UpdateInfo info, String message, String fellBackFrom) {
+            this(kind, info, message, fellBackFrom, null);
+        }
+
+        private Outcome(Kind kind, UpdateInfo info, String message, String fellBackFrom,
+                        String alsoFailed) {
             this.kind = kind;
             this.info = info;
             this.message = message;
+            this.fellBackFrom = fellBackFrom;
+            this.alsoFailed = alsoFailed;
         }
 
         static Outcome upToDate(String versionName) {
@@ -92,33 +110,101 @@ final class Updater {
     /** Ask the server whether it has a newer build. Never runs on the UI thread. */
     static void check(Context context, Callback callback) {
         Context app = context.getApplicationContext();
+        // Every finished check is written down before anyone is told about it.
+        // The record is what the settings screen reads back; a check that only
+        // reports itself through a toast leaves nothing behind to look at when
+        // the toast was missed.
+        final Callback ui = outcome -> {
+            record(app, outcome);
+            callback.onResult(outcome);
+        };
         POOL.execute(() -> {
-            Outcome outcome;
-            try {
-                String source = source(app);
-                if (source == null) {
-                    // No update source configured: not a failure, and not worth
-                    // a ten second connection timeout on every cold start.
-                    outcome = Outcome.notConfigured();
-                } else {
-                    String body = get(app, source);
-                    UpdateInfo info = UpdateInfo.parse(body);
-                    if (!info.configured) {
-                        outcome = Outcome.notConfigured();
-                    } else if (info.isNewerThan(BuildConfig.VERSION_CODE)) {
-                        outcome = Outcome.available(info);
+            Outcome outcome = attempt(app, source(app));
+
+            // A saved source that cannot be reached must not be able to strand
+            // the device on an old build for ever. That is a real failure mode:
+            // the setting was once documented as "the machine running the
+            // proxy", so a phone carries addresses like http://10.0.2.2:8787
+            // that answer for an emulator and for nothing else. The built-in
+            // source is tried once, and the outcome says which one failed.
+            if (outcome.kind == Outcome.Kind.FAILED) {
+                String saved = ServerConfig.stored(app);
+                String builtIn = ServerConfig.builtIn();
+                if (!saved.isEmpty() && !builtIn.isEmpty() && !builtIn.equals(saved)) {
+                    Log.w(TAG, "saved source failed (" + saved + "), trying the built-in one");
+                    Outcome second = attempt(app, manifestUrl(builtIn));
+                    if (second.kind != Outcome.Kind.FAILED) {
+                        // The saved address will fail again on every single
+                        // start, so it is dropped rather than reported for
+                        // ever: the app goes back to the source it shipped
+                        // with. Re-entering the address is one tap away for
+                        // anyone who really did mean to host their own.
+                        ServerConfig.clear(app);
+                        Log.i(TAG, "forgot the unreachable saved source " + saved);
+                        outcome = new Outcome(second.kind, second.info, second.message, saved);
                     } else {
-                        outcome = Outcome.upToDate(BuildConfig.VERSION_NAME);
+                        Log.w(TAG, "built-in source failed too: " + second.message);
+                        outcome = new Outcome(outcome.kind, null, outcome.message, saved,
+                                second.message);
                     }
+                } else if (saved.isEmpty()) {
+                    // The built-in source itself is what failed; naming it is the
+                    // only thing left to say.
+                    Log.w(TAG, "built-in source failed: " + outcome.message);
                 }
-            } catch (Exception e) {
-                Log.w(TAG, "update check failed", e);
-                outcome = Outcome.failed(e.getMessage() == null ? e.toString() : e.getMessage());
             }
+
             final Outcome result = outcome;
-            MainThread.post(() -> callback.onResult(result));
+            MainThread.post(() -> ui.onResult(result));
         });
     }
+
+    /**
+     * One line of history: what was asked, what came back, and which source
+     * answered. Written here rather than by a screen, so a check from a
+     * background worker is recorded exactly like one from the menu.
+     */
+    private static void record(Context app, Outcome outcome) {
+        String detail = outcome.message;
+        if ((detail == null || detail.isEmpty()) && outcome.info != null) {
+            detail = outcome.info.versionName;
+        }
+        String source = outcome.fellBackFrom != null
+                ? ServerConfig.builtIn()
+                : ServerConfig.get(app);
+        UpdateLog.record(app, outcome.kind.name(), detail, source);
+    }
+
+    /** One request against one source. Never throws. */
+    private static Outcome attempt(Context app, String source) {
+        try {
+            if (source == null) {
+                // No update source configured: not a failure, and not worth a
+                // ten second connection timeout on every cold start.
+                return Outcome.notConfigured();
+            }
+            Log.i(TAG, "asking " + source);
+            String body = get(app, source);
+            UpdateInfo info = UpdateInfo.parse(body);
+            if (!info.configured) return Outcome.notConfigured();
+            if (!info.isNewerThan(BuildConfig.VERSION_CODE)) {
+                lastManifestBase = baseOf(source);
+                return Outcome.upToDate(BuildConfig.VERSION_NAME);
+            }
+            lastManifestBase = baseOf(source);
+            return Outcome.available(info);
+        } catch (Exception e) {
+            Log.w(TAG, "update check failed against " + source, e);
+            return Outcome.failed(e.getMessage() == null ? e.toString() : e.getMessage());
+        }
+    }
+
+    /**
+     * The source that last answered with a manifest. [download] resolves a
+     * relative apk_url against it, so a build discovered through the fallback
+     * source downloads from the fallback source, not from the dead address.
+     */
+    private static volatile String lastManifestBase = null;
 
     /**
      * Download and verify, stopping short of installing.
@@ -131,6 +217,10 @@ final class Updater {
     static void download(Context context, UpdateInfo info,
                          StageCallback onStage, Callback callback) {
         Context app = context.getApplicationContext();
+        final Callback ui = outcome -> {
+            record(app, outcome);
+            callback.onResult(outcome);
+        };
         POOL.execute(() -> {
             try {
                 MainThread.post(() -> onStage.stage(Stage.DOWNLOADING));
@@ -161,7 +251,7 @@ final class Updater {
                         Log.w(TAG, "checksum mismatch: expected " + info.sha256);
                         apk.delete();
                         final Outcome bad = Outcome.failed("checksum_mismatch");
-                        MainThread.post(() -> callback.onResult(bad));
+                        MainThread.post(() -> ui.onResult(bad));
                         return;
                     }
                 } else {
@@ -174,16 +264,16 @@ final class Updater {
                     apk.delete();
                     final Outcome bad = Outcome.failed(
                             "incomplete download (" + written + " of " + info.size + " bytes)");
-                    MainThread.post(() -> callback.onResult(bad));
+                    MainThread.post(() -> ui.onResult(bad));
                     return;
                 }
 
                 final Outcome done = Outcome.downloaded(info);
-                MainThread.post(() -> callback.onResult(done));
+                MainThread.post(() -> ui.onResult(done));
             } catch (Exception e) {
                 Log.w(TAG, "download failed", e);
                 final Outcome failed = Outcome.failed(e.getMessage() == null ? e.toString() : e.getMessage());
-                MainThread.post(() -> callback.onResult(failed));
+                MainThread.post(() -> ui.onResult(failed));
             }
         });
     }
@@ -306,18 +396,30 @@ final class Updater {
      * for `/api/app/version`.
      */
     private static String source(Context app) {
-        String configured = ServerConfig.get(app);
-        if (configured == null) return null;
-        String url = configured.trim();
+        return manifestUrl(ServerConfig.get(app));
+    }
+
+    /** A configured address turned into the manifest URL it implies. */
+    private static String manifestUrl(String configured) {
+        String url = configured == null ? "" : configured.trim();
         if (url.isEmpty()) return null;
         return url.endsWith(".json") ? url : trimSlash(url) + "/api/app/version";
     }
 
+    /** The address a person recognises — what the settings screen shows. */
+    static String sourceLabel(Context app) {
+        return ServerConfig.get(app);
+    }
+
     /** Directory the manifest lives in — the base a relative apk_url resolves against. */
     private static String sourceBase(Context app) {
-        String configured = ServerConfig.get(app);
-        if (configured == null) return "";
-        String url = configured.trim();
+        String base = lastManifestBase;
+        if (base != null && !base.isEmpty()) return base;
+        return baseOf(ServerConfig.get(app));
+    }
+
+    private static String baseOf(String configured) {
+        String url = configured == null ? "" : configured.trim();
         if (url.endsWith(".json")) {
             int at = url.lastIndexOf('/');
             return at > 0 ? url.substring(0, at) : url;

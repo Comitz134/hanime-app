@@ -6,13 +6,15 @@ import android.content.SharedPreferences;
 import java.util.Locale;
 
 /**
- * Where the proxy lives.
+ * Where new builds are published — the update source, and nothing else.
  *
- * Stored in SharedPreferences rather than baked into the APK, because the
- * address is different on every network: an emulator reaches the host at
- * 10.0.2.2, a phone needs the machine's LAN address, and a phone away from home
- * needs whatever the user has set up. A build-time default that cannot be
- * changed is a build that only works on one machine.
+ * The client is bundled in the APK and answered by ApiServer, so the app has no
+ * server to talk to any more; the single setting that survives is where to look
+ * for a newer version of itself. A saved value overrides the compiled-in
+ * default, which is why an address typed for a proxy on the local machine used
+ * to be able to strand a device on an old build: the saved override wins on
+ * every start. [Updater] therefore retries once against the built-in default
+ * when a saved source cannot be reached.
  */
 final class ServerConfig {
 
@@ -22,14 +24,37 @@ final class ServerConfig {
     private ServerConfig() {
     }
 
+    /** What the user typed, or "" when there is no override. */
+    static String stored(Context context) {
+        String saved = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getString(KEY_URL, null);
+        return saved == null ? "" : saved;
+    }
+
+    /**
+     * The source actually used: the saved override, or the compiled-in default.
+     * The default is never "10.0.2.2" on a shipped build — see §6 of the README.
+     */
     static String get(Context context) {
-        SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        String saved = prefs.getString(KEY_URL, null);
-        if (saved != null && !saved.isEmpty()) return saved;
+        String saved = stored(context);
+        if (!saved.isEmpty()) return saved;
         // No runtime override: fall back to whatever the build was given. An
         // empty UPDATE_URL means "not configured", which the updater reports
         // rather than treating as a connection failure.
         return BuildConfig.UPDATE_URL;
+    }
+
+    /** The built-in default, for the settings screen's reset button. */
+    static String builtIn() {
+        return BuildConfig.UPDATE_URL.trim();
+    }
+
+    /** Forgets the override, so the app goes back to its own source. */
+    static void clear(Context context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .remove(KEY_URL)
+                .apply();
     }
 
     /** True when an update source has actually been configured. */
@@ -38,10 +63,20 @@ final class ServerConfig {
         return url != null && !url.trim().isEmpty();
     }
 
+    /**
+     * Saves an override. An empty value is not an address: it means "stop
+     * overriding", which is the same thing [clear] does — that way emptying the
+     * field and saving is a way back to the built-in source.
+     */
     static void set(Context context, String url) {
+        String normalized = normalize(url);
+        if (normalized.isEmpty()) {
+            clear(context);
+            return;
+        }
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .edit()
-                .putString(KEY_URL, normalize(url))
+                .putString(KEY_URL, normalized)
                 .apply();
     }
 

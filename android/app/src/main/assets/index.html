@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@100..900&display=swap">
-<title>Library</title>
+<title>hanime</title>
 <style>
 /* ---------------------------------------------------------------------------
    Tokens lifted from the live reference via getComputedStyle, not eyeballed.
@@ -127,15 +127,42 @@ img { display: block; }
 }
 .brand-word { font-size: .8125rem; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; }
 
-.nav-links { display: none; align-items: center; gap: .25rem; }
-@media (min-width: 768px) { .nav-links { display: flex; } }
+/* The section strip is the only navigation a phone gets, so it stays in the
+   pill and scrolls sideways instead of collapsing into a menu. */
+.nav-links {
+  display: flex; align-items: center; gap: .25rem;
+  flex: 1 1 auto; min-width: 0;
+  overflow-x: auto; overscroll-behavior-inline: contain;
+  scrollbar-width: none; -ms-overflow-style: none;
+}
+.nav-links::-webkit-scrollbar { display: none; }
+@media (max-width: 767px) { .brand-word { display: none; } }
 .nav-link {
+  flex: none;
+  font: inherit; background: none; border: 0; cursor: pointer;
   padding: .5rem .75rem; border-radius: 999px; font-size: .8125rem;
   color: hsl(var(--muted-foreground)); transition: color .2s, background .2s;
   text-decoration: none; white-space: nowrap;
 }
 .nav-link:hover { color: hsl(var(--foreground)); background: hsl(var(--accent) / .6); }
 .nav-link[aria-current="page"] { color: hsl(var(--primary-foreground)); background: hsl(var(--primary)); }
+
+/* The search field that replaces the links while the pill is searching. */
+.nav-search { display: none; align-items: center; gap: .375rem; flex: 1 1 auto; min-width: 0; }
+.nav[data-searching="true"] .nav-links { display: none; }
+.nav[data-searching="true"] .nav-search { display: flex; }
+.nav-search svg.lead { width: 1rem; height: 1rem; flex: none; color: hsl(var(--muted-foreground) / .7); }
+#nav-q {
+  flex: 1 1 auto; min-width: 0; width: 11rem; height: 2rem;
+  padding: 0 .25rem; font-size: .8125rem; font-weight: 500;
+  color: hsl(var(--foreground)); background: none; border: 0; outline: none;
+}
+#nav-q::placeholder { color: hsl(var(--muted-foreground) / .6); }
+.nav-search-close {
+  width: 1.5rem; height: 1.5rem; flex: none; display: grid; place-items: center;
+  border-radius: 999px; color: hsl(var(--muted-foreground)); font-size: 1rem; line-height: 1;
+}
+.nav-search-close:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
 
 .nav-actions { display: flex; align-items: center; gap: .25rem; }
 .icon-btn {
@@ -255,7 +282,7 @@ img { display: block; }
   position: absolute; left: .75rem; top: 50%; transform: translateY(-50%);
   width: 1rem; height: 1rem; color: hsl(var(--muted-foreground) / .6); pointer-events: none;
 }
-#q {
+#q, #lib-q {
   width: 100%; height: 2.75rem;
   border-radius: 1rem;
   background: hsl(var(--card) / .5);
@@ -263,8 +290,8 @@ img { display: block; }
   padding-left: 2.5rem; padding-right: 2.5rem;
   font-size: .8125rem; font-weight: 500;
 }
-#q::placeholder { color: hsl(var(--muted-foreground) / .5); }
-#q:focus { border-color: hsl(var(--primary) / .5); }
+#q::placeholder, #lib-q::placeholder { color: hsl(var(--muted-foreground) / .5); }
+#q:focus, #lib-q:focus { border-color: hsl(var(--primary) / .5); }
 .search-clear {
   position: absolute; right: .6rem; top: 50%; transform: translateY(-50%);
   width: 1.4rem; height: 1.4rem; display: none; place-items: center;
@@ -552,6 +579,30 @@ video { width: 100%; display: block; background: #000; aspect-ratio: 16 / 9; }
 
 .note { font-size: .8125rem; color: hsl(var(--muted-foreground)); padding: .75rem; }
 .center-spin { display: grid; place-items: center; padding: 3rem; }
+
+/* Where a title was left, drawn on its own cover. */
+.card-progress { position: absolute; inset-inline: 0; bottom: 0; height: 3px; background: rgb(0 0 0 / .55); }
+.card-progress span { display: block; height: 100%; background: hsl(var(--primary)); }
+
+/* Library housekeeping: take the list off this device, or put it back on. */
+.lib-tools { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-top: .75rem; }
+
+/* Picture in picture: the small window is the video and nothing else. Left
+   alone, the whole document is squeezed in and the video becomes a stamp in the
+   corner of its own window. */
+body[data-pip="true"] .sheet-panel { max-width: none; padding: 0; }
+body[data-pip="true"] .sheet-top,
+body[data-pip="true"] .detail-head,
+body[data-pip="true"] .quality,
+body[data-pip="true"] #in-playlists,
+body[data-pip="true"] main,
+body[data-pip="true"] .footer,
+body[data-pip="true"] #nav { display: none; }
+body[data-pip="true"] .player-card {
+  position: fixed; inset: 0; z-index: 20000;
+  border: 0; border-radius: 0; background: #000;
+}
+body[data-pip="true"] video { height: 100%; aspect-ratio: auto; object-fit: contain; }
 .spinner {
   width: 1.75rem; height: 1.75rem; border-radius: 999px;
   border: 2px solid hsl(var(--border)); border-top-color: hsl(var(--primary));
@@ -622,13 +673,54 @@ button.pp-tag em {
   opacity: .6;
   font-size: .6875rem;
 }
+
+/* --------------------------------------------------------------------------
+   Views
+
+   The nav used to be anchors into one long page: pressing "Studios" scrolled
+   the reader down to the studios rail. It now switches views in place, and
+   only the active one is laid out, so nothing is ever reached by scrolling.
+   -------------------------------------------------------------------------- */
+.view { display: none; }
+.view[data-active="true"] { display: block; }
+.view > * + * { margin-top: 2rem; }
+@media (min-width: 640px) { .view > * + * { margin-top: 2.5rem; } }
+.view .divider { margin-block: 2rem; }
+
+/* --------------------------------------------------------------------------
+   Favorites
+
+   One toggle in two shapes: a heart drawn on every card frame, and a pill
+   inside a title page, where there is room for a word next to it.
+   -------------------------------------------------------------------------- */
+.fav-btn {
+  position: absolute; top: .4rem; right: .4rem; z-index: 2;
+  width: 1.75rem; height: 1.75rem; display: grid; place-items: center;
+  border-radius: 999px; border: 1px solid rgb(255 255 255 / .2);
+  background: rgb(0 0 0 / .55); color: #fff;
+  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+  transition: color .2s, background .2s, border-color .2s, transform .2s;
+}
+.fav-btn svg { width: .875rem; height: .875rem; }
+.fav-btn:hover { transform: scale(1.08); border-color: hsl(var(--primary)); color: hsl(var(--primary)); }
+.fav-btn[aria-pressed="true"] {
+  color: hsl(var(--primary)); border-color: hsl(var(--primary)); background: rgb(0 0 0 / .8);
+}
+.fav-btn[aria-pressed="true"] svg { fill: currentColor; }
+
+.detail-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: 1rem; }
+.pill svg { width: .875rem; height: .875rem; fill: none; stroke: currentColor; stroke-width: 2; }
+.pill[aria-pressed="true"] {
+  background: hsl(var(--primary) / .14); border-color: hsl(var(--primary)); color: hsl(var(--primary));
+}
+.pill[aria-pressed="true"] svg { fill: currentColor; }
 </style>
 </head>
 <body>
 
 <!-- floating pill nav -->
 <div class="nav-wrap">
-  <div class="nav">
+  <div class="nav" id="nav">
     <div class="brand">
       <button class="brand-mark" id="brand-btn" aria-label="Home" title="Home">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" width="24" height="24">
@@ -636,14 +728,28 @@ button.pp-tag em {
           <ellipse cx="12" cy="12" rx="10.2" ry="3.6" transform="rotate(-22 12 12)"/>
         </svg>
       </button>
-      <span class="brand-word" id="brand-word">Library</span>
+      <span class="brand-word" id="brand-word">hanime</span>
     </div>
 
-    <nav class="nav-links">
-      <a class="nav-link" href="#browse" aria-current="page">Browse</a>
-      <a class="nav-link" href="#genres">Genres</a>
-      <a class="nav-link" href="#studios">Studios</a>
+    <nav class="nav-links" aria-label="Sections">
+      <button class="nav-link" type="button" data-go="browse" aria-current="page">Browse</button>
+      <button class="nav-link" type="button" data-go="genres">Genres</button>
+      <button class="nav-link" type="button" data-go="studios">Studios</button>
+      <button class="nav-link" type="button" data-go="playlists">Playlists</button>
+      <button class="nav-link" type="button" data-go="library">Library</button>
     </nav>
+
+    <!-- The pill turns into the search field, in place: the links step aside
+         and the query is typed where the finger already is. Nothing here moves
+         the page, which is what the search button used to do. -->
+    <div class="nav-search" id="nav-search">
+      <svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+        <circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/>
+      </svg>
+      <input id="nav-q" type="search" inputmode="search" enterkeyhint="search"
+             placeholder="Search titles and playlists…" autocomplete="off" spellcheck="false">
+      <button class="nav-search-close" id="nav-q-close" type="button" aria-label="Close search">&times;</button>
+    </div>
 
     <div class="nav-actions">
       <button class="icon-btn" id="sort-toggle" aria-label="Sort" aria-expanded="false" title="Sort">
@@ -663,122 +769,209 @@ button.pp-tag em {
 <div class="stack" style="padding-bottom:4rem">
   <main class="container stack">
 
-    <!-- hero -->
-    <section class="hero" id="hero" aria-label="Featured">
-      <div class="hero-slide" data-active="true" id="hero-a"><div class="hero-body"></div></div>
-      <div class="hero-slide" id="hero-b"><div class="hero-body"></div></div>
-      <div class="hero-dots" id="hero-dots"></div>
-    </section>
+    <!-- browse: what the catalog search, filters and grid all belong to -->
+    <div class="view" data-view="browse" data-active="true">
 
-    <!-- search + sort -->
-    <section aria-label="Filters">
-      <div class="bar">
-        <label class="search-shell" id="search-shell">
-          <svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-            <circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/>
-          </svg>
-          <input id="q" type="search" inputmode="search" enterkeyhint="search"
-                 placeholder="Search titles, studios, tags…" autocomplete="off" spellcheck="false">
-          <button class="search-clear" id="search-clear" type="button" aria-label="Clear search">&times;</button>
-        </label>
-        <select id="sort" aria-label="Sort order">
-          <option value="released_at_unix:desc">Newest</option>
-          <option value="views:desc">Most viewed</option>
-          <option value="likes:desc">Most liked</option>
-          <option value="released_at_unix:asc">Oldest</option>
-          <option value="name:asc">A–Z</option>
-        </select>
-      </div>
-    </section>
+      <!-- hero -->
+      <section class="hero" id="hero" aria-label="Featured">
+        <div class="hero-slide" data-active="true" id="hero-a"><div class="hero-body"></div></div>
+        <div class="hero-slide" id="hero-b"><div class="hero-body"></div></div>
+        <div class="hero-dots" id="hero-dots"></div>
+      </section>
 
-    <!-- genres rail -->
-    <section id="genres">
-      <div class="sec-head">
-        <div class="sec-head-l"><h2>Browse Genres</h2></div>
-        <button class="chip" id="clear-tags" type="button" hidden>Clear</button>
-      </div>
-      <div class="rail" id="tag-rail" aria-label="Genres"></div>
-    </section>
-
-    <div class="divider"></div>
-
-    <!-- public playlists -->
-    <section id="public-playlists">
-      <div class="sec-head">
-        <div class="sec-head-l">
-          <h2>Public Playlists</h2>
-          <span class="sec-count" id="pp-count">…</span>
+      <!-- search + sort -->
+      <section aria-label="Filters">
+        <div class="bar">
+          <label class="search-shell" id="search-shell">
+            <svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+              <circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/>
+            </svg>
+            <input id="q" type="search" inputmode="search" enterkeyhint="search"
+                   placeholder="Search titles, studios, tags…" autocomplete="off" spellcheck="false">
+            <button class="search-clear" id="search-clear" type="button" aria-label="Clear search">&times;</button>
+          </label>
+          <select id="sort" aria-label="Sort order">
+            <option value="released_at_unix:desc">Newest</option>
+            <option value="views:desc">Most viewed</option>
+            <option value="likes:desc">Most liked</option>
+            <option value="released_at_unix:asc">Oldest</option>
+            <option value="name:asc">A–Z</option>
+          </select>
         </div>
-        <button class="chip" id="pp-more" type="button">Scan more</button>
-      </div>
+      </section>
 
-      <label class="search-shell" id="pp-search-shell" style="max-width:32rem">
-        <svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-          <circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/>
-        </svg>
-        <input id="pp-q" type="search" inputmode="search" placeholder="Search public playlists, creators and their titles…" autocomplete="off">
-        <button class="search-clear" id="pp-clear" type="button" aria-label="Clear">&times;</button>
-      </label>
+      <!-- playlists found by name -->
+      <section id="pl-hits" hidden>
+        <div class="sec-head">
+          <div class="sec-head-l">
+            <h2>Playlists by name</h2>
+            <span class="sec-count" id="pl-hits-count"></span>
+          </div>
+        </div>
+        <div class="rail" id="pl-hits-rail" aria-label="Playlists matching the search"></div>
+      </section>
 
-      <div class="rail" id="pp-rail" style="margin-top:1rem" aria-label="Public playlists"></div>
-      <p class="note" id="pp-note" hidden></p>
-    </section>
+      <!-- browse grid -->
+      <section id="browse">
+        <div class="sec-head">
+          <div class="sec-head-l">
+            <h2>All Titles</h2>
+            <span class="sec-count" id="total-count">…</span>
+          </div>
+          <span class="sec-count" id="active-label" hidden></span>
+        </div>
+        <div class="grid" id="grid"></div>
+        <div class="pager" id="pager" hidden>
+          <button class="page-btn" id="prev">Prev</button>
+          <span class="pager-info" id="pageinfo"></span>
+          <button class="page-btn" id="next">Next</button>
+        </div>
+      </section>
 
-    <div class="divider"></div>
+    </div>
+
+    <!-- genres -->
+    <div class="view" data-view="genres">
+
+      <!-- genres rail -->
+      <section id="genres">
+        <div class="sec-head">
+          <div class="sec-head-l"><h2>Browse Genres</h2></div>
+          <button class="chip" id="clear-tags" type="button" hidden>Clear</button>
+        </div>
+        <div class="rail" id="tag-rail" aria-label="Genres"></div>
+      </section>
+
+    </div>
+
+    <!-- studios -->
+    <div class="view" data-view="studios" id="studios">
+
+      <!-- studios rail -->
+      <section>
+        <div class="sec-head">
+          <div class="sec-head-l"><h2>Studios</h2></div>
+        </div>
+        <div class="rail" id="brand-rail" aria-label="Studios"></div>
+      </section>
+
+    </div>
 
     <!-- playlists -->
-    <section id="playlists">
-      <div class="sec-head">
-        <div class="sec-head-l">
-          <h2>Your Playlists</h2>
-          <span class="sec-count sess-chip" id="sess-chip"><span class="sess-dot" id="sess-dot"></span><span id="sess-label">checking…</span></span>
+    <div class="view" data-view="playlists">
+
+      <!-- public playlists -->
+      <section id="public-playlists">
+        <div class="sec-head">
+          <div class="sec-head-l">
+            <h2>Public Playlists</h2>
+            <span class="sec-count" id="pp-count">…</span>
+          </div>
+          <button class="chip" id="pp-more" type="button">Scan more</button>
         </div>
-        <button class="chip" id="sess-reset" type="button" hidden>Disconnect</button>
-      </div>
 
-      <div id="connect-slot"></div>
-
-      <div id="playlists-body" hidden>
-        <label class="search-shell" id="pl-search-shell" style="max-width:28rem">
+        <label class="search-shell" id="pp-search-shell" style="max-width:32rem">
           <svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
             <circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/>
           </svg>
-          <input id="pl-q" type="search" inputmode="search" placeholder="Search playlists and their contents…" autocomplete="off">
-          <button class="search-clear" id="pl-clear" type="button" aria-label="Clear">&times;</button>
+          <input id="pp-q" type="search" inputmode="search" placeholder="Search public playlists, creators and their titles…" autocomplete="off">
+          <button class="search-clear" id="pp-clear" type="button" aria-label="Clear">&times;</button>
         </label>
-        <div class="rail" id="pl-rail" style="margin-top:1rem" aria-label="Playlists"></div>
-        <p class="note" id="pl-note" hidden></p>
-      </div>
-    </section>
 
-    <div class="divider"></div>
+        <div class="rail" id="pp-rail" style="margin-top:1rem" aria-label="Public playlists"></div>
+        <p class="note" id="pp-note" hidden></p>
+      </section>
 
-    <!-- browse grid -->
-    <section id="browse">
-      <div class="sec-head">
-        <div class="sec-head-l">
-          <h2>All Titles</h2>
-          <span class="sec-count" id="total-count">…</span>
+      <div class="divider"></div>
+
+      <!-- playlists -->
+      <section id="playlists">
+        <div class="sec-head">
+          <div class="sec-head-l">
+            <h2>Your Playlists</h2>
+            <span class="sec-count sess-chip" id="sess-chip"><span class="sess-dot" id="sess-dot"></span><span id="sess-label">checking…</span></span>
+          </div>
+          <button class="chip" id="sess-reset" type="button" hidden>Disconnect</button>
         </div>
-        <span class="sec-count" id="active-label" hidden></span>
-      </div>
-      <div class="grid" id="grid"></div>
-      <div class="pager" id="pager" hidden>
-        <button class="page-btn" id="prev">Prev</button>
-        <span class="pager-info" id="pageinfo"></span>
-        <button class="page-btn" id="next">Next</button>
-      </div>
-    </section>
 
-    <div class="divider" id="studios"></div>
+        <div id="connect-slot"></div>
 
-    <!-- studios rail -->
-    <section>
-      <div class="sec-head">
-        <div class="sec-head-l"><h2>Studios</h2></div>
-      </div>
-      <div class="rail" id="brand-rail" aria-label="Studios"></div>
-    </section>
+        <div id="playlists-body" hidden>
+          <label class="search-shell" id="pl-search-shell" style="max-width:28rem">
+            <svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+              <circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/>
+            </svg>
+            <input id="pl-q" type="search" inputmode="search" placeholder="Search playlists and their contents…" autocomplete="off">
+            <button class="search-clear" id="pl-clear" type="button" aria-label="Clear">&times;</button>
+          </label>
+          <div class="rail" id="pl-rail" style="margin-top:1rem" aria-label="Playlists"></div>
+          <p class="note" id="pl-note" hidden></p>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- library: favorites and watch history, kept on the device -->
+    <div class="view" data-view="library">
+
+      <!-- library -->
+      <section id="library">
+        <div class="sec-head">
+          <div class="sec-head-l">
+            <h2>Library</h2>
+            <span class="sec-count" id="lib-count">…</span>
+          </div>
+        </div>
+
+        <label class="search-shell" id="lib-search-shell" style="max-width:28rem">
+          <svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+            <circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/>
+          </svg>
+          <input id="lib-q" type="search" inputmode="search" placeholder="Filter favorites and history by name…" autocomplete="off">
+          <button class="search-clear" id="lib-clear" type="button" aria-label="Clear">&times;</button>
+        </label>
+
+        <div class="lib-tools">
+          <button class="chip" id="lib-export" type="button">Export library</button>
+          <button class="chip" id="lib-import" type="button">Import library</button>
+        </div>
+
+        <p class="note" id="lib-msg" hidden></p>
+        <p class="note" id="lib-warn" hidden></p>
+
+        <div class="sec-head" id="cont-head" style="margin-top:1.75rem">
+          <div class="sec-head-l">
+            <h2>Continue watching</h2>
+            <span class="sec-count" id="cont-count">0</span>
+          </div>
+        </div>
+        <div class="rail" id="cont-rail"></div>
+        <p class="note" id="cont-note" hidden></p>
+
+        <div class="sec-head" style="margin-top:1.75rem">
+          <div class="sec-head-l">
+            <h2>Favorites</h2>
+            <span class="sec-count" id="fav-count">0</span>
+          </div>
+        </div>
+        <div class="grid" id="fav-grid"></div>
+        <p class="note" id="fav-note" hidden></p>
+
+        <div class="divider"></div>
+
+        <div class="sec-head">
+          <div class="sec-head-l">
+            <h2>History</h2>
+            <span class="sec-count" id="hist-count">0</span>
+          </div>
+          <button class="chip" id="hist-clear" type="button" hidden>Clear history</button>
+        </div>
+        <div class="grid" id="hist-grid"></div>
+        <p class="note" id="hist-note" hidden></p>
+      </section>
+
+    </div>
+
   </main>
 
   <footer class="footer">
@@ -788,7 +981,7 @@ button.pp-tag em {
           <circle cx="12" cy="12" r="4.4"/>
           <ellipse cx="12" cy="12" rx="10.2" ry="3.6" transform="rotate(-22 12 12)"/>
         </svg>
-        <strong style="font-size:.8125rem;letter-spacing:.16em;text-transform:uppercase">Library</strong>
+        <strong style="font-size:.8125rem;letter-spacing:.16em;text-transform:uppercase">hanime</strong>
       </div>
       <h2>Served from your own bench.</h2>
       <p id="footer-stat">Catalog and streams resolve through the local proxy.</p>
@@ -813,7 +1006,14 @@ button.pp-tag em {
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js" crossorigin></script>
+<!--
+  hls.js is bundled beside this file rather than fetched from a CDN. This page
+  is the product: playback must not depend on a third party staying up, staying
+  reachable from whatever network the device is on, or keeping a pinned version.
+  The copy is 1.5.17 and both this server (public/) and the Android app
+  (assets/) serve it from their own directory.
+-->
+<script src="hls.min.js"></script>
 <script type="module">
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -831,6 +1031,46 @@ const api = async (path) => {
 };
 
 const fmtCount = (n) => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K' : String(n);
+const clock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+
+/* ------------------------------------------------------------------ shell */
+//
+// Inside the Android app the page is given a `Shell` object (ShellBridge in
+// MainActivity.java). In a plain browser there is none, so every call is
+// guarded — the same file is served to both.
+
+const shellApi = () => {
+  try { return window.Shell ?? null; } catch (e) { return null; }
+};
+
+function shellCall(name, ...args) {
+  const shell = shellApi();
+  if (!shell || typeof shell[name] !== 'function') return undefined;
+  try { return shell[name](...args); } catch (e) { return undefined; }
+}
+
+/* Back belongs to whatever is on screen, and only this file knows what that is.
+   The shell asks before it leaves the app: the flag below is set on a change of
+   state rather than on every render, so typing does not talk to Java. */
+let backOpen = null;
+
+function updateBackState() {
+  const open = $('#sheet').classList.contains('open')
+    || $('#nav').dataset.searching === 'true';
+  if (open === backOpen) return;
+  backOpen = open;
+  shellCall('setBackEnabled', open);
+}
+
+window.__shellBack = () => {
+  if ($('#sheet').classList.contains('open')) { closeSheet(); return true; }
+  if ($('#nav').dataset.searching === 'true') { setSearchOpen(false); return true; }
+  return false;
+};
+
+/* The shell says when the small window opens, so the page can show only the
+   video in it. */
+window.__shellPip = (on) => { document.body.dataset.pip = String(!!on); };
 
 /* ------------------------------------------------------------------ hero */
 
@@ -889,19 +1129,44 @@ function mountHero() {
 
 /* ------------------------------------------------------------------ cards */
 
-function cardHtml(v) {
-  return `<article class="card" data-slug="${esc(v.slug)}" tabindex="0" role="button" aria-label="${esc(v.name)}">
+/* Library cards are drawn from the copy the app stored, so the list still has
+   faces with no network. A title that was never kept has no copy and uses its
+   URL, exactly as before. */
+function coverFor(slug, remote, opts) {
+  if (!opts || !opts.local) return remote;
+  const stored = shellCall('cachedCover', slug);
+  return stored ? stored : remote;
+}
+
+function cardHtml(v, opts) {
+  // Every card is also a place to file the title: the heart is drawn from the
+  // same records the library view renders, so the two can never disagree.
+  remember(v);
+  const name = v.name ?? v.title ?? v.slug;
+  const cover = coverFor(v.slug, v.cover ?? v.cover_url ?? '', opts);
+  const owned = isFav(v.slug);
+  const heart = owned ? 'Remove from favorites' : 'Add to favorites';
+  const views = Number(v.views);
+  // opts is an object here and the array index when this is used as a map
+  // callback, so every read off it is checked for the shape it expects.
+  const pct = opts && opts.progress ? progressOf(v.slug) : 0;
+
+  return `<article class="card" data-slug="${esc(v.slug)}" tabindex="0" role="button" aria-label="${esc(name)}">
     <div class="card-frame">
-      <img loading="lazy" decoding="async" src="${esc(v.cover ?? '')}" alt="">
-      <div class="card-fallback" hidden>${esc(v.name)}</div>
+      <img loading="lazy" decoding="async" src="${esc(cover)}" alt="">
+      <div class="card-fallback" hidden>${esc(name)}</div>
       <div class="card-scrim"></div>
-      <span class="card-badge">${fmtCount(v.views)}</span>
+      ${Number.isFinite(views) ? `<span class="card-badge">${fmtCount(views)}</span>` : ''}
+      ${pct ? `<div class="card-progress"><span style="width:${pct}%"></span></div>` : ''}
+      <button class="fav-btn" type="button" data-fav="${esc(v.slug)}" aria-pressed="${owned}" aria-label="${heart}" title="${heart}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M12 20.4 4.9 14.1A5.3 5.3 0 0 1 12 6.3a5.3 5.3 0 0 1 7.1 7.8Z"/></svg>
+      </button>
       <div class="card-play"><span>
         <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
       </span></div>
     </div>
     <div class="card-body">
-      <h3 class="card-title">${esc(v.name)}</h3>
+      <h3 class="card-title">${esc(name)}</h3>
       <p class="card-meta">${esc(v.brand ?? '')}${v.released_at ? ' · ' + esc(v.released_at.slice(0, 4)) : ''}</p>
     </div>
   </article>`;
@@ -1050,6 +1315,7 @@ async function openPublicPlaylist(slug) {
   sheet.classList.add('open');
   document.body.style.overflow = 'hidden';
   sheet.scrollTop = 0;
+  updateBackState();
   $('#sheet-count').hidden = true;
   $('#sheet-body').innerHTML = '<div class="center-spin"><div class="spinner"></div></div>';
 
@@ -1084,20 +1350,9 @@ async function openPublicPlaylist(slug) {
       </div>
     </div>
     <div class="pl-items">
-      ${items.map((i) => i.resolved === false ? `
-        <div class="unresolved" title="Not present in the local catalog">${esc(i.name ?? i.slug ?? 'unknown')}</div>` : `
-        <article class="card" data-slug="${esc(i.slug)}" tabindex="0" role="button" aria-label="${esc(i.name)}">
-          <div class="card-frame">
-            <img loading="lazy" src="${esc(i.cover_url ?? '')}" alt="">
-            <div class="card-fallback" hidden>${esc(i.name)}</div>
-            <div class="card-scrim"></div>
-            <div class="card-play"><span><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span></div>
-          </div>
-          <div class="card-body">
-            <h3 class="card-title">${esc(i.name ?? i.slug)}</h3>
-            <p class="card-meta">${esc(i.brand ?? '')}</p>
-          </div>
-        </article>`).join('')}
+      ${items.map((i) => i.resolved === false
+        ? `<div class="unresolved" title="Not present in the local catalog">${esc(i.name ?? i.slug ?? 'unknown')}</div>`
+        : cardHtml(i)).join('')}
     </div>`;
 }
 
@@ -1113,7 +1368,7 @@ document.addEventListener('click', (e) => {
   input.value = term;
   $('#pp-search-shell').dataset.filled = 'true';
   loadPublicPlaylists(term);
-  document.getElementById('public-playlists')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  showView('playlists');   // the filtered rail is the answer, so go there
 });
 
 /** Which public playlists a given video appears in — the reverse lookups. */
@@ -1339,6 +1594,7 @@ async function openPlaylist(slug) {
   sheet.classList.add('open');
   document.body.style.overflow = 'hidden';
   sheet.scrollTop = 0;
+  updateBackState();
   $('#sheet-count').hidden = true;
   $('#sheet-body').innerHTML = '<div class="center-spin"><div class="spinner"></div></div>';
 
@@ -1364,33 +1620,35 @@ async function openPlaylist(slug) {
         unresolved ? ` · ${unresolved} not in the local catalog` : ''}</div>
     </div>
     <div class="pl-items">
-      ${items.map((i) => i.resolved ? `
-        <article class="card" data-slug="${esc(i.slug)}" tabindex="0" role="button" aria-label="${esc(i.title)}">
-          <div class="card-frame">
-            <img loading="lazy" src="${esc(i.cover ?? '')}" alt="">
-            <div class="card-fallback" hidden>${esc(i.title)}</div>
-            <div class="card-scrim"></div>
-            <div class="card-play"><span><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span></div>
-          </div>
-          <div class="card-body">
-            <h3 class="card-title">${esc(i.title)}</h3>
-            <p class="card-meta">${esc(i.brand ?? '')}</p>
-          </div>
-        </article>` : `
-        <div class="unresolved" title="Not present in the local catalog">${esc(i.title)}</div>`).join('')}
+      ${items.map((i) => i.resolved
+        ? cardHtml(i)
+        : `<div class="unresolved" title="Not present in the local catalog">${esc(i.title)}</div>`).join('')}
     </div>`;
 }
 
 /* ------------------------------------------------------------------ detail */
 
 let activeHls = null;
+/** The video and the title it belongs to, so leaving can remember them. */
+let activeVid = null;
+let activeSlug = null;
 
 function closeSheet() {
+  // Leaving is the single best moment to remember where the video got to: the
+  // next five-second tick may never arrive, and this is exactly where a person
+  // stopped watching.
+  if (activeSlug && activeVid) savePosition(activeSlug, activeVid);
+  shellCall('setPlaying', false);
+
   const vid = $('#vid');
   if (vid) { vid.pause(); vid.removeAttribute('src'); vid.load(); }
   if (activeHls) { activeHls.destroy(); activeHls = null; }
+  activeVid = null;
+  activeSlug = null;
   $('#sheet').classList.remove('open');
   document.body.style.overflow = '';
+  document.body.dataset.pip = 'false';
+  updateBackState();
 }
 
 async function openVideo(slug) {
@@ -1398,6 +1656,7 @@ async function openVideo(slug) {
   sheet.classList.add('open');
   document.body.style.overflow = 'hidden';
   sheet.scrollTop = 0;
+  updateBackState();
   $('#sheet-body').innerHTML = '<div class="center-spin"><div class="spinner"></div></div>';
   $('#sheet-count').hidden = true;
 
@@ -1408,6 +1667,10 @@ async function openVideo(slug) {
     $('#sheet-body').innerHTML = `<p class="note">Could not load this title — ${esc(e.message)}</p>`;
     return;
   }
+
+  // The heart on this page and any later history entry both draw from the
+  // record the catalog just returned, so it is filed before anything renders.
+  remember(v);
 
   $('#sheet-count').hidden = false;
   $('#sheet-count').textContent = fmtCount(v.views) + ' views';
@@ -1420,6 +1683,7 @@ async function openVideo(slug) {
       <h2 class="detail-title">${esc(v.name)}</h2>
       <div class="detail-meta">${esc(v.brand ?? 'Unknown studio')} · ${fmtCount(v.views)} views · ${fmtCount(v.likes)} likes${
         v.released_at ? ' · ' + esc(v.released_at.slice(0, 4)) : ''}</div>
+      <div class="detail-actions">${favPill(slug)}</div>
       <div class="detail-tags">${(v.tags ?? []).map((t) => `<span class="hero-tag">${esc(t)}</span>`).join('')}</div>
       <p class="detail-desc">${esc((v.description ?? '').replace(/<[^>]+>/g, ' ').replace(/\s{2,}/g, ' ').trim())}</p>
     </div>
@@ -1446,13 +1710,25 @@ async function mountPlayer(slug) {
     return;
   }
 
+  // A title counts as watched once a stream for it actually resolves, so a
+  // page that never played is not left behind in the history.
+  recordHistory(slug);
+
+  const pipWanted = shellCall('pictureInPictureSupported') === true;
+
   slot.innerHTML = `
     <video id="vid" controls playsinline preload="metadata"></video>
     <div class="quality">${sources
       .map((s, i) => `<button class="q-btn" data-i="${i}" aria-pressed="${i === 0}">${esc(s.label)}</button>`)
-      .join('')}</div>`;
+      .join('')}</div>
+    <div class="lib-tools">
+      ${pipWanted ? '<button class="chip" id="pip-btn" type="button">Picture in picture</button>' : ''}
+      <span class="sec-count" id="player-note"></span>
+    </div>`;
 
   const vid = $('#vid');
+  activeVid = vid;
+  activeSlug = slug;
 
   // Chrome and Firefox ship no native HLS demuxer; Safari and every iOS browser
   // do. Prefer Media Source Extensions when they exist, because some Android
@@ -1477,6 +1753,37 @@ async function mountPlayer(slug) {
 
   attach(sources[0].url);
 
+  // ---- picking up where this title was left ------------------------------
+  const saved = lib.positions[slug];
+  if (saved && saved.t > 5) {
+    vid.addEventListener('loadedmetadata', () => {
+      try { vid.currentTime = saved.t; } catch (e) { /* seek refused: start over */ }
+      const note = $('#player-note');
+      if (note) note.textContent = `resumed from ${clock(saved.t)}`;
+    }, { once: true });
+  }
+
+  let lastSaved = 0;
+  vid.addEventListener('timeupdate', () => {
+    const now = Date.now();
+    if (now - lastSaved < 5000) return;
+    lastSaved = now;
+    savePosition(slug, vid);
+  });
+  vid.addEventListener('ended', () => clearPosition(slug));
+
+  // The shell keeps the screen awake for a video, shrinks the app to the small
+  // window when the user leaves, and shapes that window like the video.
+  const tellAspect = () => {
+    if (vid.videoWidth) shellCall('setVideoAspect', vid.videoWidth, vid.videoHeight);
+  };
+  vid.addEventListener('loadedmetadata', tellAspect);
+  vid.addEventListener('play', () => { shellCall('setPlaying', true); tellAspect(); });
+  vid.addEventListener('pause', () => { shellCall('setPlaying', false); savePosition(slug, vid); });
+
+  const pipBtn = $('#pip-btn');
+  if (pipBtn) pipBtn.onclick = () => shellCall('enterPip');
+
   $$('.q-btn', slot).forEach((btn) => {
     btn.onclick = () => {
       const pos = vid.currentTime, wasPlaying = !vid.paused;
@@ -1488,6 +1795,319 @@ async function mountPlayer(slug) {
       $$('.q-btn', slot).forEach((b) => { b.setAttribute('aria-pressed', String(b === btn)); });
     };
   });
+}
+
+/* ------------------------------------------------------------------ library */
+//
+// Favorites and watch history are the only state this app keeps. They live in
+// localStorage under the origin the shell serves the client from
+// (https://hanime.tv/, answered out of the APK's assets), so they survive a
+// restart and a self-update with no server, database or account anywhere.
+
+const LIB_KEY = 'htv:library:v1';
+const LIB_MAX_HISTORY = 240;
+
+let libSaved = true;
+
+function libRead() {
+  const empty = { favorites: [], history: [], positions: {} };
+  let raw = null;
+  try { raw = localStorage.getItem(LIB_KEY); } catch { libSaved = false; return empty; }
+  if (!raw) return empty;
+  let data = null;
+  try { data = JSON.parse(raw); } catch { data = null; }
+  if (!data || typeof data !== 'object') return empty;
+  const clean = (list) => (Array.isArray(list) ? list.filter((e) => e && e.slug) : []);
+  return {
+    favorites: clean(data.favorites),
+    history: clean(data.history),
+    positions: cleanPositions(data.positions),
+  };
+}
+
+// A stored position is a claim about a duration, so it is checked rather than
+// trusted: a corrupt entry must not be able to draw a progress bar past the
+// end of a card, or a seek beyond the end of a video.
+function cleanPositions(raw) {
+  const out = {};
+  if (!raw || typeof raw !== 'object') return out;
+  Object.keys(raw).forEach((slug) => {
+    const p = raw[slug];
+    if (!p || typeof p !== 'object') return;
+    const t = Number(p.t);
+    const d = Number(p.d);
+    if (!Number.isFinite(t) || !Number.isFinite(d) || d <= 0 || t < 0 || t >= d) return;
+    out[slug] = { t: Math.round(t), d: Math.round(d), at: Number(p.at) || 0 };
+  });
+  return out;
+}
+
+let lib = libRead();
+let libQuery = '';
+
+// A slug is not enough to draw a card, so every record that passes through a
+// render is remembered by slug. That is what the heart on a card stores, which
+// is why filing from the grid costs no request.
+const known = new Map();
+function remember(v) {
+  if (!v || !v.slug) return;
+  known.set(v.slug, {
+    slug: v.slug,
+    name: v.name ?? v.title ?? v.slug,
+    cover: v.cover ?? v.cover_url ?? '',
+    brand: v.brand ?? '',
+    views: v.views,
+    released_at: v.released_at,
+  });
+}
+function entryFor(slug) {
+  const base = known.get(slug) ?? { slug, name: slug, cover: '', brand: '', views: undefined, released_at: undefined };
+  return { ...base, at: Date.now() };
+}
+
+function isFav(slug) { return lib.favorites.some((e) => e.slug === slug); }
+function viewIs(name) { return document.body.dataset.view === name; }
+
+function libWrite() {
+  try { localStorage.setItem(LIB_KEY, JSON.stringify(lib)); libSaved = true; }
+  catch { libSaved = false; }
+  libFaces();
+}
+
+// Keeps every heart already on screen telling the truth, wherever it is.
+function libFaces() {
+  $$('[data-fav]').forEach((b) => {
+    const on = isFav(b.dataset.fav);
+    b.setAttribute('aria-pressed', String(on));
+    const label = on ? 'Remove from favorites' : 'Add to favorites';
+    if (b.classList.contains('fav-btn')) { b.setAttribute('aria-label', label); b.title = label; }
+    const word = b.querySelector('.fav-label');
+    if (word) word.textContent = on ? 'In library' : 'Favorite';
+  });
+}
+
+/* Asks the shell to keep a title's cover on disk. It costs nothing when the
+   cover is already stored, and this is the moment it matters: the title just
+   joined the library, which is the screen that has to work offline. */
+function keepCover(entry) {
+  if (entry && entry.slug && entry.cover) shellCall('cacheCover', entry.slug, entry.cover);
+}
+
+function toggleFav(slug) {
+  if (!slug) return;
+  const i = lib.favorites.findIndex((e) => e.slug === slug);
+  if (i >= 0) {
+    lib.favorites.splice(i, 1);
+  } else {
+    const entry = entryFor(slug);
+    lib.favorites.unshift(entry);
+    keepCover(entry);
+  }
+  libWrite();
+  if (viewIs('library')) renderLibrary();
+}
+
+function recordHistory(slug) {
+  if (!slug) return;
+  const entry = entryFor(slug);
+  // A title opened again keeps the position it already had: re-watching from
+  // the start is a deliberate act, and opening it to check something is not.
+  const wasPartWay = lib.positions[slug];
+  lib.history = [entry, ...lib.history.filter((e) => e.slug !== slug)].slice(0, LIB_MAX_HISTORY);
+  if (wasPartWay) lib.positions[slug] = wasPartWay;
+  keepCover(entry);
+  libWrite();
+  if (viewIs('library')) renderLibrary();
+}
+
+/* ---- where each title was left ------------------------------------------ */
+//
+// History says a title was opened; it does not say it was finished. The
+// position is what turns the history into "continue watching", and it is
+// written sparsely — every five seconds at most, plus the two moments that
+// matter: pausing, and leaving the sheet.
+
+function savePosition(slug, vid) {
+  if (!slug || !vid) return;
+  const d = Number(vid.duration);
+  const t = Number(vid.currentTime);
+  if (!Number.isFinite(d) || d <= 0 || !Number.isFinite(t)) return;
+  if (t >= d - 10) { clearPosition(slug); return; }   // watched to the end
+  if (t < 5) return;                                  // nothing worth keeping
+  lib.positions[slug] = { t: Math.round(t), d: Math.round(d), at: Date.now() };
+  libWrite();
+}
+
+function clearPosition(slug) {
+  if (!lib.positions[slug]) return;
+  delete lib.positions[slug];
+  libWrite();
+}
+
+/** How far through a title is, as a percentage, or 0 when there is nothing. */
+function progressOf(slug) {
+  const p = lib.positions[slug];
+  if (!p || !p.d) return 0;
+  const pct = Math.round((p.t / p.d) * 100);
+  return pct > 1 && pct < 98 ? pct : 0;
+}
+
+function libMatches(e) {
+  if (!libQuery) return true;
+  const needle = libQuery.toLowerCase();
+  return String(e.name ?? '').toLowerCase().includes(needle)
+    || String(e.brand ?? '').toLowerCase().includes(needle);
+}
+
+function renderLibrary() {
+  const needle = libQuery.trim();
+  const favs = lib.favorites.filter(libMatches);
+  const hist = lib.history.filter(libMatches);
+
+  $('#lib-count').textContent = `${lib.favorites.length} favorite${lib.favorites.length === 1 ? '' : 's'} · ${lib.history.length} watched`;
+  $('#fav-count').textContent = needle ? `${favs.length} of ${lib.favorites.length}` : String(lib.favorites.length);
+  $('#hist-count').textContent = needle ? `${hist.length} of ${lib.history.length}` : String(lib.history.length);
+  $('#hist-clear').hidden = lib.history.length === 0;
+
+  const warn = $('#lib-warn');
+  warn.hidden = libSaved;
+  warn.textContent = 'This device will not keep local data, so favorites and history are forgotten when the app closes.';
+
+  $('#fav-grid').innerHTML = favs.map((e) => cardHtml(e, { local: true })).join('');
+  const favNote = $('#fav-note');
+  favNote.hidden = favs.length > 0;
+  favNote.textContent = needle
+    ? `No favorite matches “${libQuery}”.`
+    : 'Nothing filed yet. The heart on any card puts a title here.';
+
+  $('#hist-grid').innerHTML = hist.map((e) => cardHtml(e, { local: true, progress: true })).join('');
+  const histNote = $('#hist-note');
+  histNote.hidden = hist.length > 0;
+  histNote.textContent = needle
+    ? `Nothing you opened matches “${libQuery}”.`
+    : 'Nothing opened yet. A title lands here once a stream for it resolves.';
+
+  renderContinue(needle);
+}
+
+/**
+ * The titles that are part-way through, newest first. This is the rail that
+ * answers "where was I" — history alone cannot, because a finished title and an
+ * abandoned one look identical in it.
+ */
+function renderContinue(needle) {
+  const rail = $('#cont-rail');
+  const head = $('#cont-head');
+  if (!rail || !head) return;
+
+  const part = lib.history
+    .filter((e) => (!needle || libMatches(e)) && progressOf(e.slug) > 0)
+    .slice(0, 12);
+
+  head.hidden = part.length === 0;
+  rail.hidden = part.length === 0;
+  $('#cont-count').textContent = String(part.length);
+  const note = $('#cont-note');
+  note.hidden = part.length > 0;
+  note.textContent = 'Titles you start watching appear here, so you can pick them up where you stopped.';
+  rail.innerHTML = part.map((e) => cardHtml(e, { local: true, progress: true })).join('');
+}
+
+// The same toggle, as a pill, inside a title page.
+function favPill(slug) {
+  const on = isFav(slug);
+  return `<button class="pill pill-ghost" type="button" data-fav="${esc(slug)}" aria-pressed="${on}">
+      <svg viewBox="0 0 24 24" stroke-linejoin="round"><path d="M12 20.4 4.9 14.1A5.3 5.3 0 0 1 12 6.3a5.3 5.3 0 0 1 7.1 7.8Z"/></svg>
+      <span class="fav-label">${on ? 'In library' : 'Favorite'}</span>
+    </button>`;
+}
+
+/* ------------------------------------------------- playlists, found by name */
+//
+// A playlist is found by its own name, which is a different index from the
+// catalog: the crawled public playlists, plus the account's own when one is
+// connected. Both endpoints rank a title match above a content match; this
+// puts the result beside the grid, so typing a playlist's name answers with
+// the playlist instead of a wall of unrelated titles.
+
+let ownIndex = null;
+let plHitsSeq = 0;
+
+async function loadOwnIndex() {
+  if (ownIndex) return ownIndex;
+  try {
+    const body = await api('/api/playlists');
+    ownIndex = Array.isArray(body.playlists) ? body.playlists : [];
+  } catch { ownIndex = []; }
+  return ownIndex;
+}
+
+async function loadPlaylistHits(q) {
+  const box = $('#pl-hits');
+  const rail = $('#pl-hits-rail');
+  const count = $('#pl-hits-count');
+  if (!box) return;
+
+  const needle = String(q ?? '').trim();
+  const seq = ++plHitsSeq;
+  if (!needle) { box.hidden = true; rail.innerHTML = ''; count.textContent = ''; return; }
+
+  let mine = [];
+  let pub = [];
+  try {
+    const lower = needle.toLowerCase();
+    const [own, body] = await Promise.all([
+      loadOwnIndex(),
+      api('/api/public/playlists?' + new URLSearchParams({ q: needle, limit: '14', items: '0' })),
+    ]);
+    mine = own.filter((p) => String(p.title ?? '').toLowerCase().includes(lower));
+    pub = body.playlists ?? [];
+  } catch {
+    // An index that will not load must not disturb the grid beside it.
+  }
+  if (seq !== plHitsSeq) return;   // a later keystroke already answered this one
+
+  const html = [...mine.map(plCard), ...pub.map(ppCard)].join('');
+  box.hidden = !html;
+  count.textContent = html ? `${mine.length + pub.length} found` : '';
+  rail.innerHTML = html;
+}
+
+/* ------------------------------------------------------------------ views */
+//
+// The nav switches views in place. Nothing scrolls to a section any more: the
+// active link is marked, the strip scrolls itself so that link stays visible
+// on a phone, and the page comes back to the top of the view it just opened.
+
+const views = $$('.view');
+const navStrip = $('.nav-links');
+
+// The markup already names the view the page opens on. Adopting it here means
+// the boot call is not a *change* — otherwise it would scroll a reader who had
+// already started moving while the catalog was still loading behind them.
+document.body.dataset.view =
+  (views.find((v) => v.dataset.active === 'true') ?? views[0]).dataset.view;
+
+function showView(name) {
+  const target = views.find((v) => v.dataset.view === name) || views[0];
+  const changed = document.body.dataset.view !== target.dataset.view;
+  views.forEach((v) => {
+    if (v === target) v.dataset.active = 'true';
+    else v.removeAttribute('data-active');
+  });
+  document.body.dataset.view = target.dataset.view;
+
+  let active = null;
+  $$('.nav-link').forEach((b) => {
+    if (b.dataset.go === target.dataset.view) { b.setAttribute('aria-current', 'page'); active = b; }
+    else b.removeAttribute('aria-current');
+  });
+  if (active && navStrip) navStrip.scrollLeft = Math.max(0, active.offsetLeft - navStrip.offsetLeft - 8);
+
+  if (target.dataset.view === 'library') renderLibrary();
+  // Opening a different view starts at its top; pressing the tab you are
+  // already on must not throw away your place in it.
+  if (changed) scrollTo({ top: 0 });
 }
 
 /* ------------------------------------------------------------------ drag rails */
@@ -1515,16 +2135,52 @@ function makeDraggable(rail) {
 
 /* ------------------------------------------------------------------ wiring */
 
-function refresh() { state.page = 0; loadGrid(); }
+function refresh() {
+  state.page = 0;
+  loadGrid();
+  loadPlaylistHits(state.q).catch(() => {});
+}
 
-$('#q').addEventListener('input', (e) => {
-  const val = e.target.value;
+// One query, two boxes: the field that the pill turns into, and the one in the
+// Browse toolbar. Typing in either mirrors into the other, so they can never
+// disagree about what is on screen.
+function applyQuery(val, from) {
+  if (from !== $('#q')) $('#q').value = val;
+  if (from !== $('#nav-q')) $('#nav-q').value = val;
   $('#search-shell').dataset.filled = String(!!val);
   clearTimeout(debounce);
-  debounce = setTimeout(() => { state.q = val.trim(); refresh(); }, 240);
-});
+  debounce = setTimeout(() => {
+    state.q = val.trim();
+    // The answer is the grid, and the grid is in Browse. Searching from the
+    // pill therefore goes there — as a view change, never as a scroll to a
+    // search box.
+    if (state.q && !viewIs('browse')) showView('browse');
+    refresh();
+  }, 240);
+}
+
+/** Swaps the pill's links for the search field, and back. Moves nothing else. */
+function setSearchOpen(open) {
+  $('#search-toggle').setAttribute('aria-expanded', String(open));
+  $('#nav').dataset.searching = String(open);
+  // preventScroll is the point: focusing an input normally makes the browser
+  // scroll it into view, which is how tapping the search icon used to yank the
+  // page down to the toolbar.
+  if (open) $('#nav-q').focus({ preventScroll: true });
+  else $('#nav-q').blur();
+  updateBackState();
+}
+
+$('#q').addEventListener('input', (e) => applyQuery(e.target.value, e.target));
+$('#nav-q').addEventListener('input', (e) => applyQuery(e.target.value, e.target));
 $('#search-clear').onclick = () => {
-  $('#q').value = ''; $('#search-shell').dataset.filled = 'false'; state.q = ''; refresh(); $('#q').focus();
+  applyQuery('', null);
+  $('#q').focus({ preventScroll: true });
+};
+$('#nav-q-close').onclick = () => {
+  // With text in it, the × clears the query; empty, it puts the links back.
+  if ($('#nav-q').value) { applyQuery('', null); $('#nav-q').focus({ preventScroll: true }); }
+  else setSearchOpen(false);
 };
 $('#sort').addEventListener('change', (e) => { state.sort = e.target.value; refresh(); });
 
@@ -1537,7 +2193,7 @@ $('#tag-rail').addEventListener('click', (e) => {
   chip.setAttribute('aria-pressed', String(i < 0));
   $('#clear-tags').hidden = state.tags.length === 0;
   refresh();
-  document.getElementById('browse')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  showView('browse');   // the filtered grid is the answer, so go there
 });
 $('#clear-tags').onclick = () => {
   state.tags = [];
@@ -1552,55 +2208,54 @@ $('#brand-rail').addEventListener('click', (e) => {
   state.brand = state.brand === chip.dataset.brand ? '' : chip.dataset.brand;
   $$('#brand-rail .chip').forEach((c) => { c.style.borderColor = c === chip ? 'hsl(var(--primary))' : ''; });
   refresh();
-  document.getElementById('browse')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  showView('browse');   // the filtered grid is the answer, so go there
 });
 
 $('#prev').onclick = () => { if (state.page > 0) { state.page--; loadGrid().then(() => scrollTo({ top: 0, behavior: 'smooth' })); } };
 $('#next').onclick = () => { if (state.page + 1 < state.pages) { state.page++; loadGrid().then(() => scrollTo({ top: 0, behavior: 'smooth' })); } };
 
-$('#grid').addEventListener('click', (e) => {
-  const card = e.target.closest('.card');
-  if (card) openVideo(card.dataset.slug);
-});
-$('#grid').addEventListener('keydown', (e) => {
-  if (e.key !== 'Enter' && e.key !== ' ') return;
-  const card = e.target.closest('.card');
-  if (card) { e.preventDefault(); openVideo(card.dataset.slug); }
-});
+// One click, several intents. The heart is tested first because it is drawn on
+// top of a card and must file the title rather than open it. The nav strip and
+// the hero's buttons follow. Everything else that is a card opens the sheet —
+// in the grid, in the library, or inside a playlist.
 document.addEventListener('click', (e) => {
-  const opener = e.target.closest('[data-open]');
-  if (opener) openVideo(opener.dataset.open);
-});
+  const heart = e.target.closest('[data-fav]');
+  if (heart) { e.preventDefault(); toggleFav(heart.dataset.fav); return; }
 
-// A card inside a playlist opens the video in place, replacing the playlist
-// sheet with the player. Delegated on the sheet so it survives re-rendering.
-$('#sheet-body').addEventListener('click', (e) => {
-  const card = e.target.closest('.pl-items .card');
+  const go = e.target.closest('[data-go]');
+  if (go) { e.preventDefault(); showView(go.dataset.go); return; }
+
+  const opener = e.target.closest('[data-open]');
+  if (opener) { e.preventDefault(); openVideo(opener.dataset.open); return; }
+
+  const card = e.target.closest('.card');
   if (card?.dataset.slug) openVideo(card.dataset.slug);
 });
-$('#sheet-body').addEventListener('keydown', (e) => {
+document.addEventListener('keydown', (e) => {
   if (e.key !== 'Enter' && e.key !== ' ') return;
-  const card = e.target.closest('.pl-items .card');
+  const card = e.target.closest('.card');
   if (card?.dataset.slug) { e.preventDefault(); openVideo(card.dataset.slug); }
 });
 
 $('#sheet-close').onclick = closeSheet;
 $('#sheet').addEventListener('click', (e) => { if (e.target === $('#sheet')) closeSheet(); });
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheet(); });
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if ($('#nav').dataset.searching === 'true') setSearchOpen(false);
+  closeSheet();
+});
 
 $('#search-toggle').onclick = () => {
-  const open = $('#search-toggle').getAttribute('aria-expanded') !== 'true';
-  $('#search-toggle').setAttribute('aria-expanded', String(open));
-  if (open) { $('#q').focus(); scrollTo({ top: 0, behavior: 'smooth' }); }
-  else $('#q').blur();
+  setSearchOpen($('#search-toggle').getAttribute('aria-expanded') !== 'true');
 };
 $('#sort-toggle').onclick = () => {
   const open = $('#sort-toggle').getAttribute('aria-expanded') !== 'true';
   $('#sort-toggle').setAttribute('aria-expanded', String(open));
-  $('#sort').focus();
+  showView('browse');   // the order control is in the Browse toolbar
+  $('#sort').focus({ preventScroll: true });
 };
 
-$('#brand-btn').onclick = () => scrollTo({ top: 0, behavior: 'smooth' });
+$('#brand-btn').onclick = () => showView('browse');
 
 // Playlist search is its own box: title matches and content matches rank
 // differently, and folding them into the catalog search would blur both.
@@ -1620,15 +2275,125 @@ $('#sess-reset')?.addEventListener('click', async () => {
   await fetch('/api/session', { method: 'DELETE' });
   await loadSession();
 });
-$('#pl-rail')?.addEventListener('click', (e) => {
-  const card = e.target.closest('.pl-card');
-  if (card) openPlaylist(card.dataset.playlist);
-});
-$('#pl-rail')?.addEventListener('keydown', (e) => {
-  if (e.key !== 'Enter' && e.key !== ' ') return;
-  const card = e.target.closest('.pl-card');
+// Playlist cards now appear in two rails — your own, and the ones whose name
+// matched a catalog search — so this is delegated rather than bound to one.
+document.addEventListener('click', (e) => {
+  const card = e.target.closest('[data-playlist]');
   if (card) { e.preventDefault(); openPlaylist(card.dataset.playlist); }
 });
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const card = e.target.closest('[data-playlist]');
+  if (card) { e.preventDefault(); openPlaylist(card.dataset.playlist); }
+});
+
+// Library: one box filters both lists, and history can be emptied on its own.
+let libDebounce;
+$('#lib-q')?.addEventListener('input', (e) => {
+  libQuery = e.target.value.trim();
+  $('#lib-search-shell').dataset.filled = String(!!e.target.value);
+  clearTimeout(libDebounce);
+  libDebounce = setTimeout(renderLibrary, 180);
+});
+$('#lib-clear')?.addEventListener('click', () => {
+  $('#lib-q').value = '';
+  $('#lib-search-shell').dataset.filled = 'false';
+  libQuery = '';
+  renderLibrary();
+});
+$('#hist-clear')?.addEventListener('click', () => {
+  lib.history = [];
+  // Once nothing is watched, nothing is part-way through either: leaving the
+  // positions behind would keep a Continue watching rail for a history the
+  // reader just emptied.
+  lib.positions = {};
+  libWrite();
+  renderLibrary();
+});
+
+/* ---- getting the library off the device, and back onto it --------------- */
+//
+// Favourites and history are the only thing this app owns, and they live in one
+// place. A file the reader keeps turns that into a backup and a way to move to
+// a new phone; both directions go through the shell, which owns the document
+// picker, and the file never passes through a server.
+
+function libMessage(text) {
+  const msg = $('#lib-msg');
+  if (!msg) return;
+  msg.hidden = !text;
+  msg.textContent = text || '';
+}
+
+$('#lib-export')?.addEventListener('click', () => {
+  if (!shellApi()) { libMessage('Exporting a file needs the Android app.'); return; }
+  shellCall('exportLibrary', JSON.stringify({
+    ...lib,
+    app: 'hanime-shell',
+    savedAt: new Date().toISOString(),
+  }));
+  libMessage('Choose where to keep the file.');
+});
+
+$('#lib-import')?.addEventListener('click', () => {
+  if (!shellApi()) { libMessage('Importing a file needs the Android app.'); return; }
+  libMessage('Choose a library file to merge in.');
+  shellCall('importLibrary');
+});
+
+// Called by the shell with the chosen file's text. The format belongs to this
+// file, so the parsing and the merging happen here rather than in Java.
+window.__shellLibraryImport = (text) => {
+  let data = null;
+  try { data = JSON.parse(text); } catch (e) { data = null; }
+  if (!data || typeof data !== 'object') {
+    libMessage('That file is not a library export — nothing was imported.');
+    return;
+  }
+
+  const favs = Array.isArray(data.favorites) ? data.favorites : [];
+  const hist = Array.isArray(data.history) ? data.history : [];
+
+  // A merge, never a replace: an import must not be able to lose what is
+  // already on the device, because the file could be older than the app.
+  const haveFav = new Set(lib.favorites.map((e) => e.slug));
+  favs.forEach((e) => {
+    if (!e || !e.slug || haveFav.has(e.slug)) return;
+    haveFav.add(e.slug);
+    lib.favorites.push(e);
+    keepCover(e);
+  });
+
+  // The newer record of a title wins, and the list is re-sorted by it: merging
+  // by concatenation would push a title watched today behind one from last
+  // year, which is precisely the order that matters here.
+  const byslug = new Map(lib.history.map((e) => [e.slug, e]));
+  hist.forEach((e) => {
+    if (!e || !e.slug) return;
+    const existing = byslug.get(e.slug);
+    if (!existing || Number(e.at) > Number(existing.at)) { byslug.set(e.slug, e); keepCover(e); }
+  });
+  lib.history = [...byslug.values()]
+    .sort((a, b) => Number(b.at) - Number(a.at))
+    .slice(0, LIB_MAX_HISTORY);
+
+  const pos = data.positions && typeof data.positions === 'object' ? data.positions : {};
+  Object.keys(pos).forEach((slug) => {
+    const incoming = pos[slug];
+    if (!incoming || typeof incoming !== 'object') return;
+    const existing = lib.positions[slug];
+    if (existing && Number(existing.at) > Number(incoming.at)) return;
+    const t = Number(incoming.t);
+    const d = Number(incoming.d);
+    if (!Number.isFinite(t) || !Number.isFinite(d) || d <= 0 || t < 0 || t >= d) return;
+    lib.positions[slug] = { t: Math.round(t), d: Math.round(d), at: Number(incoming.at) || 0 };
+  });
+
+  libWrite();
+  renderLibrary();
+  libMessage(`Read ${favs.length} favorites and ${hist.length} history entries. `
+    + `This device now holds ${lib.favorites.length} favorites and ${lib.history.length} watched.`);
+};
 
 // Public playlist cards, plus the "in N playlists" chips inside a video sheet.
 document.addEventListener('click', (e) => {
@@ -1668,9 +2433,16 @@ $$('.rail').forEach(makeDraggable);
     $('#grid').innerHTML = `<p class="note">Could not reach the proxy — ${esc(e.message)}</p>`;
   }
 
+  // The account's own playlists are fetched once, for name search later; a
+  // device with no account simply answers with an empty list.
+  loadOwnIndex().catch(() => {});
+
   // Playlists are independent of the catalog: a failure here must not blank the grid.
   wirePublicPlaylists();
   loadSession().catch(() => {});
+
+  showView('browse');
+  renderLibrary();
 })();
 </script>
 </body>

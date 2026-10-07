@@ -30,8 +30,8 @@ import java.util.Map;
  *   - it lets the API be answered by Java — catalogue, tags, brands, details —
  *     so no Node process has to be running anywhere for the app to work.
  *
- * Anything outside our origin (fonts, the hls.js CDN, the image CDN) returns
- * null so the WebView fetches it normally.
+ * Anything outside our origin (the web font, the image CDN) returns null so the
+ * WebView fetches it normally.
  */
 final class ApiServer {
 
@@ -43,9 +43,17 @@ final class ApiServer {
     private final Context context;
     private final AssetManager assets;
 
+    /** Covers of the titles in the library, kept on disk and served below. */
+    private final CoverCache covers;
+
     ApiServer(Context context) {
         this.context = context.getApplicationContext();
         this.assets = context.getAssets();
+        this.covers = new CoverCache(this.context);
+    }
+
+    CoverCache covers() {
+        return covers;
     }
 
     /** Returns null to let the WebView perform the request itself. */
@@ -60,6 +68,10 @@ final class ApiServer {
         try {
             if (path.equals("/relay")) return HlsRelay.handle(firsts(query));
             if (path.startsWith("/api/")) return api(path, query);
+            // Library covers, answered from the app's own storage. Checked
+            // before assets so the two can never be confused: nothing under
+            // /covers/ is ever served out of the APK.
+            if (path.startsWith("/covers/")) return covers.serve(path);
             return asset(path);
         } catch (Exception e) {
             // Never let a handler exception take the WebView down with it: an

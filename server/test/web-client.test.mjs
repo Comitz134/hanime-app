@@ -93,6 +93,67 @@ test('every element id the client queries exists in its markup', () => {
   assert.ok(!styled.includes('.pp-tag em {') || styled.includes('button.pp-tag'), 'tag chip styles malformed');
 });
 
+test('the nav switches views, and every view it points at exists', () => {
+  // The nav used to be three anchors into one long page. It is now a set of
+  // buttons, and the failure mode of a typo is silent: the button does nothing
+  // and the reader is left staring at the previous view.
+  const targets = [...html.matchAll(/data-go="([a-z]+)"/g)].map((m) => m[1]);
+  const views = [...html.matchAll(/data-view="([a-z]+)"/g)].map((m) => m[1]);
+
+  assert.deepEqual(targets, ['browse', 'genres', 'studios', 'playlists', 'library']);
+  for (const t of targets) {
+    assert.ok(views.includes(t), `the nav points at a view that does not exist: ${t}`);
+  }
+  // Exactly one view is active on load, or the page opens blank.
+  assert.equal((html.match(/data-view="browse" data-active="true"/g) || []).length, 1);
+  // And nothing may scroll to a section any more.
+  assert.ok(!/href="#(browse|genres|studios)"/.test(html), 'the nav still anchors into the page');
+
+  for (const id of ['library', 'lib-q', 'lib-clear', 'lib-search-shell', 'lib-warn',
+    'fav-grid', 'fav-count', 'fav-note', 'hist-grid', 'hist-count', 'hist-note',
+    'hist-clear', 'pl-hits', 'pl-hits-rail', 'pl-hits-count']) {
+    assert.ok(html.includes(` id="${id}"`), `missing #${id}`);
+  }
+});
+
+test('the client never scrolls to a control, it moves the control to the reader', () => {
+  // Two complaints led here, both real. The nav used anchors into one long
+  // page, so "Studios" flung the page down to the studios rail. Then tapping
+  // the search icon focused the toolbar's input — and focusing an element
+  // scrolls it into view, so the page moved again. The pill now turns into a
+  // search field in place, and nothing keeps a scroll-into-view path.
+  const script = inlineScripts(html)[0];
+  assert.ok(!script.includes('scrollIntoView'), 'the client scrolls to a section again');
+
+  const focusCalls = [...script.matchAll(/\.focus\(([^)]*)\)/g)];
+  assert.ok(focusCalls.length > 0, 'no focus() calls found — did the wiring move?');
+  for (const call of focusCalls) {
+    assert.ok(
+      /preventScroll:\s*true/.test(call[1]),
+      `focus() without preventScroll would jump the page: ${call[0]}`,
+    );
+  }
+
+  for (const id of ['nav-search', 'nav-q', 'nav-q-close']) {
+    assert.ok(html.includes(` id="${id}"`), `missing #${id}`);
+  }
+  assert.ok(
+    html.includes('.nav[data-searching="true"] .nav-search'),
+    'the pill never turns into a search field',
+  );
+});
+
+test('the library is stored under one guarded key', () => {
+  // Favorites and history are the only state the app keeps. A storage that
+  // refuses to write (private mode, a full quota) must degrade to a session
+  // list with a visible warning, not take the whole client down with it.
+  const script = inlineScripts(html)[0];
+  assert.ok(/try \{[^}]*localStorage\.getItem/.test(script), 'the localStorage read is unguarded');
+  assert.ok(/try \{[^}]*localStorage\.setItem/.test(script), 'the localStorage write is unguarded');
+  assert.ok(script.includes("htv:library:v1"), 'the library key moved; devices would lose their list');
+  assert.ok(script.includes('libSaved'), 'a refused write is never surfaced to the reader');
+});
+
 test('the inline script has no top-level await, which breaks older WebViews', () => {
   // This is not hypothetical. The client is served to an installed Android app,
   // and the WebView bundled with Android 11 is Chromium 83 — top-level await in
@@ -177,6 +238,118 @@ test('the copy bundled into the Android app is this client, byte for byte', () =
     html,
     'android/app/src/main/assets/index.html is stale: re-copy public/index.html',
   );
+});
+
+test('the client plays video through its own hls.js, not through a CDN', () => {
+  // Playback used to load hls.min.js from jsdelivr. That is a third party
+  // deciding whether this app works: a blocked or DNS-suffixed CDN, or a
+  // withdrawn version, stops video while every other screen looks fine.
+  const script = inlineScripts(html)[0];
+  assert.ok(!/cdn\.jsdelivr\.net/.test(html), 'the client still loads something from a CDN');
+  assert.ok(/<script src="hls\.min\.js"><\/script>/.test(html),
+    'the client does not load the bundled hls.js');
+  assert.ok(script.includes('window.Hls?.isSupported()'),
+    'the hls.js usage moved — this test no longer guards what it claims to');
+
+  const vendored = path.resolve(HERE, '../public/hls.min.js');
+  assert.ok(fs.existsSync(vendored), `missing ${vendored}`);
+  const source = fs.readFileSync(vendored, 'utf8');
+
+  // The playback path ships to the same WebViews as the rest of the client, so
+  // it has to clear the same bar: Chromium 83 is Android 11's bundled WebView.
+  const tooNew = [
+    [/\|\|=/, 'logical assignment ||= (Chrome 85)'],
+    [/&&=/, 'logical assignment &&= (Chrome 85)'],
+    [/\?\?=/, 'nullish assignment ??= (Chrome 85)'],
+    [/\.replaceAll\(/, 'String.prototype.replaceAll (Chrome 85)'],
+    [/\.at\(\s*-?\d/, 'Array.prototype.at (Chrome 92)'],
+    [/structuredClone/, 'structuredClone (Chrome 98)'],
+    [/\bstatic\s*\{/, 'static blocks (Chrome 94)'],
+    [/\bclass\s+\w+\s*\{[^}]*#[a-z]\w*\s*[=(]/, 'private class members (Chrome 74)'],
+  ];
+  for (const [re, label] of tooNew) {
+    assert.ok(!re.test(source), `the bundled hls.js uses ${label}, which breaks WebView 83`);
+  }
+
+  // And the app must bundle the same file the server serves, or the shipped
+  // build plays through a copy that no test ever looked at.
+  if (!fs.existsSync(ANDROID)) return;
+  const bundled = path.join(ANDROID, 'app/src/main/assets/hls.min.js');
+  assert.ok(fs.existsSync(bundled), `missing ${bundled} — copy public/hls.min.js into assets`);
+  assert.equal(fs.readFileSync(bundled, 'utf8'), source,
+    'the bundled hls.js is not the file this server serves');
+});
+
+test('back closes what is open, and the page decides that, not the shell', () => {
+  // The app used to exit out from under an open title sheet: a single-page
+  // client never grows a WebView history, so there was nothing for back to walk
+  // through. The page now reports whether it has something to dismiss and
+  // answers when asked.
+  const script = inlineScripts(html)[0];
+  assert.ok(script.includes('window.__shellBack'), 'the shell has no way to ask the page');
+  assert.ok(script.includes('setBackEnabled'), 'the page never reports its back state');
+  assert.ok(/function updateBackState\(\)/.test(script), 'the back state is never computed');
+
+  // Both things that take over the screen have to be covered by it.
+  assert.ok(/classList\.contains\('open'\)/.test(script), 'the sheet is not part of the back state');
+  assert.ok(/dataset\.searching === 'true'/.test(script), 'the search field is not part of it');
+
+  // Moving backwards through state is not allowed to introduce a scroll jump;
+  // the sheet is fixed and must stay that way.
+  assert.ok(!script.includes('history.pushState'),
+    'a history entry was added — that is the WebView-back approach this replaced');
+});
+
+test('a title remembers where it was left', () => {
+  const script = inlineScripts(html)[0];
+  for (const name of ['savePosition', 'clearPosition', 'progressOf', 'cleanPositions']) {
+    assert.ok(new RegExp(`function ${name}\\(`).test(script), `missing ${name}()`);
+  }
+  // Written while playing, and at the two moments that matter.
+  assert.ok(script.includes("addEventListener('timeupdate'"), 'nothing records progress while playing');
+  assert.ok(/addEventListener\('pause',[\s\S]{0,160}?savePosition/.test(script),
+    'pausing does not record it');
+  assert.ok(/if \(activeSlug && activeVid\) savePosition/.test(script),
+    'closing the sheet does not record it');
+  // Resumed on open, and finished titles are not resumed.
+  assert.ok(/saved\.t > 5/.test(script), 'nothing resumes a part-way title');
+  assert.ok(/t >= d - 10/.test(script), 'a finished title is still kept as unfinished');
+  // Stored under the same guarded key as the library, so one broken storage
+  // cannot lose half the state.
+  assert.ok(script.includes("htv:library:v1"), 'positions moved away from the library key');
+  assert.ok(script.includes('positions'), 'nothing is stored for a title position');
+
+  for (const id of ['cont-head', 'cont-rail', 'cont-count', 'cont-note']) {
+    assert.ok(html.includes(` id="${id}"`), `missing #${id}`);
+  }
+  assert.ok(html.includes('.card-progress'), 'no stylesheet rule draws the progress bar');
+});
+
+test('the library can leave the device and come back', () => {
+  const script = inlineScripts(html)[0];
+  for (const id of ['lib-export', 'lib-import', 'lib-msg']) {
+    assert.ok(html.includes(` id="${id}"`), `missing #${id}`);
+  }
+  assert.ok(script.includes('exportLibrary'), 'nothing asks the shell to export');
+  assert.ok(script.includes('importLibrary'), 'nothing asks the shell to import');
+  assert.ok(script.includes('window.__shellLibraryImport'), 'the shell has nothing to hand a file to');
+
+  // The file is not trusted: a parse failure must land in a message rather than
+  // in the console, and a merge must never replace what is on the device.
+  assert.ok(/try \{ data = JSON\.parse\(text\); \} catch/.test(script), 'import parses unguarded');
+  assert.ok(/haveFav/.test(script), 'an import overwrites the existing favourites');
+  assert.ok(/byslug\.get\(e\.slug\)/.test(script), 'an import does not merge history by title');
+});
+
+test('picture in picture is offered only when the shell supports it', () => {
+  const script = inlineScripts(html)[0];
+  assert.ok(script.includes('pictureInPictureSupported'), 'the page never asks about PiP support');
+  assert.ok(script.includes("'enterPip'"), 'the page cannot ask for the small window');
+  assert.ok(script.includes('window.__shellPip'), 'the shell cannot tell the page it is in PiP');
+  assert.ok(script.includes("setVideoAspect"), 'the PiP window is never shaped to the video');
+  // The button is in the player, which only exists once a stream resolved.
+  assert.ok(html.includes('id="pip-btn"'), 'the player has no PiP button');
+  assert.ok(html.includes('body[data-pip="true"]'), 'no stylesheet rule shrinks the page to the video');
 });
 
 // The signer bundle is emscripten output using `??=`, which arrived in

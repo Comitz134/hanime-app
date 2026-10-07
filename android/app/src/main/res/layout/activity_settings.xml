@@ -30,6 +30,64 @@
             android:textColor="@color/shell_muted"
             android:textSize="13sp" />
 
+        <!--
+          What the updater knows: installed build, effective source, and what the
+          last check returned. This is the answer to "the update check does not
+          work" without anybody reading logcat.
+        -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/settings_status_title"
+            android:textColor="@color/shell_foreground"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/settings_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:lineSpacingMultiplier="1.45"
+            android:textColor="@color/shell_muted"
+            android:textSize="12sp"
+            android:textIsSelectable="true" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/settings_check"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:backgroundTint="@color/shell_card"
+                android:text="@string/settings_check_now"
+                android:textColor="@color/shell_foreground"
+                android:textSize="12sp" />
+
+            <Button
+                android:id="@+id/settings_copy"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:layout_weight="1"
+                android:backgroundTint="@color/shell_card"
+                android:text="@string/settings_copy"
+                android:textColor="@color/shell_muted"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="20dp"
+            android:background="@color/shell_card" />
+
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -59,10 +117,9 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
             android:backgroundTint="@color/shell_card"
-            android:text="@string/server_hint"
+            android:text="@string/settings_reset"
             android:textColor="@color/shell_muted"
-            android:textSize="12sp"
-            android:visibility="gone" />
+            android:textSize="12sp" />
 
         <LinearLayout
             android:layout_width="match_parent"
