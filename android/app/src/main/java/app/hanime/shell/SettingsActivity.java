@@ -5,6 +5,7 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.res.ColorStateList;
 import android.os.Bundle;
 import android.text.InputType;
 import android.view.View;
@@ -36,6 +37,8 @@ public class SettingsActivity extends Activity {
     private EditText field;
     private TextView status;
     private Button checkButton;
+    private Button channelStable;
+    private Button channelBeta;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -47,7 +50,7 @@ public class SettingsActivity extends Activity {
         // app's own origin. It used to be prefilled with that, so pressing Save
         // without touching anything pointed the updater at the bundled client.
         String current = getIntent().getStringExtra(EXTRA_CURRENT);
-        if (current == null) current = ServerConfig.get(this);
+        if (current == null) current = Updater.address(this);
         if (current == null) current = "";
 
         TextView title = findViewById(R.id.settings_title);
@@ -59,6 +62,8 @@ public class SettingsActivity extends Activity {
         Button cancel = findViewById(R.id.settings_cancel);
         Button useDefault = findViewById(R.id.settings_default);
         Button copy = findViewById(R.id.settings_copy);
+        channelStable = findViewById(R.id.settings_channel_stable);
+        channelBeta = findViewById(R.id.settings_channel_beta);
 
         title.setText(firstRun ? R.string.settings_title : R.string.menu_server);
         help.setText(R.string.server_help);
@@ -79,8 +84,40 @@ public class SettingsActivity extends Activity {
         copy.setOnClickListener(v -> copyDiagnostics());
         save.setOnClickListener(v -> save());
         cancel.setOnClickListener(v -> finish());
+        channelStable.setOnClickListener(v -> pickChannel(Updater.CHANNEL_STABLE));
+        channelBeta.setOnClickListener(v -> pickChannel(Updater.CHANNEL_BETA));
 
+        renderChannel();
         renderStatus();
+    }
+
+    /**
+     * Which manifest URL the built-in source resolves to. The selected button
+     * is the state: the channel lives in [Updater], this only draws it.
+     */
+    private void renderChannel() {
+        boolean beta = Updater.CHANNEL_BETA.equals(Updater.channel(this));
+        tint(channelBeta, beta);
+        tint(channelStable, !beta);
+    }
+
+    private void tint(Button button, boolean selected) {
+        button.setBackgroundTintList(ColorStateList.valueOf(
+                getColor(selected ? R.color.shell_primary : R.color.shell_card)));
+        button.setTextColor(getColor(selected ? R.color.shell_on_primary : R.color.shell_muted));
+    }
+
+    private void pickChannel(String channel) {
+        Updater.setChannel(this, channel);
+        renderChannel();
+        // Show the source the updater will actually consult now — the saved
+        // override (if a custom one survives) or the channel's built-in URL.
+        String source = Updater.address(this);
+        field.setText(source);
+        field.setSelection(source.length());
+        renderStatus();
+        Toast.makeText(this, getString(R.string.channel_switched, channel),
+                Toast.LENGTH_SHORT).show();
     }
 
     // ------------------------------------------------------------- status
@@ -91,7 +128,7 @@ public class SettingsActivity extends Activity {
      * never disagree with what actually happened.
      */
     private void renderStatus() {
-        String source = ServerConfig.get(this);
+        String source = Updater.address(this);
         if (source == null || source.trim().isEmpty()) {
             source = getString(R.string.settings_source_none);
         }
@@ -99,6 +136,8 @@ public class SettingsActivity extends Activity {
         StringBuilder text = new StringBuilder();
         text.append(getString(R.string.settings_installed,
                 BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE)).append('\n');
+        text.append(getString(R.string.settings_channel_now,
+                Updater.channel(this))).append('\n');
         text.append(getString(R.string.settings_source_now, source)).append('\n');
         text.append(at == null
                 ? getString(R.string.settings_never_checked)
@@ -182,8 +221,9 @@ public class SettingsActivity extends Activity {
         text.append(getString(R.string.settings_installed,
                 BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE)).append('\n');
         text.append(getString(R.string.diag_package, getPackageName())).append('\n');
-        text.append(getString(R.string.diag_source, ServerConfig.get(this))).append('\n');
-        text.append(getString(R.string.diag_builtin, ServerConfig.builtIn())).append('\n');
+        text.append(getString(R.string.diag_source, Updater.address(this))).append('\n');
+        text.append(getString(R.string.diag_builtin, Updater.builtIn(this))).append('\n');
+        text.append(getString(R.string.diag_channel, Updater.channel(this))).append('\n');
         String saved = ServerConfig.stored(this);
         text.append(getString(R.string.diag_override,
                 saved.isEmpty() ? getString(R.string.diag_none) : saved)).append('\n');
@@ -216,7 +256,7 @@ public class SettingsActivity extends Activity {
 
     /** Drops the override so the app goes back to the source it shipped with. */
     private void resetToBuiltIn() {
-        String builtIn = ServerConfig.builtIn();
+        String builtIn = Updater.builtIn(this);
         ServerConfig.clear(this);
         if (builtIn.isEmpty()) {
             // A build made with -PupdateUrl= has nothing to fall back to.

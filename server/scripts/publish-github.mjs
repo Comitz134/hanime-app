@@ -3,6 +3,7 @@
 //
 //   node scripts/publish-github.mjs
 //   node scripts/publish-github.mjs --repo you/hanime-app --notes "..."
+//   node scripts/publish-github.mjs --prerelease   # beta channel only: /releases/latest skips it
 //   node scripts/publish-github.mjs --dry-run
 //
 // Why this exists: the Android shell checks a URL on every cold start, and that
@@ -14,6 +15,13 @@
 //
 //   <file>.apk        the signed APK, byte for byte as built
 //   version.json      the manifest the app parses
+//
+// It also refreshes the beta channel: a rolling prerelease tagged
+// `channel-beta` whose own version.json asset always mirrors the manifest just
+// published. The app's beta channel points at that one URL, so switching to
+// beta can never land on a manifest nobody uploaded — and because the release
+// is marked prerelease, GitHub's /releases/latest route (the stable channel)
+// never picks it up.
 //
 // The manifest is the same shape /api/app/version returns, with one deliberate
 // difference: `apk_url` is ABSOLUTE. The manifest is fetched from
@@ -51,6 +59,10 @@ const val = (f, d) => {
 const dryRun = has('--dry-run');
 const notesOverride = val('--notes', null);
 const repoArg = val('--repo', null);
+// Publish this build as a prerelease: the stable channel (/releases/latest)
+// skips prereleases, the beta channel (channel-beta's manifest, refreshed
+// below) carries them.
+const prereleaseFlag = has('--prerelease');
 
 // ------------------------------------------------------------------ pure bits
 
@@ -100,6 +112,18 @@ export function assetDownloadUrl({ serverUrl, owner, repo, tag, name }) {
 export function latestManifestUrl({ serverUrl, owner, repo, name = 'version.json' }) {
   const base = String(serverUrl ?? '').replace(/\/+$/, '');
   return `${base}/${owner}/${repo}/releases/latest/download/${encodeURIComponent(name)}`;
+}
+
+/**
+ * The rolling prerelease that hosts the beta channel's manifest. One tag for
+ * every publish — the asset URL therefore never moves, which is exactly what a
+ * channel a device was switched to must guarantee.
+ */
+export const CHANNEL_TAG = 'channel-beta';
+
+/** The stable URL devices on the beta channel consult. */
+export function betaManifestUrl({ serverUrl, owner, repo, name = 'version.json' }) {
+  return assetDownloadUrl({ serverUrl, owner, repo, tag: CHANNEL_TAG, name });
 }
 
 /** Parse `owner/repo` out of the flag or GITHUB_REPOSITORY. */
@@ -158,6 +182,7 @@ async function gh(url, { method = 'GET', body, headers = {} } = {}) {
 export async function publish(options = {}) {
   const notes = options.notes ?? notesOverride;
   const isDryRun = options.dryRun ?? dryRun;
+  const isPrerelease = options.prerelease ?? prereleaseFlag;
 
   const release = readRelease();
   if (!release) {
@@ -204,6 +229,7 @@ export async function publish(options = {}) {
       }),
       // What a device should actually be pointed at.
       stable_url: latestManifestUrl({ serverUrl, owner, repo, name: manifestName }),
+      beta_url: betaManifestUrl({ serverUrl, owner, repo, name: manifestName }),
       manifest,
     };
   }
@@ -224,7 +250,7 @@ export async function publish(options = {}) {
     htmlUrl = existing.html_url;
     await gh(`${api}/repos/${owner}/${repo}/releases/${releaseId}`, {
       method: 'PATCH',
-      body: { tag_name: tag, name: tag, body: bodyText },
+      body: { tag_name: tag, name: tag, body: bodyText, prerelease: isPrerelease },
     });
     // Replace both assets so the manifest can never outlive its APK.
     const assets = await gh(`${api}/repos/${owner}/${repo}/releases/${releaseId}/assets`);
@@ -238,14 +264,14 @@ export async function publish(options = {}) {
   } else {
     const created = await gh(`${api}/repos/${owner}/${repo}/releases`, {
       method: 'POST',
-      body: { tag_name: tag, name: tag, body: bodyText, draft: false, prerelease: false },
+      body: { tag_name: tag, name: tag, body: bodyText, draft: false, prerelease: isPrerelease },
     });
     releaseId = created.id;
     htmlUrl = created.html_url;
   }
 
-  const uploadAsset = async (name, data, contentType) => {
-    const url = `${uploads}/repos/${owner}/${repo}/releases/${releaseId}/assets?name=${encodeURIComponent(name)}`;
+  const uploadAsset = async (targetId, name, data, contentType) => {
+    const url = `${uploads}/repos/${owner}/${repo}/releases/${targetId}/assets?name=${encodeURIComponent(name)}`;
     const res = await fetch(url, {
       method: 'POST',
       headers: {
@@ -265,11 +291,16 @@ export async function publish(options = {}) {
 
   const apkBytes = fs.readFileSync(apk);
   const apkAsset = await uploadAsset(
+    releaseId,
     apkName,
     apkBytes,
     'application/vnd.android.package-archive',
   );
-  await uploadAsset(manifestName, Buffer.from(manifestJson, 'utf8'), 'application/json');
+  await uploadAsset(releaseId, manifestName, Buffer.from(manifestJson, 'utf8'), 'application/json');
+
+  const betaUrl = await refreshChannelRelease({
+    api, uploads, owner, repo, manifestJson, releaseTag: tag,
+  });
 
   return {
     tag,
@@ -278,9 +309,77 @@ export async function publish(options = {}) {
     apk_url: apkAsset.browser_download_url ?? apkUrl,
     manifest_url: assetDownloadUrl({ serverUrl, owner, repo, tag, name: manifestName }),
     stable_url: latestManifestUrl({ serverUrl, owner, repo, name: manifestName }),
+    beta_url: betaUrl,
     manifest,
     bytes_uploaded: apkBytes.length,
   };
+}
+
+/**
+ * Create or refresh the rolling `channel-beta` release and its version.json
+ * asset — the beta channel's manifest. Always carries the manifest just
+ * built, so the URL devices were switched to never 404s, and always marked
+ * prerelease so /releases/latest (the stable channel) skips it.
+ */
+async function refreshChannelRelease({ api, uploads, owner, repo, manifestJson, releaseTag }) {
+  const body = [
+    'Rolling beta channel manifest. Refreshed by publish-github.mjs on every',
+    'publish; the asset URL never changes, which is what makes the app\'s beta',
+    'channel switch safe. Not a release of its own — see ' + releaseTag + '.',
+  ].join('\n');
+
+  const existing = await gh(
+    `${api}/repos/${owner}/${repo}/releases/tags/${encodeURIComponent(CHANNEL_TAG)}`,
+  ).catch((e) => {
+    if (String(e.message).includes('HTTP 404')) return null;
+    throw e;
+  });
+
+  let channelId;
+  if (existing) {
+    channelId = existing.id;
+    await gh(`${api}/repos/${owner}/${repo}/releases/${channelId}`, {
+      method: 'PATCH',
+      body: { name: CHANNEL_TAG, body, prerelease: true },
+    });
+    const assets = await gh(`${api}/repos/${owner}/${repo}/releases/${channelId}/assets`);
+    for (const a of assets ?? []) {
+      if (a.name === 'version.json') {
+        await gh(`${api}/repos/${owner}/${repo}/releases/assets/${a.id}`, { method: 'DELETE' });
+      }
+    }
+  } else {
+    const created = await gh(`${api}/repos/${owner}/${repo}/releases`, {
+      method: 'POST',
+      body: {
+        tag_name: CHANNEL_TAG,
+        name: CHANNEL_TAG,
+        body,
+        draft: false,
+        prerelease: true,
+      },
+    });
+    channelId = created.id;
+  }
+
+  const url = `${uploads}/repos/${owner}/${repo}/releases/${channelId}/assets?name=version.json`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${requireEnv('GITHUB_TOKEN')}`,
+      accept: 'application/vnd.github+json',
+      'content-type': 'application/json',
+      'content-length': String(Buffer.byteLength(manifestJson)),
+    },
+    body: manifestJson,
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`upload channel manifest -> HTTP ${res.status}: ${text.slice(0, 300)}`);
+  }
+
+  const serverUrl = process.env.GITHUB_SERVER_URL ?? 'https://github.com';
+  return betaManifestUrl({ serverUrl, owner, repo });
 }
 
 // ---------------------------------------------------------------------- cli
@@ -309,6 +408,9 @@ async function main() {
     console.log(`  ${result.stable_url}`);
     console.log('  (stable — it always resolves to the newest release, so it never');
     console.log('   needs changing again)');
+    console.log('');
+    console.log('  beta channel (⋮ menu → Update source → Beta):');
+    console.log(`  ${result.beta_url}`);
     console.log('');
     console.log(`  per-release copy: ${result.manifest_url}`);
   } catch (e) {

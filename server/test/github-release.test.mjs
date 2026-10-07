@@ -383,3 +383,57 @@ test('the release currently on disk is internally consistent', () => {
   assert.equal(hosted.size, rel.size);
   assert.equal(gh.releaseTag(rel.version_name), `v${String(rel.version_name).replace(/^v/, '')}`);
 });
+
+// --------------------------------------------------------------------------
+// the beta channel
+//
+// The app's settings screen offers stable/beta; beta picks a URL that this
+// script must have published, or the switch reports a connection failure for
+// something that was never there. These tests pin the URL's shape and the
+// agreement between the two ends.
+// --------------------------------------------------------------------------
+
+test('the beta channel URL is a rolling asset that never moves', () => {
+  const url = gh.betaManifestUrl({ serverUrl: 'https://github.com', owner: 'o', repo: 'r' });
+  assert.equal(gh.CHANNEL_TAG, 'channel-beta');
+  assert.equal(url, 'https://github.com/o/r/releases/download/channel-beta/version.json');
+  // Not the stable route (a prerelease must not leak into it) and not a
+  // version pin (which would report one release for ever).
+  assert.ok(!url.includes('/releases/latest/'), 'beta must not alias the stable route');
+  assert.ok(!/\/download\/v\d/.test(url), 'a version-pinned beta URL freezes the channel');
+  assert.ok(url.endsWith('.json'), 'Updater.manifestUrl() only skips the base path for .json');
+  assert.notEqual(url, gh.latestManifestUrl({ serverUrl: 'https://github.com', owner: 'o', repo: 'r' }));
+});
+
+test('a dry run hands out both channel URLs', async () => {
+  writeRelease();
+  const out = await gh.publish({ dryRun: true, repo: 'octo/hanime-app' });
+  assert.equal(
+    out.beta_url,
+    'https://github.com/octo/hanime-app/releases/download/channel-beta/version.json',
+  );
+  assert.notEqual(out.beta_url, out.stable_url, 'two channels, two URLs');
+  assert.ok(!out.beta_url.includes('v1.1.0'), 'the beta URL must survive new releases');
+});
+
+test('the URL compiled into the app is the URL this script publishes to', () => {
+  // The two ends of the contract: build.gradle decides what the app asks,
+  // this script decides what exists. If they ever disagree, a device switched
+  // to beta queries a manifest nobody uploaded.
+  const gradle = path.resolve(import.meta.dirname, '../../android/app/build.gradle');
+  if (!fs.existsSync(gradle)) return; // server-only checkout
+  const src = fs.readFileSync(gradle, 'utf8');
+  const at = src.indexOf("'BETA_URL'");
+  assert.ok(at > 0, 'build.gradle no longer compiles a BETA_URL');
+  const literal = /\?:\s*'([^']+)'/.exec(src.slice(at));
+  assert.ok(literal, 'the BETA_URL default literal is missing');
+  assert.equal(
+    literal[1],
+    gh.betaManifestUrl({
+      serverUrl: 'https://github.com',
+      owner: 'Comitz134',
+      repo: 'hanime-app',
+    }),
+    'the app asks a different beta URL than publish-github.mjs refreshes',
+  );
+});

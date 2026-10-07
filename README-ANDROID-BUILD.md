@@ -96,7 +96,9 @@ Required after changing the client or the vendored signer. Guards in
 `server/test/web-client.test.mjs` fail if you forget: the bundled copy must stay
 byte-identical to what the server serves, the signer must stay parseable by
 WebView 83, the nav's five targets must match five views, and the library's
-storage calls must stay wrapped in `try`. (109 tests.)
+storage calls must stay wrapped in `try`. (112 tests. The updater's
+source/channel selection has 11 more as JVM tests:
+`gradle :app:testReleaseUnitTest`.)
 
 ```bash
 cd hanime-app
@@ -144,12 +146,12 @@ sha256sum "$APK"
 Current build:
 
 ```
-package: name='app.hanime.shell' versionCode='10' versionName='1.0.9'
+package: name='app.hanime.shell' versionCode='11' versionName='1.0.10'
 sdkVersion:'26'   targetSdkVersion:'34'
 launchable-activity: name='app.hanime.shell.MainActivity'
-permissions: INTERNET, ACCESS_NETWORK_STATE, REQUEST_INSTALL_PACKAGES
+permissions: INTERNET, ACCESS_NETWORK_STATE, REQUEST_INSTALL_PACKAGES, POST_NOTIFICATIONS
 Verifies / v2 scheme: true / signer CN=hanime shell (unchanged)
-1,248,938 bytes / sha256 b76ca343fb6e2415af27de8c49455c617081b22ae03d0138e9d037cc7fe5adf6
+1,266,746 bytes / sha256 d7e51684c6431a14d14d3f80c1b858b5832bed0f3b39fe83be47887ff72cbd55
   assets/index.html 113,655 bytes sha256 85a6aefe235f93b2aa6e28295c500ab4e30527343b6a2ef1ed37db49a62fa0c9
   assets/hls.min.js 413,952 bytes sha256 484054e8cd03d3f6d1781fb7f402bdc318d8a4c527f933a95c624e27cc9a9470
 ```
@@ -189,8 +191,17 @@ Where it looks is configurable:
 
 - default: this project's own GitHub release channel —
   `https://github.com/Comitz134/hanime-app/releases/latest/download/version.json`
-- build time: `-PupdateUrl=…` → `BuildConfig.UPDATE_URL` (overrides the default)
-- runtime: **⋮ menu → Update source** (stored in `SharedPreferences`, wins over both —
+- channel: **stable** (the default) or **beta**, chosen with the Channel row on
+  the Update source screen. The channel picks *which built-in manifest* is
+  consulted: stable is the `/releases/latest/` route above (GitHub skips
+  prereleases there), beta is the rolling
+  `…/releases/download/channel-beta/version.json` that `publish-github.mjs`
+  refreshes onto one fixed prerelease on every publish — so a device switched
+  to beta always asks a URL that exists, never a phantom. Build-time override:
+  `-PbetaUrl=…` → `BuildConfig.BETA_URL`.
+- build time: `-PupdateUrl=…` → `BuildConfig.UPDATE_URL` (the stable default)
+- runtime: **⋮ menu → Update source** (stored in `SharedPreferences`, wins over
+  both —
   unless it cannot be reached, in which case §6.1 applies)
 
 The default matters: an app that has to be handed an update URL before it will
@@ -218,9 +229,9 @@ and the device was stuck on its installed build for ever, silently.
 What the app does now:
 
 1. The check tries the effective source (saved override, else built-in).
-2. If that attempt **fails**, it tries the built-in source once more. A source
-   that *answers* is never second-guessed: `UP_TO_DATE`, `AVAILABLE` and
-   `NOT_CONFIGURED` all end the check where they are.
+2. If that attempt **fails**, it tries the selected channel's built-in source
+   once more. A source that *answers* is never second-guessed: `UP_TO_DATE`,
+   `AVAILABLE` and `NOT_CONFIGURED` all end the check where they are.
 3. An outcome that came from the fallback remembers the address that failed, so
    the reply names both the address that did not answer and the one that did:
 
@@ -259,17 +270,35 @@ stated again in the dialog that leads to an install.
    WebView's user agent, and how much the cover cache is holding). Both rounds of
    "check for updates doesn't work" were diagnosed over logcat; this is the
    screen that replaces that.
+8. **The channel selector always lands.** An override that merely repeats a
+   built-in URL — what prefill-and-save leaves behind — is dropped when the
+   channel is switched, so choosing Beta cannot be silently ignored by an
+   address that says what stable would have. A genuinely custom address is
+   kept, and still wins, as §6 says.
 
 Flow: detect (`version_code` strictly greater) → **auto-download** → verify
 sha256 **and** byte count → hand to Android's installer through the FileProvider
 URI. Nothing installs silently; the system consent screen always appears. A
 mismatched checksum deletes the file and aborts.
 
+A finished, verified download also earns a **system notification** ("Version X
+ready to install") — the one moment a user shouldn't have to open the app to
+learn something. Requirements are handled the modern way: a notification
+declared in the manifest, and `POST_NOTIFICATIONS` requested on Android 13+ at
+the only moment it matters — when an update is actually found, not on first
+launch. Tapping the notification hands off to the same install dialog the app
+already shows (`Updater.EXTRA_INSTALL_READY` → `promptInstall`), with the
+downloaded manifest kept in the updater's own preferences, so the tap still
+lands correctly after the process has died. No download, no notification: an
+up-to-date check posts nothing and retracts anything already in the tray, so
+the app never claims an update is waiting when it isn't.
+
 ### 6.2 Publishing the update source to GitHub Releases
 
 The app's check has to answer from a phone that is nowhere near your machine,
 so a GitHub Release is the update source: two assets on a `v<versionName>`
-release, the APK and `version.json`.
+release, the APK and `version.json`, plus a rolling `channel-beta` manifest the
+beta channel reads.
 
 **Required environment:**
 
@@ -296,7 +325,12 @@ node scripts/publish-github.mjs               # creates the release and uploads 
 ```
 
 Re-running replaces both assets on the same tag, so the manifest can never
-outlive its APK.
+outlive its APK. The same run also upserts `version.json` onto a rolling
+prerelease tagged `channel-beta` — the beta channel's manifest — so the URL the
+app's channel switch points at exists from the first publish onwards and is
+refreshed every time. Pass `--prerelease` to mark *this* release beta-only:
+GitHub's `/releases/latest/` route (the stable channel) skips prereleases,
+while `channel-beta` carries them.
 
 The script prints **two** URLs, and the one to configure on devices is the
 second:
@@ -304,6 +338,7 @@ second:
 | URL | Use |
 |---|---|
 | `…/releases/latest/download/version.json` | **the one to use** — always resolves to the newest release |
+| `…/releases/download/channel-beta/version.json` | the **beta** channel — rolling `channel-beta` prerelease, refreshed on every publish |
 | `…/releases/download/v<versionName>/version.json` | per-release copy, for pinning or auditing |
 
 Never configure the pinned one: a phone pointed at `…/v1.0.3/version.json`
@@ -667,6 +702,52 @@ settings, measured on the same emulator through the same devtools socket:
 The suite grew to 109 with two guards: the navbar is a menu (strip gone, back
 closes it, picking a section shuts it), and appearance persists under
 `htv:prefs:v1` with light/accent/motion rules present in the stylesheet.
+
+### 8.0.2 Channels and the download notification (v11 / 1.0.10)
+
+Both spec gaps closed and measured on the emulator, against a local update
+source that published a fake `version_code: 99` with the real APK's bytes:
+
+- **No notification, no permission, no noise when current.** On a fresh install
+  the cold start logged `checking … versionCode 11` → `UP_TO_DATE 1.0.10` and
+  `dumpsys notification` held zero records for the package.
+- **The permission is asked at the only moment it matters.** With the mock
+  source saved and the check returning `AVAILABLE`, the system dialog appeared
+  — `Allow hanime to send you notifications?` — requested at download time
+  rather than on first launch. Tapping Allow recorded
+  `POST_NOTIFICATIONS: granted=true`.
+- **The notification exists and carries the install handoff.** After grant, a
+  second check downloaded and verified (sha256 matched), then logged
+  `notified: update 9.9.9 ready to install`; `dumpsys notification` showed
+  `pkg=app.hanime.shell … channel=updates … importance=4` with a
+  `contentIntent` PendingIntent.
+- **Tap hands off to the existing install flow, even after process death.**
+  Delivering the intent extras (`INSTALL_READY`) to the running app
+  (`onNewIntent`) and to a cold, freshly force-stopped process (`onCreate`)
+  both produced the same dialog: *Version 9.9.9 is available (you have
+  1.0.10) … What changed: notification exercise* with LATER /
+  DOWNLOAD AND INSTALL — the dialog the app already had, reached through the
+  record kept in the updater's own preferences.
+- **The channel switch lands on a published manifest.** Tapping BETA on the
+  settings screen turned the status line to `Channel: beta` with the
+  `channel-beta/version.json` address; the next cold start logged
+  `asking …/releases/download/channel-beta/version.json` →
+  `UP_TO_DATE 1.0.10`. (The first attempt hit a transient 30 s read timeout —
+  reported by name in the log and on the status screen, exactly like any other
+  source failure; the retry answered. The URL itself was also fetched
+  anonymously: HTTP 200, same manifest and sha256 as stable.)
+- **An up-to-date check retracts the claim.** With `notifications=1` in the
+  tray, clearing the override and cold-starting logged `UP_TO_DATE` and the
+  count went `1 → 0`.
+- Tapping STABLE restored `Channel: stable` and a final cold start asked the
+  stable URL → `UP_TO_DATE 1.0.10`, tray empty.
+
+Suites: `node --test "test/*.test.mjs"` → 112/112 and
+`gradle :app:testReleaseUnitTest` → 11/11, both exit 0. The node suite gained
+the channel contract: the beta URL is a rolling asset, a dry run hands out
+both channel URLs, and **the URL compiled into `build.gradle` must equal the
+one `publish-github.mjs` refreshes** — it caught its own regex before it
+caught anything else.
 
 ### 8.1 What is not verified here
 

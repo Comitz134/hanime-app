@@ -23,6 +23,12 @@
     <string name="settings_copy">Copy diagnostics</string>
     <string name="settings_copied">Diagnostics copied to the clipboard.</string>
 
+    <string name="settings_channel">Channel</string>
+    <string name="settings_channel_now">Channel: %1$s</string>
+    <string name="channel_stable">Stable</string>
+    <string name="channel_beta">Beta</string>
+    <string name="channel_switched">Update channel: %1$s</string>
+
     <string name="last_up_to_date">up to date (%1$s)</string>
     <string name="last_available">%1$s available</string>
     <string name="last_downloaded">downloaded %1$s</string>
@@ -34,6 +40,7 @@
     <string name="diag_package">applicationId: %1$s</string>
     <string name="diag_source">effective source: %1$s</string>
     <string name="diag_builtin">built-in source: %1$s</string>
+    <string name="diag_channel">channel: %1$s</string>
     <string name="diag_override">saved override: %1$s</string>
     <string name="diag_none">(none)</string>
     <string name="diag_never">never</string>
@@ -58,6 +65,10 @@
     <string name="menu_reload">Reload</string>
 
     <string name="update_checking">Checking for updates…</string>
+
+    <string name="notif_channel_name">Updates</string>
+    <string name="notif_title">Version %1$s ready to install</string>
+    <string name="notif_text">Tap to finish installing the update.</string>
     <string name="update_none">You are on the latest version (%1$s).</string>
     <string name="update_available">Version %1$s is available (you have %2$s).</string>
     <string name="update_download">Download and install</string>

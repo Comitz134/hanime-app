@@ -88,10 +88,52 @@
             android:layout_marginTop="20dp"
             android:background="@color/shell_card" />
 
+        <!--
+          Which built-in manifest the updater consults: stable is the newest
+          published release, beta is the channel-beta manifest (a rolling
+          prerelease asset). A saved address below still wins over both.
+        -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
+            android:layout_marginTop="20dp"
+            android:labelFor="@id/settings_channel_stable"
+            android:text="@string/settings_channel"
+            android:textColor="@color/shell_muted"
+            android:textSize="12sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/settings_channel_stable"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:backgroundTint="@color/shell_card"
+                android:text="@string/channel_stable"
+                android:textColor="@color/shell_muted"
+                android:textSize="12sp" />
+
+            <Button
+                android:id="@+id/settings_channel_beta"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:layout_weight="1"
+                android:backgroundTint="@color/shell_card"
+                android:text="@string/channel_beta"
+                android:textColor="@color/shell_muted"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
             android:labelFor="@id/settings_field"
             android:text="@string/server_label"
             android:textColor="@color/shell_muted"

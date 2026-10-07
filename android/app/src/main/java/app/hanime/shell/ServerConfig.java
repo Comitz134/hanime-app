@@ -6,15 +6,17 @@ import android.content.SharedPreferences;
 import java.util.Locale;
 
 /**
- * Where new builds are published — the update source, and nothing else.
+ * The one runtime override of the update source — and nothing else.
  *
  * The client is bundled in the APK and answered by ApiServer, so the app has no
- * server to talk to any more; the single setting that survives is where to look
- * for a newer version of itself. A saved value overrides the compiled-in
- * default, which is why an address typed for a proxy on the local machine used
- * to be able to strand a device on an old build: the saved override wins on
- * every start. [Updater] therefore retries once against the built-in default
- * when a saved source cannot be reached.
+ * server to talk to any more; the only address that survives is one a person
+ * typed. Which source is actually *used* — the override, else the selected
+ * channel's built-in URL — is resolved by {@link Updater#address(Context)},
+ * because the channel is update state and lives with the updater. A saved
+ * override wins on every start, which is why an address typed for a proxy on
+ * the local machine used to be able to strand a device on an old build:
+ * [Updater] therefore retries once against the channel's built-in source when
+ * a saved source cannot be reached, and forgets an address that never answers.
  */
 final class ServerConfig {
 
@@ -31,36 +33,12 @@ final class ServerConfig {
         return saved == null ? "" : saved;
     }
 
-    /**
-     * The source actually used: the saved override, or the compiled-in default.
-     * The default is never "10.0.2.2" on a shipped build — see §6 of the README.
-     */
-    static String get(Context context) {
-        String saved = stored(context);
-        if (!saved.isEmpty()) return saved;
-        // No runtime override: fall back to whatever the build was given. An
-        // empty UPDATE_URL means "not configured", which the updater reports
-        // rather than treating as a connection failure.
-        return BuildConfig.UPDATE_URL;
-    }
-
-    /** The built-in default, for the settings screen's reset button. */
-    static String builtIn() {
-        return BuildConfig.UPDATE_URL.trim();
-    }
-
     /** Forgets the override, so the app goes back to its own source. */
     static void clear(Context context) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .edit()
                 .remove(KEY_URL)
                 .apply();
-    }
-
-    /** True when an update source has actually been configured. */
-    static boolean isConfigured(Context context) {
-        String url = get(context);
-        return url != null && !url.trim().isEmpty();
     }
 
     /**

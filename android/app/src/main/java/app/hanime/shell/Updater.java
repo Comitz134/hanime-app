@@ -1,12 +1,20 @@
 package app.hanime.shell;
 
+import android.Manifest;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.util.Log;
 
 import androidx.core.content.FileProvider;
+
+import org.json.JSONObject;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -33,6 +41,161 @@ import java.util.concurrent.Executors;
 final class Updater {
 
     private static final String TAG = "ShellUpdater";
+
+    // ---------------------------------------------------------------- channels
+
+    static final String CHANNEL_STABLE = "stable";
+    static final String CHANNEL_BETA = "beta";
+
+    /** Which channel a device is on. Stored beside the other update state. */
+    static String channel(Context app) {
+        String value = app.getSharedPreferences("shell", Context.MODE_PRIVATE)
+                .getString("update_channel", CHANNEL_STABLE);
+        return CHANNEL_BETA.equals(value) ? CHANNEL_BETA : CHANNEL_STABLE;
+    }
+
+    static void setChannel(Context app, String channel) {
+        String value = CHANNEL_BETA.equals(channel) ? CHANNEL_BETA : CHANNEL_STABLE;
+        app.getSharedPreferences("shell", Context.MODE_PRIVATE)
+                .edit()
+                .putString("update_channel", value)
+                .apply();
+        // An override that merely repeats a built-in URL is not an override —
+        // it is what prefill-and-save leaves behind. Dropping it here is what
+        // makes switching the channel actually switch what gets consulted; a
+        // genuinely custom address is kept and keeps winning, as §6 says.
+        String saved = ServerConfig.stored(app);
+        if (saved.equals(BuildConfig.UPDATE_URL) || saved.equals(betaUrl())) {
+            ServerConfig.clear(app);
+        }
+    }
+
+    /** The built-in source for a channel. Pure — unit-tested. */
+    static String builtInFor(String channel, String stableUrl, String betaUrl) {
+        return CHANNEL_BETA.equals(channel) ? betaUrl : stableUrl;
+    }
+
+    /**
+     * The source a check consults: a saved override wins, else the channel's
+     * built-in URL. Pure — unit-tested.
+     */
+    static String selectSource(String savedOverride, String channel,
+                               String stableUrl, String betaUrl) {
+        String saved = savedOverride == null ? "" : savedOverride.trim();
+        if (!saved.isEmpty()) return saved;
+        return builtInFor(channel, stableUrl, betaUrl);
+    }
+
+    private static String betaUrl() {
+        // Compiled in by build.gradle (a rolling asset URL that always exists
+        // because publish-github.mjs refreshes it on every publish).
+        return BuildConfig.BETA_URL.trim();
+    }
+
+    /** The built-in source this device ships with — the selected channel's. */
+    static String builtIn(Context app) {
+        return builtInFor(channel(app), BuildConfig.UPDATE_URL.trim(), betaUrl());
+    }
+
+    /** The address a check will actually use — override or channel built-in. */
+    static String address(Context app) {
+        return selectSource(ServerConfig.stored(app), channel(app),
+                BuildConfig.UPDATE_URL, betaUrl());
+    }
+
+    // ---------------------------------------------------------------- install-ready notification
+
+    /** Set on the intent a downloaded-update notification carries. */
+    static final String EXTRA_INSTALL_READY = "app.hanime.shell.INSTALL_READY";
+    private static final String NOTIFY_CHANNEL_ID = "updates";
+    private static final String KEY_PENDING = "pending_update";
+
+    /**
+     * Tell the user the APK is on disk, so they don't have to open the app to
+     * find out. Posted only for DOWNLOADED — a check that came back
+     * UP_TO_DATE has nothing to say and says nothing. Skipped (not failed)
+     * when notifications are not permitted: the in-app prompt still appears
+     * on the next open.
+     */
+    private static void notifyDownloaded(Context app, UpdateInfo info) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                    && app.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                            != PackageManager.PERMISSION_GRANTED) {
+                return;
+            }
+            NotificationManager nm =
+                    (NotificationManager) app.getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm == null) return;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                nm.createNotificationChannel(new NotificationChannel(
+                        NOTIFY_CHANNEL_ID,
+                        app.getString(R.string.notif_channel_name),
+                        NotificationManager.IMPORTANCE_HIGH));
+            }
+            Intent tap = new Intent(app, MainActivity.class)
+                    .setAction(EXTRA_INSTALL_READY)
+                    .putExtra(EXTRA_INSTALL_READY, true)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            PendingIntent pi = PendingIntent.getActivity(app, 1, tap,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            Notification notification = new Notification.Builder(app, NOTIFY_CHANNEL_ID)
+                    .setSmallIcon(R.drawable.ic_launcher_foreground)
+                    .setContentTitle(app.getString(R.string.notif_title, info.versionName))
+                    .setContentText(app.getString(R.string.notif_text))
+                    .setContentIntent(pi)
+                    .setAutoCancel(true)
+                    .setOnlyAlertOnce(true)
+                    .build();
+            nm.notify((int) info.versionCode, notification);
+            Log.i(TAG, "notified: update " + info.versionName + " ready to install");
+        } catch (Exception e) {
+            // A missing permission or a blocked channel costs a notification,
+            // never the update itself.
+            Log.w(TAG, "could not post the download notification", e);
+        }
+    }
+
+    /**
+     * Remember what finished downloading, so tapping the notification can
+     * reopen the install dialog even after the process has died. The manifest
+     * is re-parsed through UpdateInfo.parse, which refuses a half-written
+     * record — a corrupt entry simply means no dialog, never a crash.
+     */
+    private static void rememberDownloaded(Context app, UpdateInfo info) {
+        try {
+            JSONObject json = new JSONObject();
+            json.put("configured", true);
+            json.put("version_code", info.versionCode);
+            json.put("version_name", info.versionName);
+            json.put("apk_url", info.apkUrl);
+            json.put("size", info.size);
+            json.put("sha256", info.sha256 == null ? "" : info.sha256);
+            json.put("notes", info.notes == null ? "" : info.notes);
+            prefs(app).edit().putString(KEY_PENDING, json.toString()).apply();
+        } catch (Exception e) {
+            Log.w(TAG, "could not remember the downloaded update", e);
+        }
+    }
+
+    /** The update waiting to be installed, or null when there is none. */
+    static UpdateInfo pendingInfo(Context app) {
+        String raw = prefs(app).getString(KEY_PENDING, null);
+        if (raw == null) return null;
+        try {
+            return UpdateInfo.parse(raw);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static void clearPending(Context app) {
+        prefs(app).edit().remove(KEY_PENDING).apply();
+    }
+
+    private static android.content.SharedPreferences prefs(Context app) {
+        return app.getSharedPreferences("shell", Context.MODE_PRIVATE);
+    }
 
     interface Callback {
         /** Runs on the main thread. */
@@ -129,7 +292,7 @@ final class Updater {
             // source is tried once, and the outcome says which one failed.
             if (outcome.kind == Outcome.Kind.FAILED) {
                 String saved = ServerConfig.stored(app);
-                String builtIn = ServerConfig.builtIn();
+                String builtIn = builtIn(app);
                 if (!saved.isEmpty() && !builtIn.isEmpty() && !builtIn.equals(saved)) {
                     Log.w(TAG, "saved source failed (" + saved + "), trying the built-in one");
                     Outcome second = attempt(app, manifestUrl(builtIn));
@@ -170,9 +333,23 @@ final class Updater {
             detail = outcome.info.versionName;
         }
         String source = outcome.fellBackFrom != null
-                ? ServerConfig.builtIn()
-                : ServerConfig.get(app);
+                ? builtIn(app)
+                : address(app);
         UpdateLog.record(app, outcome.kind.name(), detail, source);
+        // Nothing newer exists (or nothing is configured), so anything still
+        // remembered from a previous download is stale: the install-ready
+        // notification must not outlive the update it announced — a tap on a
+        // retracted update would open a dialog for something no longer there.
+        if (outcome.kind == Outcome.Kind.UP_TO_DATE
+                || outcome.kind == Outcome.Kind.NOT_CONFIGURED) {
+            clearPending(app);
+            NotificationManager nm = (NotificationManager)
+                    app.getSystemService(Context.NOTIFICATION_SERVICE);
+            // The app posts exactly one kind of notification (an update ready
+            // to install), so this retracts it wholesale rather than
+            // remembering which version was announced.
+            if (nm != null) nm.cancelAll();
+        }
     }
 
     /** One request against one source. Never throws. */
@@ -219,6 +396,12 @@ final class Updater {
         Context app = context.getApplicationContext();
         final Callback ui = outcome -> {
             record(app, outcome);
+            if (outcome.kind == Outcome.Kind.DOWNLOADED) {
+                // The one moment worth a system notification: the APK is on
+                // disk and verified, and installing it is a tap away.
+                rememberDownloaded(app, info);
+                notifyDownloaded(app, info);
+            }
             callback.onResult(outcome);
         };
         POOL.execute(() -> {
@@ -396,11 +579,11 @@ final class Updater {
      * for `/api/app/version`.
      */
     private static String source(Context app) {
-        return manifestUrl(ServerConfig.get(app));
+        return manifestUrl(address(app));
     }
 
-    /** A configured address turned into the manifest URL it implies. */
-    private static String manifestUrl(String configured) {
+    /** A configured address turned into the manifest URL it implies. Pure — unit-tested. */
+    static String manifestUrl(String configured) {
         String url = configured == null ? "" : configured.trim();
         if (url.isEmpty()) return null;
         return url.endsWith(".json") ? url : trimSlash(url) + "/api/app/version";
@@ -408,14 +591,14 @@ final class Updater {
 
     /** The address a person recognises — what the settings screen shows. */
     static String sourceLabel(Context app) {
-        return ServerConfig.get(app);
+        return address(app);
     }
 
     /** Directory the manifest lives in — the base a relative apk_url resolves against. */
     private static String sourceBase(Context app) {
         String base = lastManifestBase;
         if (base != null && !base.isEmpty()) return base;
-        return baseOf(ServerConfig.get(app));
+        return baseOf(address(app));
     }
 
     private static String baseOf(String configured) {

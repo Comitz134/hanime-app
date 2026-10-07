@@ -59,6 +59,7 @@ public class MainActivity extends Activity {
     private static final int REQUEST_SETTINGS = 1001;
     private static final int REQUEST_EXPORT = 1002;
     private static final int REQUEST_IMPORT = 1003;
+    private static final int REQUEST_NOTIFICATIONS = 1004;
 
     /** How long a session may run before it is worth asking about updates again. */
     private static final long CHECK_INTERVAL_MS = 6L * 60 * 60 * 1000L;
@@ -161,6 +162,49 @@ public class MainActivity extends Activity {
         // An update check on every cold start is the point of the feature: the
         // app notices a new build without the user thinking about it.
         checkForUpdates(false);
+
+        // A tap on the "update ready" notification arrives here, whether the
+        // app was running or the process had to be started for it.
+        handleInstallReady(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleInstallReady(intent);
+    }
+
+    /**
+     * The notification's tap hands off to the install flow the app already
+     * has: the dialog that offers to hand the verified APK to the system
+     * installer. The record of what was downloaded lives in [Updater], so
+     * this works even when the tap had to start a fresh process.
+     */
+    private void handleInstallReady(Intent intent) {
+        if (intent == null || !intent.getBooleanExtra(Updater.EXTRA_INSTALL_READY, false)) {
+            return;
+        }
+        intent.removeExtra(Updater.EXTRA_INSTALL_READY);   // one prompt per tap
+        final UpdateInfo info = Updater.pendingInfo(this);
+        if (info == null) return;   // nothing on disk (or the record was stale)
+        root.post(() -> promptInstall(info));   // after the first layout
+    }
+
+    /**
+     * Android 13+ needs the runtime POST_NOTIFICATIONS grant before anything
+     * can appear in the tray. Asked for at the only moment it matters — when
+     * an update has actually been found and is about to download — rather than
+     * on first launch for a feature that may never fire. A refusal costs the
+     * notification and nothing else: the dialog still appears on next open.
+     */
+    private void requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                        != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},
+                    REQUEST_NOTIFICATIONS);
+        }
     }
 
     @Override
@@ -448,7 +492,7 @@ public class MainActivity extends Activity {
                         if (outcome.fellBackFrom != null) {
                             toastLong(getString(R.string.update_none, outcome.message)
                                     + " " + getString(R.string.update_fell_back,
-                                    outcome.fellBackFrom, ServerConfig.builtIn()));
+                                    outcome.fellBackFrom, Updater.builtIn(this)));
                         } else {
                             toast(getString(R.string.update_none, outcome.message));
                         }
@@ -465,6 +509,7 @@ public class MainActivity extends Activity {
                     // the device without the user agreeing to it — but the
                     // waiting is done before they are asked.
                     pendingFallback = outcome.fellBackFrom;
+                    requestNotificationPermission();
                     downloadUpdate(outcome.info);
                     break;
                 case FAILED:
@@ -504,7 +549,12 @@ public class MainActivity extends Activity {
     }
 
     /** Shown once the APK is on disk and verified — the last step needs a tap. */
+    private AlertDialog installPrompt;
+
     private void promptInstall(UpdateInfo info) {
+        // The notification tap and the download completing can both land here;
+        // one dialog at a time.
+        if (installPrompt != null && installPrompt.isShowing()) return;
         StringBuilder body = new StringBuilder();
         body.append(getString(R.string.update_available, info.versionName, BuildConfig.VERSION_NAME));
         if (info.size > 0) {
@@ -513,13 +563,13 @@ public class MainActivity extends Activity {
         body.append("\n\n").append(getString(R.string.update_install_prompt));
         if (pendingFallback != null) {
             body.append("\n\n").append(getString(R.string.update_fell_back,
-                    pendingFallback, ServerConfig.builtIn()));
+                    pendingFallback, Updater.builtIn(this)));
         }
         if (info.notes != null && !info.notes.isEmpty()) {
             body.append("\n\n").append(getString(R.string.update_notes, info.notes));
         }
 
-        new AlertDialog.Builder(this, R.style.Theme_Shell_Dialog)
+        installPrompt = new AlertDialog.Builder(this, R.style.Theme_Shell_Dialog)
                 .setTitle(R.string.menu_update)
                 .setMessage(body.toString())
                 .setPositiveButton(R.string.update_download, (d, w) -> {

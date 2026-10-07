@@ -25,8 +25,8 @@ android {
         applicationId 'app.hanime.shell'
         minSdk 26          // adaptive icons + modern WebView APIs; Android 8.0+
         targetSdk 34
-        versionCode 10
-        versionName '1.0.9'
+        versionCode 11
+        versionName '1.0.10'
 
         // Where the updater asks for new builds. Empty means "no update source
         // configured": the check reports that instead of dialling a dead host.
@@ -45,6 +45,14 @@ android {
         def updateUrl = project.findProperty('updateUrl')
                 ?: 'https://github.com/Comitz134/hanime-app/releases/latest/download/version.json'
         buildConfigField 'String', 'UPDATE_URL', '"' + updateUrl + '"'
+
+        // The beta channel's manifest — consulted when the settings screen's
+        // channel selector says beta. Like the stable URL it is a rolling
+        // address that never moves; publish-github.mjs refreshes the asset it
+        // points at on every publish, so switching to beta can never land on a
+        // URL nobody has published yet. Override with -PbetaUrl=.
+        buildConfigField 'String', 'BETA_URL',
+                '"' + (project.findProperty('betaUrl') ?: 'https://github.com/Comitz134/hanime-app/releases/download/channel-beta/version.json') + '"'
 
         // Kept for the settings screen's "use the default" shortcut.
         buildConfigField 'String', 'DEFAULT_SERVER_URL',
@@ -96,6 +104,10 @@ dependencies {
     // the downloaded APK to the system installer across a process boundary,
     // which is exactly what this provides. Everything else is the framework.
     implementation 'androidx.core:core:1.13.1'
+
+    // Unit tests for the updater's pure source/channel selection — the logic
+    // that decides which manifest a check consults, tested without a device.
+    testImplementation 'junit:junit:4.13.2'
 }
 
 // Surface the version the APK will actually carry, so a release is never
