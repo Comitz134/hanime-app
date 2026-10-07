@@ -341,6 +341,57 @@ test('the library can leave the device and come back', () => {
   assert.ok(/byslug\.get\(e\.slug\)/.test(script), 'an import does not merge history by title');
 });
 
+test('the navbar is a menu, not a strip you have to swipe', () => {
+  // The section strip lived inside the pill and scrolled sideways on a phone:
+  // everything past Browse — Genres, Studios, Playlists, Library — was only
+  // reachable by dragging the navbar, which nobody discovers. The pill now
+  // keeps its buttons and hands every section to a three-line menu.
+  assert.ok(html.includes(' id="menu-toggle"'), 'no three-line button on the pill');
+  assert.ok(html.includes(' id="nav-menu"'), 'the button has nowhere to open');
+  assert.ok(!html.includes('class="nav-links"'), 'the swipeable strip is still in the nav');
+
+  const script = inlineScripts(html)[0];
+  assert.ok(/function setMenuOpen\(/.test(script), 'nothing opens or closes the menu');
+  // The menu is a thing on screen, so back closes it before leaving the app —
+  // same contract as the sheet and the search field.
+  assert.ok(/function menuIsOpen\(/.test(script), 'the menu reports no state');
+  assert.ok(/menuIsOpen\(\)[\s\S]{0,200}?setMenuOpen\(false\)/.test(script),
+    '__shellBack never closes the menu');
+  // Choosing a section is a decision: the menu must not stay over the view it
+  // just opened.
+  assert.ok(/if \(menuIsOpen\(\)\) setMenuOpen\(false\);\s*\/\/ choosing a section/.test(script),
+    'picking a section leaves the menu open');
+  assert.ok(html.includes('.nav-menu '), 'no stylesheet rule draws the menu');
+});
+
+test("appearance is the reader's, and it survives a restart", () => {
+  // Theme and accent used to be the build's business: wanting a light screen
+  // meant rebuilding the app. The choices live in their own guarded key, so a
+  // refused storage keeps the defaults and a self-update carries the rest.
+  const script = inlineScripts(html)[0];
+  const css = stylesheets(html)[0];
+
+  assert.ok(script.includes('htv:prefs:v1'), 'the prefs key moved');
+  assert.ok(/function applyPrefs\(/.test(script), 'nothing applies the prefs');
+  assert.ok(script.includes('document.body.dataset.theme'), 'the theme never reaches the DOM');
+  assert.ok(script.includes('document.body.dataset.accent'), 'the accent never reaches the DOM');
+  assert.ok(script.includes("prefers-color-scheme"), 'System does not follow the system');
+  // Guarded like the library: a storage that refuses must not break the page.
+  assert.ok(/try \{[\s\S]*?localStorage\.setItem\(PREFS_KEY/.test(script),
+    'the prefs write is unguarded');
+
+  for (const id of ['theme-seg', 'accent-row', 'pref-motion']) {
+    assert.ok(html.includes(` id="${id}"`), `missing #${id}`);
+  }
+  // The themes are token swaps on the body, not a second stylesheet.
+  assert.ok(css.includes('body[data-theme="light"]'), 'no light palette');
+  assert.ok(css.includes('body[data-accent="'), 'no accent palettes');
+  assert.ok(css.includes('body[data-motion="reduced"]'), 'motion cannot be calmed');
+  for (const name of ['amber', 'rose', 'violet', 'sky', 'mint']) {
+    assert.ok(html.includes(`data-accent-pick="${name}"`), `missing accent ${name}`);
+  }
+});
+
 test('picture in picture is offered only when the shell supports it', () => {
   const script = inlineScripts(html)[0];
   assert.ok(script.includes('pictureInPictureSupported'), 'the page never asks about PiP support');

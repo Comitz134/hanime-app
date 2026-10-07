@@ -96,7 +96,7 @@ Required after changing the client or the vendored signer. Guards in
 `server/test/web-client.test.mjs` fail if you forget: the bundled copy must stay
 byte-identical to what the server serves, the signer must stay parseable by
 WebView 83, the nav's five targets must match five views, and the library's
-storage calls must stay wrapped in `try`. (107 tests.)
+storage calls must stay wrapped in `try`. (109 tests.)
 
 ```bash
 cd hanime-app
@@ -144,13 +144,13 @@ sha256sum "$APK"
 Current build:
 
 ```
-package: name='app.hanime.shell' versionCode='9' versionName='1.0.8'
+package: name='app.hanime.shell' versionCode='10' versionName='1.0.9'
 sdkVersion:'26'   targetSdkVersion:'34'
 launchable-activity: name='app.hanime.shell.MainActivity'
 permissions: INTERNET, ACCESS_NETWORK_STATE, REQUEST_INSTALL_PACKAGES
 Verifies / v2 scheme: true / signer CN=hanime shell (unchanged)
-1,245,534 bytes / sha256 f2e7e7315ea2de920c93e3d80a46bbbcd1d150e4ea537c0c4acb1ab8a423edf9
-  assets/index.html 99,434 bytes  sha256 4fcebf6b2d0f6253dd0c35bf51c160bd283bf219d18de1ca79db72614f9283cb
+1,248,938 bytes / sha256 b76ca343fb6e2415af27de8c49455c617081b22ae03d0138e9d037cc7fe5adf6
+  assets/index.html 113,655 bytes sha256 85a6aefe235f93b2aa6e28295c500ab4e30527343b6a2ef1ed37db49a62fa0c9
   assets/hls.min.js 413,952 bytes sha256 484054e8cd03d3f6d1781fb7f402bdc318d8a4c527f933a95c624e27cc9a9470
 ```
 
@@ -349,10 +349,15 @@ and a self-update.
 
 **Navigation** switches views in place via `showView()`. This is what the
 navbar used to do with anchors: `body[data-view]` is marked, exactly one `.view`
-carries `data-active`, the active link is scrolled into the strip, and nothing
-scrolls to a section any more. Below 768 px the strip stays inside the pill and
-scrolls sideways rather than collapsing into a menu — the pill is the only
-navigation a phone has.
+carries `data-active`, the active item in the menu is marked, and nothing
+scrolls to a section any more. The pill itself carries buttons only — the five
+sections moved behind a three-line menu (`#menu-toggle` → `#nav-menu`), because
+the strip that preceded it scrolled sideways on a phone: Studios, Playlists and
+Library were only reachable by dragging the navbar, which nobody discovers.
+Choosing an item switches the view and shuts the menu; a tap anywhere else
+shuts it too; back closes it before it is allowed to leave the app, the same
+contract as the sheet and the search field. The menu also carries appearance
+settings (§7.2).
 
 **Playlists by name.** Catalog search still answers with titles, and now also
 asks the playlist indexes for a title match (`/api/public/playlists?q=`, plus
@@ -384,6 +389,31 @@ hands the text to the page, which owns the format. An import **merges**: a title
 already on the device is kept, the newest record of a title wins, history is
 re-sorted by its timestamp, and the newest position wins — a file from last month
 can never erase what is on the phone today.
+
+---
+
+### 7.2 Appearance: themes, accents, motion
+
+The menu also holds how the app looks, because that used to be the build's
+business: wanting a light screen meant rebuilding the app. Three choices, all
+stored in the WebView's `localStorage` under `htv:prefs:v1`, guarded like the
+library:
+
+- **Theme** — dark (the measured palette), light, or *system*. System is a
+  preference, not a palette: what reaches the DOM is always one of the two, so
+  every rule has exactly one thing to match, and a device that flips to light
+  mid-session is followed (`prefers-color-scheme` listener).
+- **Accent** — amber (default), rose, violet, sky, mint. An accent is a hue
+  swap on the tokens the stylesheet already composes against; a theme is a
+  token swap on `body`. Neither rewrites a component. Light restates the five
+  surfaces painted with literal colours and deepens the primary, because a
+  pastel button on a white page is unreadable.
+- **Reduce motion** — the bargain `prefers-reduced-motion` already strikes,
+  but on the reader's word rather than the OS's.
+
+Applied as `body[data-theme]`, `body[data-accent]` and `body[data-motion]`.
+The choices survive a restart and a self-update because they live in
+app-owned storage, and a storage that refuses simply keeps the defaults.
 
 ---
 
@@ -598,6 +628,45 @@ it — an anonymous `curl` of `/releases/latest/download/version.json` returned
 `version_code: 9`, `version_name: 1.0.8`, and an anonymous download of its
 `apk_url` came back 1,245,534 bytes with sha256 `f2e7e731…`, byte-identical
 (`cmp`) to the APK in `android/app/build/outputs/apk/release/`.
+
+### 8.0.1 The menu and the themes (v10 / 1.0.9)
+
+The 1.0.9 build (v10, `1,248,938` bytes, sha256 `b76ca343…`) replaced the
+swipeable section strip with the three-line menu and added the appearance
+settings, measured on the same emulator through the same devtools socket:
+
+```json
+{ "boot": { "menuHidden": true, "expanded": "false",
+            "items": ["browse","genres","studios","playlists","library"],
+            "stripGone": true, "theme": "dark", "accent": "amber" },
+  "open": { "hidden": false, "expanded": "true", "rect": [40, 69, 304, 401] },
+  "picked": { "view": "studios", "menuHidden": true, "current": ["studios"],
+              "activeViews": ["studios"] },
+  "backClosesMenu": true, "backNothingLeft": true,
+  "light": { "theme": "light", "bg": "rgb(247, 247, 247)",
+             "fg": "rgb(31, 31, 31)" },
+  "lightRose": { "accent": "rose", "primary": "350 65% 46%" },
+  "stored": "{\"theme\":\"dark\",\"accent\":\"amber\",\"motion\":\"full\"}" }
+```
+
+- The menu opens 69 px below the pill, 304×401, entirely inside the 390×844
+  viewport: every section is one tap away instead of a drag away.
+- `input keyevent 4` with the menu open closed it and left
+  `topResumedActivity=…MainActivity` — the first back press dismisses the menu,
+  it does not leave the app. (A second press with nothing open does.)
+- The theme switch is visible in computed styles, not just the attribute:
+  background `rgb(17, 17, 17)` → `rgb(247, 247, 247)`, foreground
+  `rgb(31, 31, 31)`, and light+rose resolves the *combined* rule
+  (`350 65% 46%`) rather than the dark pastel.
+- A cold start on v10 logged `checking for updates, installed versionCode 10`
+  exactly once → `asking …version.json` → `update check: UP_TO_DATE 1.0.9`.
+- Published, then read back anonymously: `version.json` reported
+  `version_code: 10` and the released APK was byte-identical (`cmp`) to the
+  local build.
+
+The suite grew to 109 with two guards: the navbar is a menu (strip gone, back
+closes it, picking a section shuts it), and appearance persists under
+`htv:prefs:v1` with light/accent/motion rules present in the stylesheet.
 
 ### 8.1 What is not verified here
 

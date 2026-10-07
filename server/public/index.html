@@ -106,6 +106,8 @@ img { display: block; }
   box-shadow: 0 10px 30px -12px rgb(0 0 0 / .7);
   width: 80%;
   justify-content: space-between;
+  /* the menu hangs off the pill, so the pill is its containing block */
+  position: relative;
   /* entrance: the reference mounts the bar faded and translated */
   opacity: 0;
   transform: translateY(-6px);
@@ -127,29 +129,76 @@ img { display: block; }
 }
 .brand-word { font-size: .8125rem; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; }
 
-/* The section strip is the only navigation a phone gets, so it stays in the
-   pill and scrolls sideways instead of collapsing into a menu. */
-.nav-links {
-  display: flex; align-items: center; gap: .25rem;
-  flex: 1 1 auto; min-width: 0;
-  overflow-x: auto; overscroll-behavior-inline: contain;
-  scrollbar-width: none; -ms-overflow-style: none;
-}
-.nav-links::-webkit-scrollbar { display: none; }
+/* Every section lives behind the three-line button. The strip that used to
+   sit in the pill scrolled sideways on a phone, which meant Studios, Playlists
+   and Library were only reachable by dragging the navbar — an affordance
+   nobody discovers. The pill now carries buttons only. */
 @media (max-width: 767px) { .brand-word { display: none; } }
-.nav-link {
-  flex: none;
-  font: inherit; background: none; border: 0; cursor: pointer;
-  padding: .5rem .75rem; border-radius: 999px; font-size: .8125rem;
-  color: hsl(var(--muted-foreground)); transition: color .2s, background .2s;
-  text-decoration: none; white-space: nowrap;
-}
-.nav-link:hover { color: hsl(var(--foreground)); background: hsl(var(--accent) / .6); }
-.nav-link[aria-current="page"] { color: hsl(var(--primary-foreground)); background: hsl(var(--primary)); }
 
-/* The search field that replaces the links while the pill is searching. */
+.nav-menu {
+  position: absolute; top: calc(100% + .5rem); inset-inline-start: 0;
+  width: min(19rem, calc(100vw - 2rem));
+  padding: .5rem;
+  border-radius: calc(var(--radius) + .375rem);
+  border: 1px solid rgb(255 255 255 / .12);
+  background: hsl(var(--popover) / .97);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 24px 48px -20px rgb(0 0 0 / .65);
+  animation: menu-in .16s var(--ease-out-expo);
+}
+.nav-menu[hidden] { display: none; }
+@keyframes menu-in { from { opacity: 0; transform: translateY(-4px); } }
+
+.nav-menu-group { display: flex; flex-direction: column; }
+.nav-menu-item {
+  display: flex; align-items: center; gap: .625rem;
+  font: inherit; font-size: .875rem; text-align: left;
+  padding: .55rem .625rem; border-radius: calc(var(--radius) - .125rem);
+  color: hsl(var(--muted-foreground)); transition: color .15s, background .15s;
+}
+.nav-menu-item:hover { color: hsl(var(--foreground)); background: hsl(var(--accent) / .6); }
+.nav-menu-item[aria-current="page"] { color: hsl(var(--foreground)); background: hsl(var(--accent)); }
+.nav-menu-item .tick { width: .875rem; height: .875rem; margin-left: auto; opacity: 0; color: hsl(var(--primary)); }
+.nav-menu-item[aria-current="page"] .tick { opacity: 1; }
+
+.nav-menu-sep { height: 1px; background: hsl(var(--border)); margin: .5rem -.5rem; }
+.nav-menu-label {
+  font-size: .6875rem; letter-spacing: .1em; text-transform: uppercase;
+  color: hsl(var(--muted-foreground) / .85); padding: .375rem .625rem .25rem;
+}
+.menu-seg {
+  display: flex; gap: .25rem; padding: .25rem; margin: 0 .375rem .375rem;
+  background: hsl(var(--background) / .6); border: 1px solid hsl(var(--border));
+  border-radius: 999px;
+}
+.menu-seg button {
+  flex: 1; font: inherit; font-size: .75rem; padding: .375rem .25rem;
+  border-radius: 999px; color: hsl(var(--muted-foreground)); transition: color .15s, background .15s;
+}
+.menu-seg button:hover { color: hsl(var(--foreground)); }
+.menu-seg button[aria-pressed="true"] { background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); font-weight: 600; }
+
+.menu-swatches { display: flex; gap: .5rem; padding: .25rem .625rem .625rem; }
+.swatch {
+  width: 1.6rem; height: 1.6rem; border-radius: 999px;
+  background: hsl(var(--sw)); border: 2px solid transparent;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / .25);
+  transition: transform .15s;
+}
+.swatch:hover { transform: scale(1.1); }
+.swatch[aria-pressed="true"] { border-color: hsl(var(--foreground)); }
+
+.menu-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: .75rem; font-size: .8125rem; color: hsl(var(--muted-foreground));
+  padding: .5rem .625rem; cursor: pointer;
+}
+.menu-row:hover { color: hsl(var(--foreground)); }
+.menu-row input[type="checkbox"] { accent-color: hsl(var(--brand-500)); width: 1rem; height: 1rem; margin: 0; cursor: pointer; }
+
+/* The search field that replaces the buttons while the pill is searching. */
 .nav-search { display: none; align-items: center; gap: .375rem; flex: 1 1 auto; min-width: 0; }
-.nav[data-searching="true"] .nav-links { display: none; }
+.nav[data-searching="true"] #menu-toggle { display: none; }
 .nav[data-searching="true"] .nav-search { display: flex; }
 .nav-search svg.lead { width: 1rem; height: 1rem; flex: none; color: hsl(var(--muted-foreground) / .7); }
 #nav-q {
@@ -170,6 +219,11 @@ img { display: block; }
   border-radius: 999px; color: hsl(var(--muted-foreground));
   transition: color .2s, background .2s;
 }
+/* three lines while shut, a cross while open */
+#menu-toggle .ico-close { display: none; }
+#menu-toggle[aria-expanded="true"] { color: hsl(var(--primary-foreground)); background: hsl(var(--primary)); }
+#menu-toggle[aria-expanded="true"] .ico-menu { display: none; }
+#menu-toggle[aria-expanded="true"] .ico-close { display: block; }
 .icon-btn:hover { color: hsl(var(--foreground)); background: hsl(var(--accent) / .7); }
 .icon-btn[aria-expanded="true"] { color: hsl(var(--primary-foreground)); background: hsl(var(--primary)); }
 .icon-btn svg { width: 1rem; height: 1rem; }
@@ -714,6 +768,104 @@ button.pp-tag em {
   background: hsl(var(--primary) / .14); border-color: hsl(var(--primary)); color: hsl(var(--primary));
 }
 .pill[aria-pressed="true"] svg { fill: currentColor; }
+
+/* --------------------------------------------------------------------------
+   Themes, accents and motion
+
+   The palette at the top of this file stays the measured dark one — it is
+   what the rest of this stylesheet was composed against. These rules only
+   override tokens on the body, so changing how the app looks never rewrites a
+   component: light is a token swap, an accent is a hue swap. Every choice is
+   the reader's and is stored with the rest of their state.
+   -------------------------------------------------------------------------- */
+
+/* Accents first, in their dark form: the light palette below has to win over
+   them when both apply, and the combined blocks after it win over both. */
+body[data-accent="amber"] {
+  --primary: 29.5 100% 88%; --primary-foreground: 183.2 54.3% 6.9%; --ring: 29.5 100% 88%;
+  --brand-300: 29.5 100% 92%; --brand-400: 29.5 100% 89.2%; --brand-500: 29.5 100% 88%; --brand-600: 29 85% 76%;
+}
+body[data-accent="rose"] {
+  --primary: 350 95% 87%; --primary-foreground: 350 45% 12%; --ring: 350 95% 87%;
+  --brand-300: 350 100% 92%; --brand-400: 350 95% 90%; --brand-500: 350 95% 87%; --brand-600: 350 75% 76%;
+}
+body[data-accent="violet"] {
+  --primary: 268 90% 89%; --primary-foreground: 268 50% 14%; --ring: 268 90% 89%;
+  --brand-300: 268 100% 93%; --brand-400: 268 95% 91%; --brand-500: 268 90% 89%; --brand-600: 268 70% 78%;
+}
+body[data-accent="sky"] {
+  --primary: 195 95% 87%; --primary-foreground: 195 55% 12%; --ring: 195 95% 87%;
+  --brand-300: 195 100% 92%; --brand-400: 195 100% 90%; --brand-500: 195 95% 87%; --brand-600: 195 75% 76%;
+}
+body[data-accent="mint"] {
+  --primary: 152 60% 84%; --primary-foreground: 155 50% 12%; --ring: 152 60% 84%;
+  --brand-300: 152 70% 90%; --brand-400: 152 65% 87%; --brand-500: 152 60% 84%; --brand-600: 152 55% 72%;
+}
+
+/* Light: the same structure, inverted. Deep accent values, because a pastel
+   button on a white page is unreadable — the pastels above belong to the dark
+   palette only. */
+body[data-theme="light"] {
+  --background: 0 0% 97%;
+  --foreground: 0 0% 12%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 12%;
+  --popover: 0 0% 100%;
+  --muted: 0 0% 94%;
+  --muted-foreground: 0 0% 40%;
+  --accent: 0 0% 92%;
+  --accent-foreground: 0 0% 12%;
+  --border: 30 10% 86%;
+  --input: 0 0% 62%;
+  --secondary: 30 8% 93%;
+  --primary: 29.5 85% 42%;
+  --primary-foreground: 0 0% 100%;
+  --ring: 29.5 85% 42%;
+  --brand-300: 29.5 55% 30%;
+  --brand-400: 29.5 65% 36%;
+  --brand-500: 29.5 75% 40%;
+  --brand-600: 29.5 85% 34%;
+}
+
+/* Light + an accent other than the default amber. */
+body[data-theme="light"][data-accent="rose"] {
+  --primary: 350 65% 46%; --ring: 350 65% 46%; --brand-300: 350 45% 30%;
+  --brand-400: 350 55% 36%; --brand-500: 350 65% 42%; --brand-600: 350 70% 32%;
+}
+body[data-theme="light"][data-accent="violet"] {
+  --primary: 268 60% 52%; --ring: 268 60% 52%; --brand-300: 268 45% 32%;
+  --brand-400: 268 55% 40%; --brand-500: 268 60% 46%; --brand-600: 268 65% 36%;
+}
+body[data-theme="light"][data-accent="sky"] {
+  --primary: 195 75% 40%; --ring: 195 75% 40%; --brand-300: 195 60% 26%;
+  --brand-400: 195 70% 32%; --brand-500: 195 75% 36%; --brand-600: 195 75% 28%;
+}
+body[data-theme="light"][data-accent="mint"] {
+  --primary: 152 55% 36%; --ring: 152 55% 36%; --brand-300: 152 45% 24%;
+  --brand-400: 152 50% 28%; --brand-500: 152 55% 32%; --brand-600: 152 55% 26%;
+}
+
+/* The handful of surfaces painted with literal colours — they assumed the
+   dark palette, so light restates them instead of leaving grey-on-white. */
+body[data-theme="light"] .nav {
+  border-color: rgb(0 0 0 / .12);
+  background: rgb(255 255 255 / .6);
+  box-shadow: 0 10px 30px -12px rgb(0 0 0 / .25);
+}
+body[data-theme="light"] .nav-menu { border-color: hsl(var(--border)); box-shadow: 0 24px 48px -20px rgb(0 0 0 / .25); }
+body[data-theme="light"] .card-frame,
+body[data-theme="light"] .pl-card { border-color: hsl(var(--border)); }
+body[data-theme="light"] .hero { border-color: hsl(var(--border) / .7); }
+
+/* Chosen "Reduce motion": the same bargain the media query above strikes,
+   but on the reader's word rather than the OS's. */
+body[data-motion="reduced"] *,
+body[data-motion="reduced"] *::before,
+body[data-motion="reduced"] *::after {
+  animation-duration: .001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: .001ms !important;
+}
 </style>
 </head>
 <body>
@@ -731,15 +883,10 @@ button.pp-tag em {
       <span class="brand-word" id="brand-word">hanime</span>
     </div>
 
-    <nav class="nav-links" aria-label="Sections">
-      <button class="nav-link" type="button" data-go="browse" aria-current="page">Browse</button>
-      <button class="nav-link" type="button" data-go="genres">Genres</button>
-      <button class="nav-link" type="button" data-go="studios">Studios</button>
-      <button class="nav-link" type="button" data-go="playlists">Playlists</button>
-      <button class="nav-link" type="button" data-go="library">Library</button>
-    </nav>
+    <!-- The pill carries buttons only. Every section sits behind the three-line
+         button, so nothing on the bar has to be reached by swiping it. -->
 
-    <!-- The pill turns into the search field, in place: the links step aside
+    <!-- The pill turns into the search field, in place: the buttons step aside
          and the query is typed where the finger already is. Nothing here moves
          the page, which is what the search button used to do. -->
     <div class="nav-search" id="nav-search">
@@ -752,6 +899,15 @@ button.pp-tag em {
     </div>
 
     <div class="nav-actions">
+      <button class="icon-btn" id="menu-toggle" type="button" aria-label="Menu"
+              aria-expanded="false" aria-controls="nav-menu" title="Menu">
+        <svg class="ico-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <path d="M4 7h16M4 12h16M4 17h16"/>
+        </svg>
+        <svg class="ico-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <path d="M6 6l12 12M18 6 6 18"/>
+        </svg>
+      </button>
       <button class="icon-btn" id="sort-toggle" aria-label="Sort" aria-expanded="false" title="Sort">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
           <path d="M4 7h16M6 12h12M9 17h6"/>
@@ -762,6 +918,52 @@ button.pp-tag em {
           <circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/>
         </svg>
       </button>
+    </div>
+
+    <!-- One menu: where to go, and how the app looks while getting there. -->
+    <div class="nav-menu" id="nav-menu" hidden>
+      <nav class="nav-menu-group" aria-label="Sections">
+        <button class="nav-menu-item nav-link" type="button" data-go="browse" aria-current="page">Browse
+          <svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m5 13 4.5 4.5L19 7"/></svg>
+        </button>
+        <button class="nav-menu-item nav-link" type="button" data-go="genres">Genres
+          <svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m5 13 4.5 4.5L19 7"/></svg>
+        </button>
+        <button class="nav-menu-item nav-link" type="button" data-go="studios">Studios
+          <svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m5 13 4.5 4.5L19 7"/></svg>
+        </button>
+        <button class="nav-menu-item nav-link" type="button" data-go="playlists">Playlists
+          <svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m5 13 4.5 4.5L19 7"/></svg>
+        </button>
+        <button class="nav-menu-item nav-link" type="button" data-go="library">Library
+          <svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m5 13 4.5 4.5L19 7"/></svg>
+        </button>
+      </nav>
+
+      <div class="nav-menu-sep"></div>
+
+      <div class="nav-menu-group">
+        <div class="nav-menu-label">Theme</div>
+        <div class="menu-seg" id="theme-seg" role="group" aria-label="Theme">
+          <button type="button" data-theme-pick="dark" aria-pressed="false">Dark</button>
+          <button type="button" data-theme-pick="light" aria-pressed="false">Light</button>
+          <button type="button" data-theme-pick="system" aria-pressed="false">System</button>
+        </div>
+
+        <div class="nav-menu-label">Accent</div>
+        <div class="menu-swatches" id="accent-row" role="group" aria-label="Accent">
+          <button class="swatch" type="button" data-accent-pick="amber" aria-label="Amber" aria-pressed="false" style="--sw: 29.5 100% 74%"></button>
+          <button class="swatch" type="button" data-accent-pick="rose" aria-label="Rose" aria-pressed="false" style="--sw: 350 90% 72%"></button>
+          <button class="swatch" type="button" data-accent-pick="violet" aria-label="Violet" aria-pressed="false" style="--sw: 268 85% 76%"></button>
+          <button class="swatch" type="button" data-accent-pick="sky" aria-label="Sky" aria-pressed="false" style="--sw: 195 90% 72%"></button>
+          <button class="swatch" type="button" data-accent-pick="mint" aria-label="Mint" aria-pressed="false" style="--sw: 152 65% 68%"></button>
+        </div>
+
+        <label class="menu-row" for="pref-motion">
+          <span>Reduce motion</span>
+          <input type="checkbox" id="pref-motion">
+        </label>
+      </div>
     </div>
   </div>
 </div>
@@ -1033,6 +1235,58 @@ const api = async (path) => {
 const fmtCount = (n) => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K' : String(n);
 const clock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
+/* ------------------------------------------------------------------ prefs
+   How the app looks is the reader's call, not the build's: theme, accent and
+   motion live in localStorage under their own key, guarded exactly like the
+   library — a refused or corrupt store keeps the defaults instead of taking
+   the page down, and a self-update carries the choices across. */
+const PREFS_KEY = 'htv:prefs:v1';
+const DEFAULT_PREFS = { theme: 'dark', accent: 'amber', motion: 'full' };
+const prefs = Object.assign({}, DEFAULT_PREFS);
+
+function loadPrefs() {
+  try {
+    const raw = localStorage.getItem(PREFS_KEY);
+    if (raw) Object.assign(prefs, JSON.parse(raw));
+  } catch (e) { /* an unreadable store keeps the defaults */ }
+}
+function savePrefs() {
+  try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); }
+  catch (e) { /* a refused write leaves the choice session-only */ }
+}
+
+function prefersLight() {
+  try { return window.matchMedia('(prefers-color-scheme: light)').matches; }
+  catch (e) { return false; }
+}
+
+function applyPrefs() {
+  // "system" is a preference, not a theme: what reaches the DOM is always one
+  // of the two palettes, so every rule below has exactly one thing to match.
+  const theme = prefs.theme === 'system' ? (prefersLight() ? 'light' : 'dark') : prefs.theme;
+  document.body.dataset.theme = theme;
+  document.body.dataset.accent = prefs.accent;
+  document.body.dataset.motion = prefs.motion;
+  document.documentElement.style.scrollBehavior = prefs.motion === 'reduced' ? 'auto' : '';
+
+  $$('#theme-seg [data-theme-pick]').forEach((b) =>
+    b.setAttribute('aria-pressed', String(b.dataset.themePick === prefs.theme)));
+  $$('#accent-row [data-accent-pick]').forEach((b) =>
+    b.setAttribute('aria-pressed', String(b.dataset.accentPick === prefs.accent)));
+  const motion = $('#pref-motion');
+  if (motion) motion.checked = prefs.motion === 'reduced';
+}
+
+loadPrefs();
+applyPrefs();
+
+// A device switched to light mode while the app sits open should follow.
+try {
+  window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => {
+    if (prefs.theme === 'system') applyPrefs();
+  });
+} catch (e) { /* older engines: the choice still applies on next open */ }
+
 /* ------------------------------------------------------------------ shell */
 //
 // Inside the Android app the page is given a `Shell` object (ShellBridge in
@@ -1054,8 +1308,15 @@ function shellCall(name, ...args) {
    state rather than on every render, so typing does not talk to Java. */
 let backOpen = null;
 
+/* The menu is a thing on screen like the sheet and the search field, so it is
+   part of the same state: back closes it before it is allowed to leave. */
+function menuIsOpen() {
+  return $('#menu-toggle').getAttribute('aria-expanded') === 'true';
+}
+
 function updateBackState() {
   const open = $('#sheet').classList.contains('open')
+    || menuIsOpen()
     || $('#nav').dataset.searching === 'true';
   if (open === backOpen) return;
   backOpen = open;
@@ -1064,6 +1325,7 @@ function updateBackState() {
 
 window.__shellBack = () => {
   if ($('#sheet').classList.contains('open')) { closeSheet(); return true; }
+  if (menuIsOpen()) { setMenuOpen(false); return true; }
   if ($('#nav').dataset.searching === 'true') { setSearchOpen(false); return true; }
   return false;
 };
@@ -2076,11 +2338,10 @@ async function loadPlaylistHits(q) {
 /* ------------------------------------------------------------------ views */
 //
 // The nav switches views in place. Nothing scrolls to a section any more: the
-// active link is marked, the strip scrolls itself so that link stays visible
-// on a phone, and the page comes back to the top of the view it just opened.
+// active item in the menu is marked, and the page comes back to the top of the
+// view it just opened.
 
 const views = $$('.view');
-const navStrip = $('.nav-links');
 
 // The markup already names the view the page opens on. Adopting it here means
 // the boot call is not a *change* — otherwise it would scroll a reader who had
@@ -2097,12 +2358,10 @@ function showView(name) {
   });
   document.body.dataset.view = target.dataset.view;
 
-  let active = null;
   $$('.nav-link').forEach((b) => {
-    if (b.dataset.go === target.dataset.view) { b.setAttribute('aria-current', 'page'); active = b; }
+    if (b.dataset.go === target.dataset.view) b.setAttribute('aria-current', 'page');
     else b.removeAttribute('aria-current');
   });
-  if (active && navStrip) navStrip.scrollLeft = Math.max(0, active.offsetLeft - navStrip.offsetLeft - 8);
 
   if (target.dataset.view === 'library') renderLibrary();
   // Opening a different view starts at its top; pressing the tab you are
@@ -2161,6 +2420,9 @@ function applyQuery(val, from) {
 
 /** Swaps the pill's links for the search field, and back. Moves nothing else. */
 function setSearchOpen(open) {
+  // Searching and browsing behind the menu are two states of the same pill:
+  // one of it at a time.
+  if (open && menuIsOpen()) setMenuOpen(false);
   $('#search-toggle').setAttribute('aria-expanded', String(open));
   $('#nav').dataset.searching = String(open);
   // preventScroll is the point: focusing an input normally makes the browser
@@ -2215,15 +2477,25 @@ $('#prev').onclick = () => { if (state.page > 0) { state.page--; loadGrid().then
 $('#next').onclick = () => { if (state.page + 1 < state.pages) { state.page++; loadGrid().then(() => scrollTo({ top: 0, behavior: 'smooth' })); } };
 
 // One click, several intents. The heart is tested first because it is drawn on
-// top of a card and must file the title rather than open it. The nav strip and
-// the hero's buttons follow. Everything else that is a card opens the sheet —
-// in the grid, in the library, or inside a playlist.
+// top of a card and must file the title rather than open it. The menu's items
+// and the hero's buttons follow. Everything else that is a card opens the sheet
+// — in the grid, in the library, or inside a playlist.
 document.addEventListener('click', (e) => {
+  // A tap anywhere outside the menu shuts it: it is a popover, not a modal.
+  if (menuIsOpen() && !e.target.closest('#nav-menu') && !e.target.closest('#menu-toggle')) {
+    setMenuOpen(false);
+  }
+
   const heart = e.target.closest('[data-fav]');
   if (heart) { e.preventDefault(); toggleFav(heart.dataset.fav); return; }
 
   const go = e.target.closest('[data-go]');
-  if (go) { e.preventDefault(); showView(go.dataset.go); return; }
+  if (go) {
+    e.preventDefault();
+    if (menuIsOpen()) setMenuOpen(false);   // choosing a section shuts the menu
+    showView(go.dataset.go);
+    return;
+  }
 
   const opener = e.target.closest('[data-open]');
   if (opener) { e.preventDefault(); openVideo(opener.dataset.open); return; }
@@ -2242,7 +2514,39 @@ $('#sheet').addEventListener('click', (e) => { if (e.target === $('#sheet')) clo
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if ($('#nav').dataset.searching === 'true') setSearchOpen(false);
+  if (menuIsOpen()) setMenuOpen(false);
   closeSheet();
+});
+
+/* The three-line button: one popover holding every section and every
+   appearance choice, so the pill itself stays buttons and a phone never has
+   to swipe the navbar to find the rest of the app. */
+function setMenuOpen(open) {
+  $('#nav-menu').hidden = !open;
+  $('#menu-toggle').setAttribute('aria-expanded', String(open));
+  updateBackState();
+}
+
+$('#menu-toggle').onclick = () => setMenuOpen(!menuIsOpen());
+
+$('#theme-seg').addEventListener('click', (e) => {
+  const pick = e.target.closest('[data-theme-pick]');
+  if (!pick) return;
+  prefs.theme = pick.dataset.themePick;
+  savePrefs();
+  applyPrefs();
+});
+$('#accent-row').addEventListener('click', (e) => {
+  const pick = e.target.closest('[data-accent-pick]');
+  if (!pick) return;
+  prefs.accent = pick.dataset.accentPick;
+  savePrefs();
+  applyPrefs();
+});
+$('#pref-motion').addEventListener('change', (e) => {
+  prefs.motion = e.target.checked ? 'reduced' : 'full';
+  savePrefs();
+  applyPrefs();
 });
 
 $('#search-toggle').onclick = () => {
