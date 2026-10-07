@@ -1,0 +1,61 @@
+/* ------------------------------------------------------- public playlist cards */
+
+.pp-owner {
+  display: flex;
+  align-items: center;
+  gap: .375rem;
+  min-width: 0;
+  margin-top: .125rem;
+}
+.pp-owner img {
+  width: 1.125rem;
+  height: 1.125rem;
+  border-radius: 999px;
+  object-fit: cover;
+  flex: none;
+  opacity: .85;
+}
+.pp-owner-name {
+  font-size: .75rem;
+  color: hsl(var(--muted-foreground));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pl-owner-link { color: hsl(var(--primary)); text-decoration: none; }
+.pl-owner-link:hover { text-decoration: underline; }
+
+#in-playlists { margin-top: 1.5rem; }
+.in-pl-head {
+  font-family: var(--font-display);
+  font-size: 1.0625rem;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  color: hsl(var(--foreground));
+  margin: 0 0 .625rem;
+}
+.in-pl-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: .375rem;
+  max-width: 16rem;
+}
+.in-pl-chip em {
+  font-style: normal;
+  font-size: .6875rem;
+  color: hsl(var(--muted-foreground));
+  flex: none;
+}
+.pp-card { cursor: pointer; }
+button.pp-tag {
+  font: inherit;
+  cursor: pointer;
+  background: none;
+}
+button.pp-tag:hover { border-color: hsl(var(--primary)); color: hsl(var(--primary)); }
+button.pp-tag em {
+  font-style: normal;
+  opacity: .6;
+  font-size: .6875rem;
+}
+

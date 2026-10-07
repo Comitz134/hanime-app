@@ -1,0 +1,97 @@
+/* --------------------------------------------------------------------------
+   Themes, accents and motion
+
+   The palette at the top of this file stays the measured dark one — it is
+   what the rest of this stylesheet was composed against. These rules only
+   override tokens on the body, so changing how the app looks never rewrites a
+   component: light is a token swap, an accent is a hue swap. Every choice is
+   the reader's and is stored with the rest of their state.
+   -------------------------------------------------------------------------- */
+
+/* Accents first, in their dark form: the light palette below has to win over
+   them when both apply, and the combined blocks after it win over both. */
+body[data-accent="amber"] {
+  --primary: 29.5 100% 88%; --primary-foreground: 183.2 54.3% 6.9%; --ring: 29.5 100% 88%;
+  --brand-300: 29.5 100% 92%; --brand-400: 29.5 100% 89.2%; --brand-500: 29.5 100% 88%; --brand-600: 29 85% 76%;
+}
+body[data-accent="rose"] {
+  --primary: 350 95% 87%; --primary-foreground: 350 45% 12%; --ring: 350 95% 87%;
+  --brand-300: 350 100% 92%; --brand-400: 350 95% 90%; --brand-500: 350 95% 87%; --brand-600: 350 75% 76%;
+}
+body[data-accent="violet"] {
+  --primary: 268 90% 89%; --primary-foreground: 268 50% 14%; --ring: 268 90% 89%;
+  --brand-300: 268 100% 93%; --brand-400: 268 95% 91%; --brand-500: 268 90% 89%; --brand-600: 268 70% 78%;
+}
+body[data-accent="sky"] {
+  --primary: 195 95% 87%; --primary-foreground: 195 55% 12%; --ring: 195 95% 87%;
+  --brand-300: 195 100% 92%; --brand-400: 195 100% 90%; --brand-500: 195 95% 87%; --brand-600: 195 75% 76%;
+}
+body[data-accent="mint"] {
+  --primary: 152 60% 84%; --primary-foreground: 155 50% 12%; --ring: 152 60% 84%;
+  --brand-300: 152 70% 90%; --brand-400: 152 65% 87%; --brand-500: 152 60% 84%; --brand-600: 152 55% 72%;
+}
+
+/* Light: the same structure, inverted. Deep accent values, because a pastel
+   button on a white page is unreadable — the pastels above belong to the dark
+   palette only. */
+body[data-theme="light"] {
+  --background: 0 0% 97%;
+  --foreground: 0 0% 12%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 12%;
+  --popover: 0 0% 100%;
+  --muted: 0 0% 94%;
+  --muted-foreground: 0 0% 40%;
+  --accent: 0 0% 92%;
+  --accent-foreground: 0 0% 12%;
+  --border: 30 10% 86%;
+  --input: 0 0% 62%;
+  --secondary: 30 8% 93%;
+  --primary: 29.5 85% 42%;
+  --primary-foreground: 0 0% 100%;
+  --ring: 29.5 85% 42%;
+  --brand-300: 29.5 55% 30%;
+  --brand-400: 29.5 65% 36%;
+  --brand-500: 29.5 75% 40%;
+  --brand-600: 29.5 85% 34%;
+}
+
+/* Light + an accent other than the default amber. */
+body[data-theme="light"][data-accent="rose"] {
+  --primary: 350 65% 46%; --ring: 350 65% 46%; --brand-300: 350 45% 30%;
+  --brand-400: 350 55% 36%; --brand-500: 350 65% 42%; --brand-600: 350 70% 32%;
+}
+body[data-theme="light"][data-accent="violet"] {
+  --primary: 268 60% 52%; --ring: 268 60% 52%; --brand-300: 268 45% 32%;
+  --brand-400: 268 55% 40%; --brand-500: 268 60% 46%; --brand-600: 268 65% 36%;
+}
+body[data-theme="light"][data-accent="sky"] {
+  --primary: 195 75% 40%; --ring: 195 75% 40%; --brand-300: 195 60% 26%;
+  --brand-400: 195 70% 32%; --brand-500: 195 75% 36%; --brand-600: 195 75% 28%;
+}
+body[data-theme="light"][data-accent="mint"] {
+  --primary: 152 55% 36%; --ring: 152 55% 36%; --brand-300: 152 45% 24%;
+  --brand-400: 152 50% 28%; --brand-500: 152 55% 32%; --brand-600: 152 55% 26%;
+}
+
+/* The handful of surfaces painted with literal colours — they assumed the
+   dark palette, so light restates them instead of leaving grey-on-white. */
+body[data-theme="light"] .nav {
+  border-color: rgb(0 0 0 / .12);
+  background: rgb(255 255 255 / .6);
+  box-shadow: 0 10px 30px -12px rgb(0 0 0 / .25);
+}
+body[data-theme="light"] .nav-menu { border-color: hsl(var(--border)); box-shadow: 0 24px 48px -20px rgb(0 0 0 / .25); }
+body[data-theme="light"] .card-frame,
+body[data-theme="light"] .pl-card { border-color: hsl(var(--border)); }
+body[data-theme="light"] .hero { border-color: hsl(var(--border) / .7); }
+
+/* Chosen "Reduce motion": the same bargain the media query above strikes,
+   but on the reader's word rather than the OS's. */
+body[data-motion="reduced"] *,
+body[data-motion="reduced"] *::before,
+body[data-motion="reduced"] *::after {
+  animation-duration: .001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: .001ms !important;
+}

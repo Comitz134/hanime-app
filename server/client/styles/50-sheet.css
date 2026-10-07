@@ -1,0 +1,95 @@
+/* --------------------------------------------------------------------------
+   Detail overlay
+   -------------------------------------------------------------------------- */
+.sheet {
+  position: fixed; inset: 0; z-index: 10000;
+  background: hsl(var(--background) / .82);
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  display: none; overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.sheet.open { display: block; animation: fade-in .22s ease forwards; }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+.sheet-panel {
+  max-width: 1000px; margin: 0 auto;
+  padding: calc(1rem + env(safe-area-inset-top)) .5rem 4rem;
+}
+@media (min-width: 640px) { .sheet-panel { padding-inline: 1rem; } }
+@media (min-width: 1024px){ .sheet-panel { padding-inline: 1.5rem; } }
+
+.sheet-top { display: flex; align-items: center; gap: .5rem; margin-bottom: 1rem; position: sticky; top: 0; z-index: 2; }
+.sheet-top .spacer { flex: 1; }
+.back-btn {
+  display: inline-flex; align-items: center; gap: .4rem;
+  padding: .5rem 1rem; border-radius: 999px;
+  border: 1px solid hsl(var(--border)); background: hsl(var(--card) / .7);
+  backdrop-filter: blur(10px);
+  font-size: .8125rem; font-weight: 600; transition: all .25s;
+}
+.back-btn:hover { border-color: hsl(var(--input)); background: hsl(var(--accent) / .6); }
+
+.player-card {
+  border-radius: 1rem; overflow: hidden;
+  border: 1px solid hsl(var(--border) / .6);
+  background: hsl(var(--card) / .4);
+}
+video { width: 100%; display: block; background: #000; aspect-ratio: 16 / 9; }
+
+.quality { display: flex; flex-wrap: wrap; gap: .375rem; padding: .75rem; }
+.q-btn {
+  padding: .4rem .9rem; border-radius: 999px; font-size: .75rem;
+  border: 1px solid hsl(var(--border)); color: hsl(var(--muted-foreground)); transition: all .22s;
+}
+.q-btn:hover { border-color: hsl(var(--input)); color: hsl(var(--foreground)); }
+.q-btn[aria-pressed="true"] {
+  background: hsl(var(--primary)); border-color: hsl(var(--primary));
+  color: hsl(var(--primary-foreground)); font-weight: 600;
+}
+
+.detail-head { margin-top: 1.25rem; }
+.detail-title {
+  font-family: var(--font-serif); font-weight: 400;
+  font-size: 1.5rem; line-height: 1.15; margin-bottom: .5rem;
+}
+@media (min-width: 640px) { .detail-title { font-size: 2rem; } }
+.detail-meta { font-size: .75rem; color: hsl(var(--muted-foreground)); margin-bottom: .875rem; }
+.detail-tags { display: flex; flex-wrap: wrap; gap: .375rem; margin-bottom: 1.25rem; }
+.detail-desc { font-size: .8125rem; line-height: 1.7; color: hsl(var(--fg, var(--foreground)) / .82); white-space: pre-wrap; }
+.detail-desc:empty { display: none; }
+
+.note { font-size: .8125rem; color: hsl(var(--muted-foreground)); padding: .75rem; }
+.center-spin { display: grid; place-items: center; padding: 3rem; }
+
+/* Where a title was left, drawn on its own cover. */
+.card-progress { position: absolute; inset-inline: 0; bottom: 0; height: 3px; background: rgb(0 0 0 / .55); }
+.card-progress span { display: block; height: 100%; background: hsl(var(--primary)); }
+
+/* Library housekeeping: take the list off this device, or put it back on. */
+.lib-tools { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-top: .75rem; }
+
+/* Picture in picture: the small window is the video and nothing else. Left
+   alone, the whole document is squeezed in and the video becomes a stamp in the
+   corner of its own window. */
+body[data-pip="true"] .sheet-panel { max-width: none; padding: 0; }
+body[data-pip="true"] .sheet-top,
+body[data-pip="true"] .detail-head,
+body[data-pip="true"] .quality,
+body[data-pip="true"] #in-playlists,
+body[data-pip="true"] main,
+body[data-pip="true"] .footer,
+body[data-pip="true"] #nav { display: none; }
+body[data-pip="true"] .player-card {
+  position: fixed; inset: 0; z-index: 20000;
+  border: 0; border-radius: 0; background: #000;
+}
+body[data-pip="true"] video { height: 100%; aspect-ratio: auto; object-fit: contain; }
+.spinner {
+  width: 1.75rem; height: 1.75rem; border-radius: 999px;
+  border: 2px solid hsl(var(--border)); border-top-color: hsl(var(--primary));
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+}

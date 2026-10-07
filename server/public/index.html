@@ -84,6 +84,7 @@ img { display: block; }
 
 .divider { height: 1px; width: 100%; background: hsl(var(--border)); flex-shrink: 0; }
 
+
 /* --------------------------------------------------------------------------
    Floating pill nav
    -------------------------------------------------------------------------- */
@@ -227,6 +228,7 @@ img { display: block; }
 .icon-btn:hover { color: hsl(var(--foreground)); background: hsl(var(--accent) / .7); }
 .icon-btn[aria-expanded="true"] { color: hsl(var(--primary-foreground)); background: hsl(var(--primary)); }
 .icon-btn svg { width: 1rem; height: 1rem; }
+
 
 /* --------------------------------------------------------------------------
    Hero
@@ -408,6 +410,7 @@ select#sort:focus { border-color: hsl(var(--primary) / .5); }
 }
 .chip-n { font-size: .625rem; opacity: .6; }
 
+
 /* --------------------------------------------------------------------------
    Poster grid + card
    -------------------------------------------------------------------------- */
@@ -499,6 +502,7 @@ select#sort:focus { border-color: hsl(var(--primary) / .5); }
 .page-btn:hover:not(:disabled) { border-color: hsl(var(--input)); background: hsl(var(--accent) / .5); }
 .page-btn:disabled { opacity: .35; cursor: default; }
 
+
 /* --------------------------------------------------------------------------
    Playlists
    -------------------------------------------------------------------------- */
@@ -571,6 +575,7 @@ select#sort:focus { border-color: hsl(var(--primary) / .5); }
 .footer p { font-size: .75rem; color: hsl(var(--muted-foreground)); margin: .25rem 0; }
 .footer-mark { display: inline-flex; align-items: center; gap: .5rem; margin-bottom: 1rem; }
 .footer-mark svg { width: 1.25rem; height: 1.25rem; color: hsl(var(--brand-300)); }
+
 
 /* --------------------------------------------------------------------------
    Detail overlay
@@ -667,6 +672,7 @@ body[data-pip="true"] video { height: 100%; aspect-ratio: auto; object-fit: cont
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
 }
+
 /* ------------------------------------------------------- public playlist cards */
 
 .pp-owner {
@@ -728,6 +734,7 @@ button.pp-tag em {
   font-size: .6875rem;
 }
 
+
 /* --------------------------------------------------------------------------
    Views
 
@@ -768,6 +775,7 @@ button.pp-tag em {
   background: hsl(var(--primary) / .14); border-color: hsl(var(--primary)); color: hsl(var(--primary));
 }
 .pill[aria-pressed="true"] svg { fill: currentColor; }
+
 
 /* --------------------------------------------------------------------------
    Themes, accents and motion
@@ -866,6 +874,7 @@ body[data-motion="reduced"] *::after {
   animation-iteration-count: 1 !important;
   transition-duration: .001ms !important;
 }
+
 </style>
 </head>
 <body>
@@ -1217,136 +1226,788 @@ body[data-motion="reduced"] *::after {
 -->
 <script src="hls.min.js"></script>
 <script type="module">
-const $ = (s, r = document) => r.querySelector(s);
-const $$ = (s, r = document) => [...r.querySelectorAll(s)];
-const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+(() => {
+  // client/src/core.js
+  var $ = (s, r = document) => r.querySelector(s);
+  var $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  var esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  var state = {
+    page: 0,
+    perPage: 30,
+    q: "",
+    tags: [],
+    brand: "",
+    sort: "released_at_unix:desc",
+    pages: 1,
+    total: 0,
+    featured: [],
+    slide: 0
+  };
+  var api = async (path) => {
+    const res = await fetch(path);
+    if (!res.ok) throw new Error(`${path} \u2192 ${res.status}`);
+    return res.json();
+  };
+  var fmtCount = (n) => n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "K" : String(n);
+  var clock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
-const state = {
-  page: 0, perPage: 30, q: '', tags: [], brand: '', sort: 'released_at_unix:desc',
-  pages: 1, total: 0, featured: [], slide: 0,
-};
-
-const api = async (path) => {
-  const res = await fetch(path);
-  if (!res.ok) throw new Error(`${path} → ${res.status}`);
-  return res.json();
-};
-
-const fmtCount = (n) => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K' : String(n);
-const clock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
-
-/* ------------------------------------------------------------------ prefs
-   How the app looks is the reader's call, not the build's: theme, accent and
-   motion live in localStorage under their own key, guarded exactly like the
-   library — a refused or corrupt store keeps the defaults instead of taking
-   the page down, and a self-update carries the choices across. */
-const PREFS_KEY = 'htv:prefs:v1';
-const DEFAULT_PREFS = { theme: 'dark', accent: 'amber', motion: 'full' };
-const prefs = Object.assign({}, DEFAULT_PREFS);
-
-function loadPrefs() {
+  // client/src/prefs.js
+  var PREFS_KEY = "htv:prefs:v1";
+  var DEFAULT_PREFS = { theme: "dark", accent: "amber", motion: "full" };
+  var prefs = Object.assign({}, DEFAULT_PREFS);
+  function loadPrefs() {
+    try {
+      const raw = localStorage.getItem(PREFS_KEY);
+      if (raw) Object.assign(prefs, JSON.parse(raw));
+    } catch (e) {
+    }
+  }
+  function savePrefs() {
+    try {
+      localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+    } catch (e) {
+    }
+  }
+  function prefersLight() {
+    try {
+      return window.matchMedia("(prefers-color-scheme: light)").matches;
+    } catch (e) {
+      return false;
+    }
+  }
+  function applyPrefs() {
+    const theme = prefs.theme === "system" ? prefersLight() ? "light" : "dark" : prefs.theme;
+    document.body.dataset.theme = theme;
+    document.body.dataset.accent = prefs.accent;
+    document.body.dataset.motion = prefs.motion;
+    document.documentElement.style.scrollBehavior = prefs.motion === "reduced" ? "auto" : "";
+    $$("#theme-seg [data-theme-pick]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.themePick === prefs.theme)));
+    $$("#accent-row [data-accent-pick]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.accentPick === prefs.accent)));
+    const motion = $("#pref-motion");
+    if (motion) motion.checked = prefs.motion === "reduced";
+  }
+  loadPrefs();
+  applyPrefs();
   try {
-    const raw = localStorage.getItem(PREFS_KEY);
-    if (raw) Object.assign(prefs, JSON.parse(raw));
-  } catch (e) { /* an unreadable store keeps the defaults */ }
-}
-function savePrefs() {
-  try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); }
-  catch (e) { /* a refused write leaves the choice session-only */ }
-}
-
-function prefersLight() {
-  try { return window.matchMedia('(prefers-color-scheme: light)').matches; }
-  catch (e) { return false; }
-}
-
-function applyPrefs() {
-  // "system" is a preference, not a theme: what reaches the DOM is always one
-  // of the two palettes, so every rule below has exactly one thing to match.
-  const theme = prefs.theme === 'system' ? (prefersLight() ? 'light' : 'dark') : prefs.theme;
-  document.body.dataset.theme = theme;
-  document.body.dataset.accent = prefs.accent;
-  document.body.dataset.motion = prefs.motion;
-  document.documentElement.style.scrollBehavior = prefs.motion === 'reduced' ? 'auto' : '';
-
-  $$('#theme-seg [data-theme-pick]').forEach((b) =>
-    b.setAttribute('aria-pressed', String(b.dataset.themePick === prefs.theme)));
-  $$('#accent-row [data-accent-pick]').forEach((b) =>
-    b.setAttribute('aria-pressed', String(b.dataset.accentPick === prefs.accent)));
-  const motion = $('#pref-motion');
-  if (motion) motion.checked = prefs.motion === 'reduced';
-}
-
-loadPrefs();
-applyPrefs();
-
-// A device switched to light mode while the app sits open should follow.
-try {
-  window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => {
-    if (prefs.theme === 'system') applyPrefs();
+    window.matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => {
+      if (prefs.theme === "system") applyPrefs();
+    });
+  } catch (e) {
+  }
+  $("#theme-seg").addEventListener("click", (e) => {
+    const pick = e.target.closest("[data-theme-pick]");
+    if (!pick) return;
+    prefs.theme = pick.dataset.themePick;
+    savePrefs();
+    applyPrefs();
   });
-} catch (e) { /* older engines: the choice still applies on next open */ }
+  $("#accent-row").addEventListener("click", (e) => {
+    const pick = e.target.closest("[data-accent-pick]");
+    if (!pick) return;
+    prefs.accent = pick.dataset.accentPick;
+    savePrefs();
+    applyPrefs();
+  });
+  $("#pref-motion").addEventListener("change", (e) => {
+    prefs.motion = e.target.checked ? "reduced" : "full";
+    savePrefs();
+    applyPrefs();
+  });
 
-/* ------------------------------------------------------------------ shell */
-//
-// Inside the Android app the page is given a `Shell` object (ShellBridge in
-// MainActivity.java). In a plain browser there is none, so every call is
-// guarded — the same file is served to both.
+  // client/src/menu.js
+  function setMenuOpen(open) {
+    $("#nav-menu").hidden = !open;
+    $("#menu-toggle").setAttribute("aria-expanded", String(open));
+    updateBackState();
+  }
+  $("#menu-toggle").onclick = () => setMenuOpen(!menuIsOpen());
 
-const shellApi = () => {
-  try { return window.Shell ?? null; } catch (e) { return null; }
-};
+  // client/src/views.js
+  var views = $$(".view");
+  document.body.dataset.view = (views.find((v) => v.dataset.active === "true") ?? views[0]).dataset.view;
+  function showView(name) {
+    const target = views.find((v) => v.dataset.view === name) || views[0];
+    const changed = document.body.dataset.view !== target.dataset.view;
+    views.forEach((v) => {
+      if (v === target) v.dataset.active = "true";
+      else v.removeAttribute("data-active");
+    });
+    document.body.dataset.view = target.dataset.view;
+    $$(".nav-link").forEach((b) => {
+      if (b.dataset.go === target.dataset.view) b.setAttribute("aria-current", "page");
+      else b.removeAttribute("aria-current");
+    });
+    if (target.dataset.view === "library") renderLibrary();
+    if (changed) scrollTo({ top: 0 });
+  }
 
-function shellCall(name, ...args) {
-  const shell = shellApi();
-  if (!shell || typeof shell[name] !== 'function') return undefined;
-  try { return shell[name](...args); } catch (e) { return undefined; }
-}
+  // client/src/cards.js
+  function coverFor(slug, remote, opts) {
+    if (!opts || !opts.local) return remote;
+    const stored = shellCall("cachedCover", slug);
+    return stored ? stored : remote;
+  }
+  function cardHtml(v, opts) {
+    remember(v);
+    const name = v.name ?? v.title ?? v.slug;
+    const cover = coverFor(v.slug, v.cover ?? v.cover_url ?? "", opts);
+    const owned = isFav(v.slug);
+    const heart = owned ? "Remove from favorites" : "Add to favorites";
+    const views2 = Number(v.views);
+    const pct = opts && opts.progress ? progressOf(v.slug) : 0;
+    return `<article class="card" data-slug="${esc(v.slug)}" tabindex="0" role="button" aria-label="${esc(name)}">
+    <div class="card-frame">
+      <img loading="lazy" decoding="async" src="${esc(cover)}" alt="">
+      <div class="card-fallback" hidden>${esc(name)}</div>
+      <div class="card-scrim"></div>
+      ${Number.isFinite(views2) ? `<span class="card-badge">${fmtCount(views2)}</span>` : ""}
+      ${pct ? `<div class="card-progress"><span style="width:${pct}%"></span></div>` : ""}
+      <button class="fav-btn" type="button" data-fav="${esc(v.slug)}" aria-pressed="${owned}" aria-label="${heart}" title="${heart}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M12 20.4 4.9 14.1A5.3 5.3 0 0 1 12 6.3a5.3 5.3 0 0 1 7.1 7.8Z"/></svg>
+      </button>
+      <div class="card-play"><span>
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+      </span></div>
+    </div>
+    <div class="card-body">
+      <h3 class="card-title">${esc(name)}</h3>
+      <p class="card-meta">${esc(v.brand ?? "")}${v.released_at ? " \xB7 " + esc(v.released_at.slice(0, 4)) : ""}</p>
+    </div>
+  </article>`;
+  }
 
-/* Back belongs to whatever is on screen, and only this file knows what that is.
-   The shell asks before it leaves the app: the flag below is set on a change of
-   state rather than on every render, so typing does not talk to Java. */
-let backOpen = null;
+  // client/src/positions.js
+  function savePosition(slug, vid) {
+    if (!slug || !vid) return;
+    const d = Number(vid.duration);
+    const t = Number(vid.currentTime);
+    if (!Number.isFinite(d) || d <= 0 || !Number.isFinite(t)) return;
+    if (t >= d - 10) {
+      clearPosition(slug);
+      return;
+    }
+    if (t < 5) return;
+    lib.positions[slug] = { t: Math.round(t), d: Math.round(d), at: Date.now() };
+    libWrite();
+  }
+  function clearPosition(slug) {
+    if (!lib.positions[slug]) return;
+    delete lib.positions[slug];
+    libWrite();
+  }
+  function progressOf(slug) {
+    const p = lib.positions[slug];
+    if (!p || !p.d) return 0;
+    const pct = Math.round(p.t / p.d * 100);
+    return pct > 1 && pct < 98 ? pct : 0;
+  }
+  function libMatches(e) {
+    if (!libQuery) return true;
+    const needle = libQuery.toLowerCase();
+    return String(e.name ?? "").toLowerCase().includes(needle) || String(e.brand ?? "").toLowerCase().includes(needle);
+  }
+  function renderLibrary() {
+    const needle = libQuery.trim();
+    const favs = lib.favorites.filter(libMatches);
+    const hist = lib.history.filter(libMatches);
+    $("#lib-count").textContent = `${lib.favorites.length} favorite${lib.favorites.length === 1 ? "" : "s"} \xB7 ${lib.history.length} watched`;
+    $("#fav-count").textContent = needle ? `${favs.length} of ${lib.favorites.length}` : String(lib.favorites.length);
+    $("#hist-count").textContent = needle ? `${hist.length} of ${lib.history.length}` : String(lib.history.length);
+    $("#hist-clear").hidden = lib.history.length === 0;
+    const warn = $("#lib-warn");
+    warn.hidden = libSaved;
+    warn.textContent = "This device will not keep local data, so favorites and history are forgotten when the app closes.";
+    $("#fav-grid").innerHTML = favs.map((e) => cardHtml(e, { local: true })).join("");
+    const favNote = $("#fav-note");
+    favNote.hidden = favs.length > 0;
+    favNote.textContent = needle ? `No favorite matches \u201C${libQuery}\u201D.` : "Nothing filed yet. The heart on any card puts a title here.";
+    $("#hist-grid").innerHTML = hist.map((e) => cardHtml(e, { local: true, progress: true })).join("");
+    const histNote = $("#hist-note");
+    histNote.hidden = hist.length > 0;
+    histNote.textContent = needle ? `Nothing you opened matches \u201C${libQuery}\u201D.` : "Nothing opened yet. A title lands here once a stream for it resolves.";
+    renderContinue(needle);
+  }
+  function renderContinue(needle) {
+    const rail = $("#cont-rail");
+    const head = $("#cont-head");
+    if (!rail || !head) return;
+    const part = lib.history.filter((e) => (!needle || libMatches(e)) && progressOf(e.slug) > 0).slice(0, 12);
+    head.hidden = part.length === 0;
+    rail.hidden = part.length === 0;
+    $("#cont-count").textContent = String(part.length);
+    const note = $("#cont-note");
+    note.hidden = part.length > 0;
+    note.textContent = "Titles you start watching appear here, so you can pick them up where you stopped.";
+    rail.innerHTML = part.map((e) => cardHtml(e, { local: true, progress: true })).join("");
+  }
+  function favPill(slug) {
+    const on = isFav(slug);
+    return `<button class="pill pill-ghost" type="button" data-fav="${esc(slug)}" aria-pressed="${on}">
+      <svg viewBox="0 0 24 24" stroke-linejoin="round"><path d="M12 20.4 4.9 14.1A5.3 5.3 0 0 1 12 6.3a5.3 5.3 0 0 1 7.1 7.8Z"/></svg>
+      <span class="fav-label">${on ? "In library" : "Favorite"}</span>
+    </button>`;
+  }
 
-/* The menu is a thing on screen like the sheet and the search field, so it is
-   part of the same state: back closes it before it is allowed to leave. */
-function menuIsOpen() {
-  return $('#menu-toggle').getAttribute('aria-expanded') === 'true';
-}
+  // client/src/library.js
+  var LIB_KEY = "htv:library:v1";
+  var LIB_MAX_HISTORY = 240;
+  var libSaved = true;
+  function libRead() {
+    const empty = { favorites: [], history: [], positions: {} };
+    let raw = null;
+    try {
+      raw = localStorage.getItem(LIB_KEY);
+    } catch {
+      libSaved = false;
+      return empty;
+    }
+    if (!raw) return empty;
+    let data = null;
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      data = null;
+    }
+    if (!data || typeof data !== "object") return empty;
+    const clean = (list) => Array.isArray(list) ? list.filter((e) => e && e.slug) : [];
+    return {
+      favorites: clean(data.favorites),
+      history: clean(data.history),
+      positions: cleanPositions(data.positions)
+    };
+  }
+  function cleanPositions(raw) {
+    const out = {};
+    if (!raw || typeof raw !== "object") return out;
+    Object.keys(raw).forEach((slug) => {
+      const p = raw[slug];
+      if (!p || typeof p !== "object") return;
+      const t = Number(p.t);
+      const d = Number(p.d);
+      if (!Number.isFinite(t) || !Number.isFinite(d) || d <= 0 || t < 0 || t >= d) return;
+      out[slug] = { t: Math.round(t), d: Math.round(d), at: Number(p.at) || 0 };
+    });
+    return out;
+  }
+  var lib = libRead();
+  var libQuery = "";
+  var known = /* @__PURE__ */ new Map();
+  function remember(v) {
+    if (!v || !v.slug) return;
+    known.set(v.slug, {
+      slug: v.slug,
+      name: v.name ?? v.title ?? v.slug,
+      cover: v.cover ?? v.cover_url ?? "",
+      brand: v.brand ?? "",
+      views: v.views,
+      released_at: v.released_at
+    });
+  }
+  function entryFor(slug) {
+    const base = known.get(slug) ?? { slug, name: slug, cover: "", brand: "", views: void 0, released_at: void 0 };
+    return { ...base, at: Date.now() };
+  }
+  function isFav(slug) {
+    return lib.favorites.some((e) => e.slug === slug);
+  }
+  function viewIs(name) {
+    return document.body.dataset.view === name;
+  }
+  function libWrite() {
+    try {
+      localStorage.setItem(LIB_KEY, JSON.stringify(lib));
+      libSaved = true;
+    } catch {
+      libSaved = false;
+    }
+    libFaces();
+  }
+  function libFaces() {
+    $$("[data-fav]").forEach((b) => {
+      const on = isFav(b.dataset.fav);
+      b.setAttribute("aria-pressed", String(on));
+      const label = on ? "Remove from favorites" : "Add to favorites";
+      if (b.classList.contains("fav-btn")) {
+        b.setAttribute("aria-label", label);
+        b.title = label;
+      }
+      const word = b.querySelector(".fav-label");
+      if (word) word.textContent = on ? "In library" : "Favorite";
+    });
+  }
+  function keepCover(entry) {
+    if (entry && entry.slug && entry.cover) shellCall("cacheCover", entry.slug, entry.cover);
+  }
+  function toggleFav(slug) {
+    if (!slug) return;
+    const i = lib.favorites.findIndex((e) => e.slug === slug);
+    if (i >= 0) {
+      lib.favorites.splice(i, 1);
+    } else {
+      const entry = entryFor(slug);
+      lib.favorites.unshift(entry);
+      keepCover(entry);
+    }
+    libWrite();
+    if (viewIs("library")) renderLibrary();
+  }
+  function recordHistory(slug) {
+    if (!slug) return;
+    const entry = entryFor(slug);
+    const wasPartWay = lib.positions[slug];
+    lib.history = [entry, ...lib.history.filter((e) => e.slug !== slug)].slice(0, LIB_MAX_HISTORY);
+    if (wasPartWay) lib.positions[slug] = wasPartWay;
+    keepCover(entry);
+    libWrite();
+    if (viewIs("library")) renderLibrary();
+  }
+  var libDebounce;
+  var _a;
+  (_a = $("#lib-q")) == null ? void 0 : _a.addEventListener("input", (e) => {
+    libQuery = e.target.value.trim();
+    $("#lib-search-shell").dataset.filled = String(!!e.target.value);
+    clearTimeout(libDebounce);
+    libDebounce = setTimeout(renderLibrary, 180);
+  });
+  var _a2;
+  (_a2 = $("#lib-clear")) == null ? void 0 : _a2.addEventListener("click", () => {
+    $("#lib-q").value = "";
+    $("#lib-search-shell").dataset.filled = "false";
+    libQuery = "";
+    renderLibrary();
+  });
+  var _a3;
+  (_a3 = $("#hist-clear")) == null ? void 0 : _a3.addEventListener("click", () => {
+    lib.history = [];
+    lib.positions = {};
+    libWrite();
+    renderLibrary();
+  });
+  function libMessage(text) {
+    const msg = $("#lib-msg");
+    if (!msg) return;
+    msg.hidden = !text;
+    msg.textContent = text || "";
+  }
+  var _a4;
+  (_a4 = $("#lib-export")) == null ? void 0 : _a4.addEventListener("click", () => {
+    if (!shellApi()) {
+      libMessage("Exporting a file needs the Android app.");
+      return;
+    }
+    shellCall("exportLibrary", JSON.stringify({
+      ...lib,
+      app: "hanime-shell",
+      savedAt: (/* @__PURE__ */ new Date()).toISOString()
+    }));
+    libMessage("Choose where to keep the file.");
+  });
+  var _a5;
+  (_a5 = $("#lib-import")) == null ? void 0 : _a5.addEventListener("click", () => {
+    if (!shellApi()) {
+      libMessage("Importing a file needs the Android app.");
+      return;
+    }
+    libMessage("Choose a library file to merge in.");
+    shellCall("importLibrary");
+  });
+  window.__shellLibraryImport = (text) => {
+    let data = null;
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      data = null;
+    }
+    if (!data || typeof data !== "object") {
+      libMessage("That file is not a library export \u2014 nothing was imported.");
+      return;
+    }
+    const favs = Array.isArray(data.favorites) ? data.favorites : [];
+    const hist = Array.isArray(data.history) ? data.history : [];
+    const haveFav = new Set(lib.favorites.map((e) => e.slug));
+    favs.forEach((e) => {
+      if (!e || !e.slug || haveFav.has(e.slug)) return;
+      haveFav.add(e.slug);
+      lib.favorites.push(e);
+      keepCover(e);
+    });
+    const byslug = new Map(lib.history.map((e) => [e.slug, e]));
+    hist.forEach((e) => {
+      if (!e || !e.slug) return;
+      const existing = byslug.get(e.slug);
+      if (!existing || Number(e.at) > Number(existing.at)) {
+        byslug.set(e.slug, e);
+        keepCover(e);
+      }
+    });
+    lib.history = [...byslug.values()].sort((a, b) => Number(b.at) - Number(a.at)).slice(0, LIB_MAX_HISTORY);
+    const pos = data.positions && typeof data.positions === "object" ? data.positions : {};
+    Object.keys(pos).forEach((slug) => {
+      const incoming = pos[slug];
+      if (!incoming || typeof incoming !== "object") return;
+      const existing = lib.positions[slug];
+      if (existing && Number(existing.at) > Number(incoming.at)) return;
+      const t = Number(incoming.t);
+      const d = Number(incoming.d);
+      if (!Number.isFinite(t) || !Number.isFinite(d) || d <= 0 || t < 0 || t >= d) return;
+      lib.positions[slug] = { t: Math.round(t), d: Math.round(d), at: Number(incoming.at) || 0 };
+    });
+    libWrite();
+    renderLibrary();
+    libMessage(`Read ${favs.length} favorites and ${hist.length} history entries. This device now holds ${lib.favorites.length} favorites and ${lib.history.length} watched.`);
+  };
 
-function updateBackState() {
-  const open = $('#sheet').classList.contains('open')
-    || menuIsOpen()
-    || $('#nav').dataset.searching === 'true';
-  if (open === backOpen) return;
-  backOpen = open;
-  shellCall('setBackEnabled', open);
-}
+  // client/src/public-playlists.js
+  var ppIndex = [];
+  var ppQuery = "";
+  function ppMatchBadge(p) {
+    if (p.match_kind === "title") return '<span class="pl-flag">title</span>';
+    if (p.match_kind === "content") {
+      const what = p.matched_on === "studio_or_tag" ? "studio or tag" : `${p.match_count} inside`;
+      return `<span class="pl-flag">${esc(what)}</span>`;
+    }
+    return "";
+  }
+  function ppCard(p) {
+    const cover = p.cover_url ? `<img loading="lazy" src="${esc(p.cover_url)}" alt="">` : '<span class="pl-art-empty">no cover</span>';
+    const owner = p.owner_name ? `<span class="pp-owner">
+         ${p.owner_avatar_url ? `<img loading="lazy" src="${esc(p.owner_avatar_url)}" alt="">` : ""}
+         <span class="pp-owner-name">${esc(p.owner_name)}</span>
+       </span>` : "";
+    return `<article class="pl-card pp-card" data-pp="${esc(p.slug)}" tabindex="0" role="button" aria-label="${esc(p.title)}">
+    <div class="pl-art" data-count="1">${cover}${p.truncated ? '<span class="pl-more">partial</span>' : ""}</div>
+    <h3 class="pl-name">${esc(p.title)}</h3>
+    ${owner}
+    <p class="pl-meta">${p.item_count} ${p.item_count === 1 ? "title" : "titles"}${p.fetched ? "" : " \xB7 entries not pulled yet"}${ppMatchBadge(p) ? `<span class="pl-flags">${ppMatchBadge(p)}</span>` : ""}</p>
+  </article>`;
+  }
+  async function loadPublicPlaylists(q = ppQuery) {
+    const rail = $("#pp-rail");
+    if (!rail) return;
+    ppQuery = q;
+    rail.innerHTML = Array.from({ length: 5 }, () => '<div class="pl-card"><div class="skeleton" style="aspect-ratio:1"></div></div>').join("");
+    const note = $("#pp-note");
+    try {
+      const params = new URLSearchParams({ limit: "60" });
+      if (q) params.set("q", q);
+      const body = await api("/api/public/playlists?" + params);
+      ppIndex = body.playlists ?? [];
+      const stats = body.stats ?? {};
+      $("#pp-count").textContent = `${stats.playlists ?? 0} crawled \xB7 ${fmtCount(stats.items ?? 0)} titles`;
+      rail.innerHTML = body.playlists.map(ppCard).join("");
+      if (!body.playlists.length) {
+        note.hidden = false;
+        note.textContent = q ? `No crawled playlist matches \u201C${q}\u201D. The index only holds what has been discovered so far \u2014 scan more to widen it.` : "The index is empty. Hit Scan more to start discovering public playlists.";
+      } else {
+        note.hidden = true;
+      }
+    } catch (e) {
+      rail.innerHTML = "";
+      note.hidden = false;
+      note.textContent = `Could not load public playlists \u2014 ${e.message}`;
+    }
+  }
+  async function openPublicPlaylist(slug) {
+    const sheet = $("#sheet");
+    sheet.classList.add("open");
+    document.body.style.overflow = "hidden";
+    sheet.scrollTop = 0;
+    updateBackState();
+    $("#sheet-count").hidden = true;
+    $("#sheet-body").innerHTML = '<div class="center-spin"><div class="spinner"></div></div>';
+    let p;
+    try {
+      p = await api("/api/public/playlists/" + encodeURIComponent(slug));
+    } catch (e) {
+      $("#sheet-body").innerHTML = `<p class="note">Could not open this playlist \u2014 ${esc(e.message)}</p>`;
+      return;
+    }
+    const items = p.items ?? [];
+    $("#sheet-count").hidden = false;
+    $("#sheet-count").textContent = `${items.length} ${items.length === 1 ? "title" : "titles"}`;
+    const ownerLine = p.owner_name ? `<a class="pl-owner-link" href="/api/public/playlists?owner=${encodeURIComponent(p.owner_channel_slug ?? "")}" data-pp-owner="${esc(p.owner_channel_slug ?? "")}">${esc(p.owner_name)}</a>` : "unknown creator";
+    $("#sheet-body").innerHTML = `
+    <div class="detail-head">
+      <h2 class="detail-title">${esc(p.title)}</h2>
+      <div class="detail-meta">by ${ownerLine} \xB7 ${items.length} titles \xB7 ${p.playable ?? 0} playable${p.unresolved ? ` \xB7 ${p.unresolved} not in the local catalog` : ""}${p.truncated ? " \xB7 upstream truncated this list" : ""}</div>
+      <div class="detail-tags">
+        <span class="hero-tag">public</span>
+        ${p.views ? `<span class="hero-tag">${fmtCount(p.views)} views</span>` : ""}
+        ${p.updated_at ? `<span class="hero-tag">updated ${esc(String(p.updated_at).slice(0, 10))}</span>` : ""}
+        ${(p.tags ?? []).slice(0, 8).map((t) => `<button class="hero-tag pp-tag" type="button" data-pp-tag="${esc(t.text)}">${esc(t.text)}${t.count ? ` <em>${t.count}</em>` : ""}</button>`).join("")}
+        ${(p.brands ?? []).slice(0, 6).map((b) => `<button class="hero-tag pp-tag" type="button" data-pp-brand="${esc(b.title)}">${esc(b.title)}${b.in_playlist_count ? ` <em>${b.in_playlist_count}</em>` : ""}</button>`).join("")}
+      </div>
+    </div>
+    <div class="pl-items">
+      ${items.map((i) => i.resolved === false ? `<div class="unresolved" title="Not present in the local catalog">${esc(i.name ?? i.slug ?? "unknown")}</div>` : cardHtml(i)).join("")}
+    </div>`;
+  }
+  document.addEventListener("click", (e) => {
+    const chip = e.target.closest("[data-pp-tag], [data-pp-brand]");
+    if (!chip) return;
+    e.preventDefault();
+    closeSheet();
+    const term = chip.dataset.ppTag ?? chip.dataset.ppBrand;
+    const input = $("#pp-q");
+    input.value = term;
+    $("#pp-search-shell").dataset.filled = "true";
+    loadPublicPlaylists(term);
+    showView("playlists");
+  });
+  async function playlistsForVideo(slug) {
+    var _a10;
+    const slot = $("#in-playlists");
+    if (!slot) return;
+    let body;
+    try {
+      body = await api(`/api/public/videos/${encodeURIComponent(slug)}/playlists`);
+    } catch {
+      slot.remove();
+      return;
+    }
+    if (!((_a10 = body.playlists) == null ? void 0 : _a10.length)) {
+      slot.remove();
+      return;
+    }
+    slot.hidden = false;
+    slot.innerHTML = `
+    <h3 class="in-pl-head">In ${body.total} public ${body.total === 1 ? "playlist" : "playlists"}</h3>
+    <div class="rail">${body.playlists.map((p) => `
+      <button class="chip in-pl-chip" type="button" data-pp="${esc(p.slug)}">
+        ${esc(p.title)}${p.item_count ? ` <em>${p.item_count}</em>` : ""}
+      </button>`).join("")}</div>`;
+  }
+  function wirePublicPlaylists() {
+    const q = $("#pp-q");
+    const clear = $("#pp-clear");
+    if (q) {
+      let t = null;
+      q.oninput = () => {
+        clearTimeout(t);
+        t = setTimeout(() => loadPublicPlaylists(q.value.trim()), 220);
+      };
+      q.onkeydown = (e) => {
+        if (e.key === "Enter") {
+          clearTimeout(t);
+          loadPublicPlaylists(q.value.trim());
+        }
+      };
+    }
+    if (clear) clear.onclick = () => {
+      q.value = "";
+      loadPublicPlaylists("");
+    };
+    const more = $("#pp-more");
+    if (more) more.onclick = async () => {
+      more.disabled = true;
+      const was = more.textContent;
+      more.textContent = "Scanning\u2026";
+      try {
+        await fetch("/api/public/crawl", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ count: 60, max_playlists: 400, max_channels: 60 })
+        });
+        for (let i = 0; i < 120; i++) {
+          await new Promise((r) => setTimeout(r, 1500));
+          const st = await api("/api/public/crawl");
+          if (!st.crawling) {
+            await loadPublicPlaylists();
+            break;
+          }
+        }
+      } catch (e) {
+        $("#pp-note").hidden = false;
+        $("#pp-note").textContent = `Scan failed \u2014 ${e.message}`;
+      } finally {
+        more.disabled = false;
+        more.textContent = was;
+      }
+    };
+    loadPublicPlaylists("");
+  }
+  document.addEventListener("click", (e) => {
+    const card = e.target.closest("[data-pp]");
+    if (!card) return;
+    e.preventDefault();
+    openPublicPlaylist(card.dataset.pp);
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const card = e.target.closest("[data-pp]");
+    if (card) {
+      e.preventDefault();
+      openPublicPlaylist(card.dataset.pp);
+    }
+  });
+  var _a6;
+  (_a6 = $("#pp-q")) == null ? void 0 : _a6.addEventListener("input", (e) => {
+    $("#pp-search-shell").dataset.filled = String(!!e.target.value);
+  });
 
-window.__shellBack = () => {
-  if ($('#sheet').classList.contains('open')) { closeSheet(); return true; }
-  if (menuIsOpen()) { setMenuOpen(false); return true; }
-  if ($('#nav').dataset.searching === 'true') { setSearchOpen(false); return true; }
-  return false;
-};
+  // client/src/sheet.js
+  var activeHls = null;
+  var activeVid = null;
+  var activeSlug = null;
+  function closeSheet() {
+    if (activeSlug && activeVid) savePosition(activeSlug, activeVid);
+    shellCall("setPlaying", false);
+    const vid = $("#vid");
+    if (vid) {
+      vid.pause();
+      vid.removeAttribute("src");
+      vid.load();
+    }
+    if (activeHls) {
+      activeHls.destroy();
+      activeHls = null;
+    }
+    activeVid = null;
+    activeSlug = null;
+    $("#sheet").classList.remove("open");
+    document.body.style.overflow = "";
+    document.body.dataset.pip = "false";
+    updateBackState();
+  }
+  async function openVideo(slug) {
+    const sheet = $("#sheet");
+    sheet.classList.add("open");
+    document.body.style.overflow = "hidden";
+    sheet.scrollTop = 0;
+    updateBackState();
+    $("#sheet-body").innerHTML = '<div class="center-spin"><div class="spinner"></div></div>';
+    $("#sheet-count").hidden = true;
+    let v;
+    try {
+      v = await api("/api/videos/" + encodeURIComponent(slug));
+    } catch (e) {
+      $("#sheet-body").innerHTML = `<p class="note">Could not load this title \u2014 ${esc(e.message)}</p>`;
+      return;
+    }
+    remember(v);
+    $("#sheet-count").hidden = false;
+    $("#sheet-count").textContent = fmtCount(v.views) + " views";
+    $("#sheet-body").innerHTML = `
+    <div class="player-card">
+      <div id="player-slot"><div class="center-spin"><div class="spinner"></div></div></div>
+    </div>
+    <div class="detail-head">
+      <h2 class="detail-title">${esc(v.name)}</h2>
+      <div class="detail-meta">${esc(v.brand ?? "Unknown studio")} \xB7 ${fmtCount(v.views)} views \xB7 ${fmtCount(v.likes)} likes${v.released_at ? " \xB7 " + esc(v.released_at.slice(0, 4)) : ""}</div>
+      <div class="detail-actions">${favPill(slug)}</div>
+      <div class="detail-tags">${(v.tags ?? []).map((t) => `<span class="hero-tag">${esc(t)}</span>`).join("")}</div>
+      <p class="detail-desc">${esc((v.description ?? "").replace(/<[^>]+>/g, " ").replace(/\s{2,}/g, " ").trim())}</p>
+    </div>
+    <div id="in-playlists" hidden></div>`;
+    playlistsForVideo(slug).catch(() => {
+    });
+    await mountPlayer(slug);
+  }
+  async function mountPlayer(slug) {
+    const slot = $("#player-slot");
+    let sources;
+    try {
+      ({ sources } = await api(`/api/videos/${encodeURIComponent(slug)}/sources`));
+    } catch (e) {
+      slot.innerHTML = `<p class="note">Could not resolve a stream \u2014 ${esc(e.message)}</p>`;
+      return;
+    }
+    if (!(sources == null ? void 0 : sources.length)) {
+      slot.innerHTML = '<p class="note">No playable source was returned for this entry.</p>';
+      return;
+    }
+    recordHistory(slug);
+    const pipWanted = shellCall("pictureInPictureSupported") === true;
+    slot.innerHTML = `
+    <video id="vid" controls playsinline preload="metadata"></video>
+    <div class="quality">${sources.map((s, i) => `<button class="q-btn" data-i="${i}" aria-pressed="${i === 0}">${esc(s.label)}</button>`).join("")}</div>
+    <div class="lib-tools">
+      ${pipWanted ? '<button class="chip" id="pip-btn" type="button">Picture in picture</button>' : ""}
+      <span class="sec-count" id="player-note"></span>
+    </div>`;
+    const vid = $("#vid");
+    activeVid = vid;
+    activeSlug = slug;
+    const attach = (url) => {
+      var _a10;
+      if (activeHls) {
+        activeHls.destroy();
+        activeHls = null;
+      }
+      if ((_a10 = window.Hls) == null ? void 0 : _a10.isSupported()) {
+        activeHls = new window.Hls({ enableWorker: true, lowLatencyMode: false });
+        activeHls.on(window.Hls.Events.ERROR, (_e, data) => {
+          if (!data.fatal) return;
+          slot.insertAdjacentHTML("beforeend", `<p class="note">Playback error \u2014 ${esc(data.details)}</p>`);
+        });
+        activeHls.loadSource(url);
+        activeHls.attachMedia(vid);
+        return;
+      }
+      vid.src = url;
+    };
+    attach(sources[0].url);
+    const saved = lib.positions[slug];
+    if (saved && saved.t > 5) {
+      vid.addEventListener("loadedmetadata", () => {
+        try {
+          vid.currentTime = saved.t;
+        } catch (e) {
+        }
+        const note = $("#player-note");
+        if (note) note.textContent = `resumed from ${clock(saved.t)}`;
+      }, { once: true });
+    }
+    let lastSaved = 0;
+    vid.addEventListener("timeupdate", () => {
+      const now = Date.now();
+      if (now - lastSaved < 5e3) return;
+      lastSaved = now;
+      savePosition(slug, vid);
+    });
+    vid.addEventListener("ended", () => clearPosition(slug));
+    const tellAspect = () => {
+      if (vid.videoWidth) shellCall("setVideoAspect", vid.videoWidth, vid.videoHeight);
+    };
+    vid.addEventListener("loadedmetadata", tellAspect);
+    vid.addEventListener("play", () => {
+      shellCall("setPlaying", true);
+      tellAspect();
+    });
+    vid.addEventListener("pause", () => {
+      shellCall("setPlaying", false);
+      savePosition(slug, vid);
+    });
+    const pipBtn = $("#pip-btn");
+    if (pipBtn) pipBtn.onclick = () => shellCall("enterPip");
+    $$(".q-btn", slot).forEach((btn) => {
+      btn.onclick = () => {
+        const pos = vid.currentTime, wasPlaying = !vid.paused;
+        vid.addEventListener("loadedmetadata", () => {
+          if (pos > 0) vid.currentTime = pos;
+          if (wasPlaying) vid.play().catch(() => {
+          });
+        }, { once: true });
+        attach(sources[Number(btn.dataset.i)].url);
+        $$(".q-btn", slot).forEach((b) => {
+          b.setAttribute("aria-pressed", String(b === btn));
+        });
+      };
+    });
+  }
 
-/* The shell says when the small window opens, so the page can show only the
-   video in it. */
-window.__shellPip = (on) => { document.body.dataset.pip = String(!!on); };
-
-/* ------------------------------------------------------------------ hero */
-
-function heroSlideHtml(v) {
-  const tags = (v.tags ?? []).slice(0, 4);
-  return `
+  // client/src/hero.js
+  function heroSlideHtml(v) {
+    const tags = (v.tags ?? []).slice(0, 4);
+    return `
     <div class="hero-hairline"></div>
-    <div class="hero-bg"><img src="${esc(v.cover ?? '')}" alt="" fetchpriority="high"></div>
+    <div class="hero-bg"><img src="${esc(v.cover ?? "")}" alt="" fetchpriority="high"></div>
     <div class="hero-scrim"></div>
     <div class="hero-body">
-      <div class="hero-kicker"><span class="hero-dash"></span><span>${esc(v.brand ?? 'Featured')}</span></div>
+      <div class="hero-kicker"><span class="hero-dash"></span><span>${esc(v.brand ?? "Featured")}</span></div>
       <h2 class="hero-title">${esc(v.name)}</h2>
       <div class="hero-tags">
-        ${tags.map((t) => `<span class="hero-tag">${esc(t)}</span>`).join('')}
+        ${tags.map((t) => `<span class="hero-tag">${esc(t)}</span>`).join("")}
         <span class="hero-tag">${fmtCount(v.views)} views</span>
       </div>
       <div class="hero-cta">
@@ -1357,1397 +2018,583 @@ function heroSlideHtml(v) {
         <button class="pill pill-ghost" data-open="${esc(v.slug)}">Details</button>
       </div>
     </div>`;
-}
-
-let heroTimer;
-function mountHero() {
-  const [a, b] = [$('#hero-a'), $('#hero-b')];
-  [a, b].forEach((el, i) => { el.innerHTML = heroSlideHtml(state.featured[i]); });
-  $('#hero-dots').innerHTML = state.featured
-    .map((_, i) => `<button class="hero-dot" data-i="${i}" data-active="${i === 0}" aria-label="Slide ${i + 1}"></button>`).join('');
-
-  const show = (i) => {
-    state.slide = i;
-    a.dataset.active = String(i === 0);
-    b.dataset.active = String(i === 1);
-    $$('#hero-dots .hero-dot').forEach((d) => { d.dataset.active = String(Number(d.dataset.i) === i); });
-  };
-  show(0);
-
-  const cycle = () => {
-    clearInterval(heroTimer);
-    if (state.featured.length < 2) return;
-    heroTimer = setInterval(() => show((state.slide + 1) % 2), 8200);
-  };
-  cycle();
-
-  $('#hero-dots').onclick = (e) => {
-    const d = e.target.closest('.hero-dot');
-    if (!d) return;
-    show(Number(d.dataset.i));
-    cycle();
-  };
-}
-
-/* ------------------------------------------------------------------ cards */
-
-/* Library cards are drawn from the copy the app stored, so the list still has
-   faces with no network. A title that was never kept has no copy and uses its
-   URL, exactly as before. */
-function coverFor(slug, remote, opts) {
-  if (!opts || !opts.local) return remote;
-  const stored = shellCall('cachedCover', slug);
-  return stored ? stored : remote;
-}
-
-function cardHtml(v, opts) {
-  // Every card is also a place to file the title: the heart is drawn from the
-  // same records the library view renders, so the two can never disagree.
-  remember(v);
-  const name = v.name ?? v.title ?? v.slug;
-  const cover = coverFor(v.slug, v.cover ?? v.cover_url ?? '', opts);
-  const owned = isFav(v.slug);
-  const heart = owned ? 'Remove from favorites' : 'Add to favorites';
-  const views = Number(v.views);
-  // opts is an object here and the array index when this is used as a map
-  // callback, so every read off it is checked for the shape it expects.
-  const pct = opts && opts.progress ? progressOf(v.slug) : 0;
-
-  return `<article class="card" data-slug="${esc(v.slug)}" tabindex="0" role="button" aria-label="${esc(name)}">
-    <div class="card-frame">
-      <img loading="lazy" decoding="async" src="${esc(cover)}" alt="">
-      <div class="card-fallback" hidden>${esc(name)}</div>
-      <div class="card-scrim"></div>
-      ${Number.isFinite(views) ? `<span class="card-badge">${fmtCount(views)}</span>` : ''}
-      ${pct ? `<div class="card-progress"><span style="width:${pct}%"></span></div>` : ''}
-      <button class="fav-btn" type="button" data-fav="${esc(v.slug)}" aria-pressed="${owned}" aria-label="${heart}" title="${heart}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M12 20.4 4.9 14.1A5.3 5.3 0 0 1 12 6.3a5.3 5.3 0 0 1 7.1 7.8Z"/></svg>
-      </button>
-      <div class="card-play"><span>
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-      </span></div>
-    </div>
-    <div class="card-body">
-      <h3 class="card-title">${esc(name)}</h3>
-      <p class="card-meta">${esc(v.brand ?? '')}${v.released_at ? ' · ' + esc(v.released_at.slice(0, 4)) : ''}</p>
-    </div>
-  </article>`;
-}
-
-/* ------------------------------------------------------------------ data */
-
-let debounce;
-async function loadTags() {
-  const { data } = await api('/api/tags');
-  // only tags with real coverage make useful filters
-  const top = data.filter((t) => t.count >= 25).slice(0, 30);
-  $('#tag-rail').innerHTML = top
-    .map((t) => `<button class="chip" data-tag="${esc(t.name)}" aria-pressed="false">${esc(t.name)} <span class="chip-n">${t.count}</span></button>`)
-    .join('');
-}
-
-async function loadBrands() {
-  const { data } = await api('/api/brands');
-  $('#brand-rail').innerHTML = data.slice(0, 30)
-    .map((b) => `<button class="chip" data-brand="${esc(b.name)}">${esc(b.name)} <span class="chip-n">${b.count}</span></button>`)
-    .join('');
-}
-
-async function loadGrid() {
-  const grid = $('#grid');
-  const [order_by, ordering] = state.sort.split(':');
-  const params = new URLSearchParams({ page: state.page, per_page: state.perPage, order_by, ordering });
-  if (state.q) params.set('q', state.q);
-  if (state.tags.length) params.set('tags', state.tags.join(','));
-  if (state.brand) params.set('brand', state.brand);
-
-  if (!grid.children.length) {
-    grid.innerHTML = Array.from({ length: 18 }, () => '<div class="skeleton" style="aspect-ratio:2/3"></div>').join('');
   }
-
-  try {
-    const body = await api('/api/videos?' + params);
-    state.total = body.total;
-    state.pages = Math.max(1, body.pages);
-    $('#total-count').textContent = `${body.total}`;
-    $('#footer-stat').textContent = `${body.total} titles indexed · catalog cached locally.`;
-
-    grid.innerHTML = body.data.map(cardHtml).join('') ||
-      `<p class="note">Nothing matches that yet.</p>`;
-
-    const label = $('#active-label');
-    const bits = [...state.tags, state.brand && `studio: ${state.brand}`, state.q && `“${state.q}”`].filter(Boolean);
-    label.hidden = !bits.length;
-    label.textContent = bits.join(' · ');
-
-    $('#pager').hidden = state.pages <= 1;
-    $('#pageinfo').textContent = `page ${state.page + 1} / ${state.pages}`;
-    $('#prev').disabled = state.page === 0;
-    $('#next').disabled = state.page + 1 >= state.pages;
-  } catch (e) {
-    grid.innerHTML = `<p class="note">Load failed — ${esc(e.message)}</p>`;
-  }
-}
-
-async function loadFeatured() {
-  const body = await api('/api/videos?per_page=2&order_by=views&ordering=desc');
-  state.featured = body.data;
-  if (state.featured.length) mountHero();
-}
-
-/* ------------------------------------------------------------------ playlists */
-
-let plIndex = [];
-
-/* ----------------------------------------------------------- public playlists */
-//
-// hanime.tv has no playlist index and no public playlist API — guests get 403
-// on every playlist path. The only way to read them is the server-rendered
-// page, and the only way to find them is the "Related Playlists" rail on a
-// video page plus each owner's channel. The proxy crawls that graph and serves
-// it here. Wording matters: this section is the crawl, not the site's own
-// (nonexistent) index.
-
-let ppIndex = [];
-let ppQuery = '';
-
-function ppMatchBadge(p) {
-  if (p.match_kind === 'title') return '<span class="pl-flag">title</span>';
-  if (p.match_kind === 'content') {
-    // "entries" means an entry title matched; "studio or tag" means the
-    // playlist is mostly that thing — different results, labelled differently.
-    const what = p.matched_on === 'studio_or_tag' ? 'studio or tag' : `${p.match_count} inside`;
-    return `<span class="pl-flag">${esc(what)}</span>`;
-  }
-  return '';
-}
-
-function ppCard(p) {
-  const cover = p.cover_url ? `<img loading="lazy" src="${esc(p.cover_url)}" alt="">` : '<span class="pl-art-empty">no cover</span>';
-  const owner = p.owner_name
-    ? `<span class="pp-owner">
-         ${p.owner_avatar_url ? `<img loading="lazy" src="${esc(p.owner_avatar_url)}" alt="">` : ''}
-         <span class="pp-owner-name">${esc(p.owner_name)}</span>
-       </span>`
-    : '';
-  return `<article class="pl-card pp-card" data-pp="${esc(p.slug)}" tabindex="0" role="button" aria-label="${esc(p.title)}">
-    <div class="pl-art" data-count="1">${cover}${p.truncated ? '<span class="pl-more">partial</span>' : ''}</div>
-    <h3 class="pl-name">${esc(p.title)}</h3>
-    ${owner}
-    <p class="pl-meta">${p.item_count} ${p.item_count === 1 ? 'title' : 'titles'}${
-      p.fetched ? '' : ' · entries not pulled yet'
-    }${ppMatchBadge(p) ? `<span class="pl-flags">${ppMatchBadge(p)}</span>` : ''}</p>
-  </article>`;
-}
-
-async function loadPublicPlaylists(q = ppQuery) {
-  const rail = $('#pp-rail');
-  if (!rail) return;
-  ppQuery = q;
-  rail.innerHTML = Array.from({ length: 5 }, () => '<div class="pl-card"><div class="skeleton" style="aspect-ratio:1"></div></div>').join('');
-
-  const note = $('#pp-note');
-  try {
-    const params = new URLSearchParams({ limit: '60' });
-    if (q) params.set('q', q);
-    const body = await api('/api/public/playlists?' + params);
-    ppIndex = body.playlists ?? [];
-
-    const stats = body.stats ?? {};
-    $('#pp-count').textContent = `${stats.playlists ?? 0} crawled · ${fmtCount(stats.items ?? 0)} titles`;
-    rail.innerHTML = body.playlists.map(ppCard).join('');
-
-    if (!body.playlists.length) {
-      note.hidden = false;
-      note.textContent = q
-        ? `No crawled playlist matches “${q}”. The index only holds what has been discovered so far — scan more to widen it.`
-        : 'The index is empty. Hit Scan more to start discovering public playlists.';
-    } else {
-      note.hidden = true;
-    }
-  } catch (e) {
-    rail.innerHTML = '';
-    note.hidden = false;
-    note.textContent = `Could not load public playlists — ${e.message}`;
-  }
-}
-
-async function openPublicPlaylist(slug) {
-  const sheet = $('#sheet');
-  sheet.classList.add('open');
-  document.body.style.overflow = 'hidden';
-  sheet.scrollTop = 0;
-  updateBackState();
-  $('#sheet-count').hidden = true;
-  $('#sheet-body').innerHTML = '<div class="center-spin"><div class="spinner"></div></div>';
-
-  let p;
-  try {
-    p = await api('/api/public/playlists/' + encodeURIComponent(slug));
-  } catch (e) {
-    $('#sheet-body').innerHTML = `<p class="note">Could not open this playlist — ${esc(e.message)}</p>`;
-    return;
-  }
-
-  const items = p.items ?? [];
-  $('#sheet-count').hidden = false;
-  $('#sheet-count').textContent = `${items.length} ${items.length === 1 ? 'title' : 'titles'}`;
-
-  const ownerLine = p.owner_name
-    ? `<a class="pl-owner-link" href="/api/public/playlists?owner=${encodeURIComponent(p.owner_channel_slug ?? '')}" data-pp-owner="${esc(p.owner_channel_slug ?? '')}">${esc(p.owner_name)}</a>`
-    : 'unknown creator';
-
-  $('#sheet-body').innerHTML = `
-    <div class="detail-head">
-      <h2 class="detail-title">${esc(p.title)}</h2>
-      <div class="detail-meta">by ${ownerLine} · ${items.length} titles · ${p.playable ?? 0} playable${
-        p.unresolved ? ` · ${p.unresolved} not in the local catalog` : ''}${
-        p.truncated ? ' · upstream truncated this list' : ''}</div>
-      <div class="detail-tags">
-        <span class="hero-tag">public</span>
-        ${p.views ? `<span class="hero-tag">${fmtCount(p.views)} views</span>` : ''}
-        ${p.updated_at ? `<span class="hero-tag">updated ${esc(String(p.updated_at).slice(0, 10))}</span>` : ''}
-        ${(p.tags ?? []).slice(0, 8).map((t) => `<button class="hero-tag pp-tag" type="button" data-pp-tag="${esc(t.text)}">${esc(t.text)}${t.count ? ` <em>${t.count}</em>` : ''}</button>`).join('')}
-        ${(p.brands ?? []).slice(0, 6).map((b) => `<button class="hero-tag pp-tag" type="button" data-pp-brand="${esc(b.title)}">${esc(b.title)}${b.in_playlist_count ? ` <em>${b.in_playlist_count}</em>` : ''}</button>`).join('')}
-      </div>
-    </div>
-    <div class="pl-items">
-      ${items.map((i) => i.resolved === false
-        ? `<div class="unresolved" title="Not present in the local catalog">${esc(i.name ?? i.slug ?? 'unknown')}</div>`
-        : cardHtml(i)).join('')}
-    </div>`;
-}
-
-// Tapping a studio or tag chip inside a playlist searches for it, so a
-// playlist becomes a way into the rest of the index rather than a dead end.
-document.addEventListener('click', (e) => {
-  const chip = e.target.closest('[data-pp-tag], [data-pp-brand]');
-  if (!chip) return;
-  e.preventDefault();
-  closeSheet();
-  const term = chip.dataset.ppTag ?? chip.dataset.ppBrand;
-  const input = $('#pp-q');
-  input.value = term;
-  $('#pp-search-shell').dataset.filled = 'true';
-  loadPublicPlaylists(term);
-  showView('playlists');   // the filtered rail is the answer, so go there
-});
-
-/** Which public playlists a given video appears in — the reverse lookups. */
-async function playlistsForVideo(slug) {
-  const slot = $('#in-playlists');
-  if (!slot) return;
-  let body;
-  try {
-    body = await api(`/api/public/videos/${encodeURIComponent(slug)}/playlists`);
-  } catch {
-    slot.remove();
-    return;
-  }
-  if (!body.playlists?.length) { slot.remove(); return; }
-  slot.hidden = false;
-  slot.innerHTML = `
-    <h3 class="in-pl-head">In ${body.total} public ${body.total === 1 ? 'playlist' : 'playlists'}</h3>
-    <div class="rail">${body.playlists.map((p) => `
-      <button class="chip in-pl-chip" type="button" data-pp="${esc(p.slug)}">
-        ${esc(p.title)}${p.item_count ? ` <em>${p.item_count}</em>` : ''}
-      </button>`).join('')}</div>`;
-}
-
-function wirePublicPlaylists() {
-  const q = $('#pp-q');
-  const clear = $('#pp-clear');
-  if (q) {
-    let t = null;
-    q.oninput = () => {
-      clearTimeout(t);
-      t = setTimeout(() => loadPublicPlaylists(q.value.trim()), 220);
-    };
-    q.onkeydown = (e) => { if (e.key === 'Enter') { clearTimeout(t); loadPublicPlaylists(q.value.trim()); } };
-  }
-  if (clear) clear.onclick = () => { q.value = ''; loadPublicPlaylists(''); };
-
-  const more = $('#pp-more');
-  if (more) more.onclick = async () => {
-    more.disabled = true;
-    const was = more.textContent;
-    more.textContent = 'Scanning…';
-    try {
-      await fetch('/api/public/crawl', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ count: 60, max_playlists: 400, max_channels: 60 }),
+  var heroTimer;
+  function mountHero() {
+    const [a, b] = [$("#hero-a"), $("#hero-b")];
+    [a, b].forEach((el, i) => {
+      el.innerHTML = heroSlideHtml(state.featured[i]);
+    });
+    $("#hero-dots").innerHTML = state.featured.map((_, i) => `<button class="hero-dot" data-i="${i}" data-active="${i === 0}" aria-label="Slide ${i + 1}"></button>`).join("");
+    const show = (i) => {
+      state.slide = i;
+      a.dataset.active = String(i === 0);
+      b.dataset.active = String(i === 1);
+      $$("#hero-dots .hero-dot").forEach((d) => {
+        d.dataset.active = String(Number(d.dataset.i) === i);
       });
-      // The pass outlives the request; poll until it reports done, then reload.
-      for (let i = 0; i < 120; i++) {
-        await new Promise((r) => setTimeout(r, 1500));
-        const st = await api('/api/public/crawl');
-        if (!st.crawling) { await loadPublicPlaylists(); break; }
-      }
-    } catch (e) {
-      $('#pp-note').hidden = false;
-      $('#pp-note').textContent = `Scan failed — ${e.message}`;
-    } finally {
-      more.disabled = false;
-      more.textContent = was;
-    }
-  };
-
-  loadPublicPlaylists('');
-}
-
-/* ------------------------------------------------------------------ playlists */
-
-function plArt(p) {
-  const covers = (p.preview ?? []).map((x) => x.cover).filter(Boolean).slice(0, 4);
-  if (!covers.length) {
-    return `<div class="pl-art" data-count="1"><span class="pl-art-empty">no cover</span></div>`;
+    };
+    show(0);
+    const cycle = () => {
+      clearInterval(heroTimer);
+      if (state.featured.length < 2) return;
+      heroTimer = setInterval(() => show((state.slide + 1) % 2), 8200);
+    };
+    cycle();
+    $("#hero-dots").onclick = (e) => {
+      const d = e.target.closest(".hero-dot");
+      if (!d) return;
+      show(Number(d.dataset.i));
+      cycle();
+    };
   }
-  const shown = covers.slice(0, 3);
-  const extra = (p.count ?? 0) - shown.length;
-  return `<div class="pl-art" data-count="${Math.min(covers.length, 4)}">
-    ${shown.map((c) => `<img loading="lazy" src="${esc(c)}" alt="">`).join('')}
-    ${extra > 0 ? `<span class="pl-more">+${extra}</span>` : ''}
-  </div>`;
-}
 
-function plCard(p) {
-  const flags = [
-    p.synthetic ? 'derived' : null,
-    p.unresolved ? `${p.unresolved} unresolved` : null,
-    p.match ? p.match === 'title' ? 'title match' : `${p.match_count} in list` : null,
-  ].filter(Boolean);
-  return `<article class="pl-card" data-playlist="${esc(p.slug)}" tabindex="0" role="button" aria-label="${esc(p.title)}">
+  // client/src/data.js
+  async function loadTags() {
+    const { data } = await api("/api/tags");
+    const top = data.filter((t) => t.count >= 25).slice(0, 30);
+    $("#tag-rail").innerHTML = top.map((t) => `<button class="chip" data-tag="${esc(t.name)}" aria-pressed="false">${esc(t.name)} <span class="chip-n">${t.count}</span></button>`).join("");
+  }
+  async function loadBrands() {
+    const { data } = await api("/api/brands");
+    $("#brand-rail").innerHTML = data.slice(0, 30).map((b) => `<button class="chip" data-brand="${esc(b.name)}">${esc(b.name)} <span class="chip-n">${b.count}</span></button>`).join("");
+  }
+  async function loadGrid() {
+    const grid = $("#grid");
+    const [order_by, ordering] = state.sort.split(":");
+    const params = new URLSearchParams({ page: state.page, per_page: state.perPage, order_by, ordering });
+    if (state.q) params.set("q", state.q);
+    if (state.tags.length) params.set("tags", state.tags.join(","));
+    if (state.brand) params.set("brand", state.brand);
+    if (!grid.children.length) {
+      grid.innerHTML = Array.from({ length: 18 }, () => '<div class="skeleton" style="aspect-ratio:2/3"></div>').join("");
+    }
+    try {
+      const body = await api("/api/videos?" + params);
+      state.total = body.total;
+      state.pages = Math.max(1, body.pages);
+      $("#total-count").textContent = `${body.total}`;
+      $("#footer-stat").textContent = `${body.total} titles indexed \xB7 catalog cached locally.`;
+      grid.innerHTML = body.data.map(cardHtml).join("") || `<p class="note">Nothing matches that yet.</p>`;
+      const label = $("#active-label");
+      const bits = [...state.tags, state.brand && `studio: ${state.brand}`, state.q && `\u201C${state.q}\u201D`].filter(Boolean);
+      label.hidden = !bits.length;
+      label.textContent = bits.join(" \xB7 ");
+      $("#pager").hidden = state.pages <= 1;
+      $("#pageinfo").textContent = `page ${state.page + 1} / ${state.pages}`;
+      $("#prev").disabled = state.page === 0;
+      $("#next").disabled = state.page + 1 >= state.pages;
+    } catch (e) {
+      grid.innerHTML = `<p class="note">Load failed \u2014 ${esc(e.message)}</p>`;
+    }
+  }
+  async function loadFeatured() {
+    const body = await api("/api/videos?per_page=2&order_by=views&ordering=desc");
+    state.featured = body.data;
+    if (state.featured.length) mountHero();
+  }
+
+  // client/src/playlists.js
+  var plIndex = [];
+  function plArt(p) {
+    const covers = (p.preview ?? []).map((x) => x.cover).filter(Boolean).slice(0, 4);
+    if (!covers.length) {
+      return `<div class="pl-art" data-count="1"><span class="pl-art-empty">no cover</span></div>`;
+    }
+    const shown = covers.slice(0, 3);
+    const extra = (p.count ?? 0) - shown.length;
+    return `<div class="pl-art" data-count="${Math.min(covers.length, 4)}">
+    ${shown.map((c) => `<img loading="lazy" src="${esc(c)}" alt="">`).join("")}
+    ${extra > 0 ? `<span class="pl-more">+${extra}</span>` : ""}
+  </div>`;
+  }
+  function plCard(p) {
+    const flags = [
+      p.synthetic ? "derived" : null,
+      p.unresolved ? `${p.unresolved} unresolved` : null,
+      p.match ? p.match === "title" ? "title match" : `${p.match_count} in list` : null
+    ].filter(Boolean);
+    return `<article class="pl-card" data-playlist="${esc(p.slug)}" tabindex="0" role="button" aria-label="${esc(p.title)}">
     ${plArt(p)}
     <h3 class="pl-name">${esc(p.title)}</h3>
-    <p class="pl-meta">${p.count} ${p.count === 1 ? 'title' : 'titles'}${
-      flags.length ? `<span class="pl-flags">${flags.map((f) => `<span class="pl-flag">${esc(f)}</span>`).join('')}</span>` : ''
-    }</p>
+    <p class="pl-meta">${p.count} ${p.count === 1 ? "title" : "titles"}${flags.length ? `<span class="pl-flags">${flags.map((f) => `<span class="pl-flag">${esc(f)}</span>`).join("")}</span>` : ""}</p>
   </article>`;
-}
-
-function connectCard(reason) {
-  const why = {
-    no_session: 'No account connected yet.',
-    expired: 'The stored cookie no longer authenticates — it has probably expired.',
-    empty: 'No cookie was supplied.',
-  }[reason] ?? (reason ? `Session check failed: ${reason}` : 'No account connected yet.');
-
-  return `<div class="connect-card">
+  }
+  function connectCard(reason) {
+    const why = {
+      no_session: "No account connected yet.",
+      expired: "The stored cookie no longer authenticates \u2014 it has probably expired.",
+      empty: "No cookie was supplied."
+    }[reason] ?? (reason ? `Session check failed: ${reason}` : "No account connected yet.");
+    return `<div class="connect-card">
     <h3>Connect an account to see your playlists</h3>
     <p>
-      Public playlists need no account — see <em>Public Playlists</em> above.
+      Public playlists need no account \u2014 see <em>Public Playlists</em> above.
       Your own playlists are different: they arrive inside the account session
       payload, so the proxy needs a cookie from a browser you are already
       logged in with. ${esc(why)}
     </p>
     <p>
-      1. Log in on hanime.tv &nbsp;→&nbsp; 2. DevTools &nbsp;→&nbsp; Network &nbsp;→&nbsp; any request to
-      <code>auth.hanime.tv</code> &nbsp;→&nbsp; 3. copy its <code>Cookie</code> request header.
+      1. Log in on hanime.tv &nbsp;\u2192&nbsp; 2. DevTools &nbsp;\u2192&nbsp; Network &nbsp;\u2192&nbsp; any request to
+      <code>auth.hanime.tv</code> &nbsp;\u2192&nbsp; 3. copy its <code>Cookie</code> request header.
       The password is never used and never stored.
     </p>
     <div class="connect-row">
-      <input id="cookie-input" type="password" placeholder="session=…" autocomplete="off" spellcheck="false">
+      <input id="cookie-input" type="password" placeholder="session=\u2026" autocomplete="off" spellcheck="false">
       <button class="pill pill-primary" id="cookie-send">Connect</button>
     </div>
     <div class="connect-msg" id="cookie-msg" hidden></div>
   </div>`;
-}
-
-function wireConnect() {
-  const send = $('#cookie-send');
-  if (!send) return;
-  const input = $('#cookie-input');
-  const msg = $('#cookie-msg');
-  const submit = async () => {
-    const cookie = input.value.trim();
-    if (!cookie) return;
-    send.disabled = true;
-    msg.hidden = false;
-    msg.dataset.kind = '';
-    msg.textContent = 'Checking…';
-    try {
-      const res = await fetch('/api/session', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ cookie }),
-      });
-      const body = await res.json();
-      if (!res.ok) {
-        msg.dataset.kind = 'err';
-        msg.textContent = body.hint ?? body.reason ?? 'Rejected.';
-        return;
+  }
+  function wireConnect() {
+    const send = $("#cookie-send");
+    if (!send) return;
+    const input = $("#cookie-input");
+    const msg = $("#cookie-msg");
+    const submit = async () => {
+      const cookie = input.value.trim();
+      if (!cookie) return;
+      send.disabled = true;
+      msg.hidden = false;
+      msg.dataset.kind = "";
+      msg.textContent = "Checking\u2026";
+      try {
+        const res = await fetch("/api/session", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ cookie })
+        });
+        const body = await res.json();
+        if (!res.ok) {
+          msg.dataset.kind = "err";
+          msg.textContent = body.hint ?? body.reason ?? "Rejected.";
+          return;
+        }
+        input.value = "";
+        msg.dataset.kind = "ok";
+        msg.textContent = `Connected as ${body.user ?? "account"} \u2014 ${body.playlists} playlists.`;
+        await loadSession();
+      } catch (e) {
+        msg.dataset.kind = "err";
+        msg.textContent = `Request failed: ${e.message}`;
+      } finally {
+        send.disabled = false;
       }
-      input.value = '';
-      msg.dataset.kind = 'ok';
-      msg.textContent = `Connected as ${body.user ?? 'account'} — ${body.playlists} playlists.`;
-      await loadSession();
+    };
+    send.onclick = submit;
+    input.onkeydown = (e) => {
+      if (e.key === "Enter") submit();
+    };
+  }
+  async function loadSession() {
+    var _a10;
+    let info;
+    try {
+      info = await api("/api/session");
     } catch (e) {
-      msg.dataset.kind = 'err';
-      msg.textContent = `Request failed: ${e.message}`;
-    } finally {
-      send.disabled = false;
-    }
-  };
-  send.onclick = submit;
-  input.onkeydown = (e) => { if (e.key === 'Enter') submit(); };
-}
-
-async function loadSession() {
-  let info;
-  try {
-    info = await api('/api/session');
-  } catch (e) {
-    $('#sess-label').textContent = 'unreachable';
-    $('#connect-slot').innerHTML = connectCard(e.message);
-    wireConnect();
-    return;
-  }
-
-  const live = info.live === true;
-  $('#sess-dot').dataset.live = String(live);
-  $('#sess-label').textContent = live
-    ? (info.user?.username ? `@${info.user.username}` : 'connected')
-    : 'not connected';
-  $('#sess-reset').hidden = !info.configured;
-
-  if (live) {
-    $('#connect-slot').innerHTML = '';
-    $('#playlists-body').hidden = false;
-    await loadPlaylists();
-  } else {
-    $('#playlists-body').hidden = true;
-    $('#connect-slot').innerHTML = connectCard(info.reason);
-    wireConnect();
-  }
-}
-
-async function loadPlaylists() {
-  const q = ($('#pl-q')?.value ?? '').trim();
-  const note = $('#pl-note');
-  const rail = $('#pl-rail');
-  if (!rail) return;
-  rail.innerHTML = Array.from({ length: 6 }, () => '<div class="pl-card"><div class="skeleton" style="aspect-ratio:1"></div></div>').join('');
-
-  try {
-    const body = await api('/api/playlists' + (q ? `?q=${encodeURIComponent(q)}` : ''));
-    if (!body.configured) { await loadSession(); return; }
-    plIndex = body.playlists;
-
-    const s = body.stats ?? {};
-    rail.innerHTML = body.playlists.map(plCard).join('');
-
-    if (q && !body.playlists.length) {
-      note.hidden = false;
-      note.textContent = `Nothing in your playlists matches “${q}”.`;
-    } else {
-      note.hidden = true;
-    }
-    $('#sess-label').textContent = `${s.total_playlists ?? 0} playlists`;
-  } catch (e) {
-    rail.innerHTML = '';
-    note.hidden = false;
-    note.textContent = `Could not load playlists — ${e.message}`;
-  }
-}
-
-async function openPlaylist(slug) {
-  const sheet = $('#sheet');
-  sheet.classList.add('open');
-  document.body.style.overflow = 'hidden';
-  sheet.scrollTop = 0;
-  updateBackState();
-  $('#sheet-count').hidden = true;
-  $('#sheet-body').innerHTML = '<div class="center-spin"><div class="spinner"></div></div>';
-
-  let p;
-  try {
-    p = await api('/api/playlists/' + encodeURIComponent(slug));
-  } catch (e) {
-    $('#sheet-body').innerHTML = `<p class="note">Could not open this playlist — ${esc(e.message)}</p>`;
-    return;
-  }
-
-  const items = p.items ?? [];
-  const resolved = items.filter((i) => i.resolved);
-  const unresolved = items.length - resolved.length;
-
-  $('#sheet-count').hidden = false;
-  $('#sheet-count').textContent = `${items.length} ${items.length === 1 ? 'title' : 'titles'}`;
-
-  $('#sheet-body').innerHTML = `
-    <div class="detail-head">
-      <h2 class="detail-title">${esc(p.title)}</h2>
-      <div class="detail-meta">${items.length} titles · ${resolved.length} playable${
-        unresolved ? ` · ${unresolved} not in the local catalog` : ''}</div>
-    </div>
-    <div class="pl-items">
-      ${items.map((i) => i.resolved
-        ? cardHtml(i)
-        : `<div class="unresolved" title="Not present in the local catalog">${esc(i.title)}</div>`).join('')}
-    </div>`;
-}
-
-/* ------------------------------------------------------------------ detail */
-
-let activeHls = null;
-/** The video and the title it belongs to, so leaving can remember them. */
-let activeVid = null;
-let activeSlug = null;
-
-function closeSheet() {
-  // Leaving is the single best moment to remember where the video got to: the
-  // next five-second tick may never arrive, and this is exactly where a person
-  // stopped watching.
-  if (activeSlug && activeVid) savePosition(activeSlug, activeVid);
-  shellCall('setPlaying', false);
-
-  const vid = $('#vid');
-  if (vid) { vid.pause(); vid.removeAttribute('src'); vid.load(); }
-  if (activeHls) { activeHls.destroy(); activeHls = null; }
-  activeVid = null;
-  activeSlug = null;
-  $('#sheet').classList.remove('open');
-  document.body.style.overflow = '';
-  document.body.dataset.pip = 'false';
-  updateBackState();
-}
-
-async function openVideo(slug) {
-  const sheet = $('#sheet');
-  sheet.classList.add('open');
-  document.body.style.overflow = 'hidden';
-  sheet.scrollTop = 0;
-  updateBackState();
-  $('#sheet-body').innerHTML = '<div class="center-spin"><div class="spinner"></div></div>';
-  $('#sheet-count').hidden = true;
-
-  let v;
-  try {
-    v = await api('/api/videos/' + encodeURIComponent(slug));
-  } catch (e) {
-    $('#sheet-body').innerHTML = `<p class="note">Could not load this title — ${esc(e.message)}</p>`;
-    return;
-  }
-
-  // The heart on this page and any later history entry both draw from the
-  // record the catalog just returned, so it is filed before anything renders.
-  remember(v);
-
-  $('#sheet-count').hidden = false;
-  $('#sheet-count').textContent = fmtCount(v.views) + ' views';
-
-  $('#sheet-body').innerHTML = `
-    <div class="player-card">
-      <div id="player-slot"><div class="center-spin"><div class="spinner"></div></div></div>
-    </div>
-    <div class="detail-head">
-      <h2 class="detail-title">${esc(v.name)}</h2>
-      <div class="detail-meta">${esc(v.brand ?? 'Unknown studio')} · ${fmtCount(v.views)} views · ${fmtCount(v.likes)} likes${
-        v.released_at ? ' · ' + esc(v.released_at.slice(0, 4)) : ''}</div>
-      <div class="detail-actions">${favPill(slug)}</div>
-      <div class="detail-tags">${(v.tags ?? []).map((t) => `<span class="hero-tag">${esc(t)}</span>`).join('')}</div>
-      <p class="detail-desc">${esc((v.description ?? '').replace(/<[^>]+>/g, ' ').replace(/\s{2,}/g, ' ').trim())}</p>
-    </div>
-    <div id="in-playlists" hidden></div>`;
-
-  // Reverse lookup: which public playlists carry this title. Independent of
-  // playback, so a failure here never delays the stream.
-  playlistsForVideo(slug).catch(() => {});
-
-  await mountPlayer(slug);
-}
-
-async function mountPlayer(slug) {
-  const slot = $('#player-slot');
-  let sources;
-  try {
-    ({ sources } = await api(`/api/videos/${encodeURIComponent(slug)}/sources`));
-  } catch (e) {
-    slot.innerHTML = `<p class="note">Could not resolve a stream — ${esc(e.message)}</p>`;
-    return;
-  }
-  if (!sources?.length) {
-    slot.innerHTML = '<p class="note">No playable source was returned for this entry.</p>';
-    return;
-  }
-
-  // A title counts as watched once a stream for it actually resolves, so a
-  // page that never played is not left behind in the history.
-  recordHistory(slug);
-
-  const pipWanted = shellCall('pictureInPictureSupported') === true;
-
-  slot.innerHTML = `
-    <video id="vid" controls playsinline preload="metadata"></video>
-    <div class="quality">${sources
-      .map((s, i) => `<button class="q-btn" data-i="${i}" aria-pressed="${i === 0}">${esc(s.label)}</button>`)
-      .join('')}</div>
-    <div class="lib-tools">
-      ${pipWanted ? '<button class="chip" id="pip-btn" type="button">Picture in picture</button>' : ''}
-      <span class="sec-count" id="player-note"></span>
-    </div>`;
-
-  const vid = $('#vid');
-  activeVid = vid;
-  activeSlug = slug;
-
-  // Chrome and Firefox ship no native HLS demuxer; Safari and every iOS browser
-  // do. Prefer Media Source Extensions when they exist, because some Android
-  // WebViews answer `maybe` to canPlayType('application/vnd.apple.mpegurl')
-  // while implementing no demuxer at all — the element then reports
-  // readyState 4 and never decodes a single frame. Leaving the native route for
-  // browsers with no MSE keeps iOS on its hardware path.
-  const attach = (url) => {
-    if (activeHls) { activeHls.destroy(); activeHls = null; }
-    if (window.Hls?.isSupported()) {
-      activeHls = new window.Hls({ enableWorker: true, lowLatencyMode: false });
-      activeHls.on(window.Hls.Events.ERROR, (_e, data) => {
-        if (!data.fatal) return;
-        slot.insertAdjacentHTML('beforeend', `<p class="note">Playback error — ${esc(data.details)}</p>`);
-      });
-      activeHls.loadSource(url);
-      activeHls.attachMedia(vid);
+      $("#sess-label").textContent = "unreachable";
+      $("#connect-slot").innerHTML = connectCard(e.message);
+      wireConnect();
       return;
     }
-    vid.src = url;
-  };
-
-  attach(sources[0].url);
-
-  // ---- picking up where this title was left ------------------------------
-  const saved = lib.positions[slug];
-  if (saved && saved.t > 5) {
-    vid.addEventListener('loadedmetadata', () => {
-      try { vid.currentTime = saved.t; } catch (e) { /* seek refused: start over */ }
-      const note = $('#player-note');
-      if (note) note.textContent = `resumed from ${clock(saved.t)}`;
-    }, { once: true });
+    const live = info.live === true;
+    $("#sess-dot").dataset.live = String(live);
+    $("#sess-label").textContent = live ? ((_a10 = info.user) == null ? void 0 : _a10.username) ? `@${info.user.username}` : "connected" : "not connected";
+    $("#sess-reset").hidden = !info.configured;
+    if (live) {
+      $("#connect-slot").innerHTML = "";
+      $("#playlists-body").hidden = false;
+      await loadPlaylists();
+    } else {
+      $("#playlists-body").hidden = true;
+      $("#connect-slot").innerHTML = connectCard(info.reason);
+      wireConnect();
+    }
+  }
+  async function loadPlaylists() {
+    var _a10;
+    const q = (((_a10 = $("#pl-q")) == null ? void 0 : _a10.value) ?? "").trim();
+    const note = $("#pl-note");
+    const rail = $("#pl-rail");
+    if (!rail) return;
+    rail.innerHTML = Array.from({ length: 6 }, () => '<div class="pl-card"><div class="skeleton" style="aspect-ratio:1"></div></div>').join("");
+    try {
+      const body = await api("/api/playlists" + (q ? `?q=${encodeURIComponent(q)}` : ""));
+      if (!body.configured) {
+        await loadSession();
+        return;
+      }
+      plIndex = body.playlists;
+      const s = body.stats ?? {};
+      rail.innerHTML = body.playlists.map(plCard).join("");
+      if (q && !body.playlists.length) {
+        note.hidden = false;
+        note.textContent = `Nothing in your playlists matches \u201C${q}\u201D.`;
+      } else {
+        note.hidden = true;
+      }
+      $("#sess-label").textContent = `${s.total_playlists ?? 0} playlists`;
+    } catch (e) {
+      rail.innerHTML = "";
+      note.hidden = false;
+      note.textContent = `Could not load playlists \u2014 ${e.message}`;
+    }
+  }
+  async function openPlaylist(slug) {
+    const sheet = $("#sheet");
+    sheet.classList.add("open");
+    document.body.style.overflow = "hidden";
+    sheet.scrollTop = 0;
+    updateBackState();
+    $("#sheet-count").hidden = true;
+    $("#sheet-body").innerHTML = '<div class="center-spin"><div class="spinner"></div></div>';
+    let p;
+    try {
+      p = await api("/api/playlists/" + encodeURIComponent(slug));
+    } catch (e) {
+      $("#sheet-body").innerHTML = `<p class="note">Could not open this playlist \u2014 ${esc(e.message)}</p>`;
+      return;
+    }
+    const items = p.items ?? [];
+    const resolved = items.filter((i) => i.resolved);
+    const unresolved = items.length - resolved.length;
+    $("#sheet-count").hidden = false;
+    $("#sheet-count").textContent = `${items.length} ${items.length === 1 ? "title" : "titles"}`;
+    $("#sheet-body").innerHTML = `
+    <div class="detail-head">
+      <h2 class="detail-title">${esc(p.title)}</h2>
+      <div class="detail-meta">${items.length} titles \xB7 ${resolved.length} playable${unresolved ? ` \xB7 ${unresolved} not in the local catalog` : ""}</div>
+    </div>
+    <div class="pl-items">
+      ${items.map((i) => i.resolved ? cardHtml(i) : `<div class="unresolved" title="Not present in the local catalog">${esc(i.title)}</div>`).join("")}
+    </div>`;
   }
 
-  let lastSaved = 0;
-  vid.addEventListener('timeupdate', () => {
-    const now = Date.now();
-    if (now - lastSaved < 5000) return;
-    lastSaved = now;
-    savePosition(slug, vid);
-  });
-  vid.addEventListener('ended', () => clearPosition(slug));
-
-  // The shell keeps the screen awake for a video, shrinks the app to the small
-  // window when the user leaves, and shapes that window like the video.
-  const tellAspect = () => {
-    if (vid.videoWidth) shellCall('setVideoAspect', vid.videoWidth, vid.videoHeight);
-  };
-  vid.addEventListener('loadedmetadata', tellAspect);
-  vid.addEventListener('play', () => { shellCall('setPlaying', true); tellAspect(); });
-  vid.addEventListener('pause', () => { shellCall('setPlaying', false); savePosition(slug, vid); });
-
-  const pipBtn = $('#pip-btn');
-  if (pipBtn) pipBtn.onclick = () => shellCall('enterPip');
-
-  $$('.q-btn', slot).forEach((btn) => {
-    btn.onclick = () => {
-      const pos = vid.currentTime, wasPlaying = !vid.paused;
-      vid.addEventListener('loadedmetadata', () => {
-        if (pos > 0) vid.currentTime = pos;
-        if (wasPlaying) vid.play().catch(() => {});
-      }, { once: true });
-      attach(sources[Number(btn.dataset.i)].url);
-      $$('.q-btn', slot).forEach((b) => { b.setAttribute('aria-pressed', String(b === btn)); });
-    };
-  });
-}
-
-/* ------------------------------------------------------------------ library */
-//
-// Favorites and watch history are the only state this app keeps. They live in
-// localStorage under the origin the shell serves the client from
-// (https://hanime.tv/, answered out of the APK's assets), so they survive a
-// restart and a self-update with no server, database or account anywhere.
-
-const LIB_KEY = 'htv:library:v1';
-const LIB_MAX_HISTORY = 240;
-
-let libSaved = true;
-
-function libRead() {
-  const empty = { favorites: [], history: [], positions: {} };
-  let raw = null;
-  try { raw = localStorage.getItem(LIB_KEY); } catch { libSaved = false; return empty; }
-  if (!raw) return empty;
-  let data = null;
-  try { data = JSON.parse(raw); } catch { data = null; }
-  if (!data || typeof data !== 'object') return empty;
-  const clean = (list) => (Array.isArray(list) ? list.filter((e) => e && e.slug) : []);
-  return {
-    favorites: clean(data.favorites),
-    history: clean(data.history),
-    positions: cleanPositions(data.positions),
-  };
-}
-
-// A stored position is a claim about a duration, so it is checked rather than
-// trusted: a corrupt entry must not be able to draw a progress bar past the
-// end of a card, or a seek beyond the end of a video.
-function cleanPositions(raw) {
-  const out = {};
-  if (!raw || typeof raw !== 'object') return out;
-  Object.keys(raw).forEach((slug) => {
-    const p = raw[slug];
-    if (!p || typeof p !== 'object') return;
-    const t = Number(p.t);
-    const d = Number(p.d);
-    if (!Number.isFinite(t) || !Number.isFinite(d) || d <= 0 || t < 0 || t >= d) return;
-    out[slug] = { t: Math.round(t), d: Math.round(d), at: Number(p.at) || 0 };
-  });
-  return out;
-}
-
-let lib = libRead();
-let libQuery = '';
-
-// A slug is not enough to draw a card, so every record that passes through a
-// render is remembered by slug. That is what the heart on a card stores, which
-// is why filing from the grid costs no request.
-const known = new Map();
-function remember(v) {
-  if (!v || !v.slug) return;
-  known.set(v.slug, {
-    slug: v.slug,
-    name: v.name ?? v.title ?? v.slug,
-    cover: v.cover ?? v.cover_url ?? '',
-    brand: v.brand ?? '',
-    views: v.views,
-    released_at: v.released_at,
-  });
-}
-function entryFor(slug) {
-  const base = known.get(slug) ?? { slug, name: slug, cover: '', brand: '', views: undefined, released_at: undefined };
-  return { ...base, at: Date.now() };
-}
-
-function isFav(slug) { return lib.favorites.some((e) => e.slug === slug); }
-function viewIs(name) { return document.body.dataset.view === name; }
-
-function libWrite() {
-  try { localStorage.setItem(LIB_KEY, JSON.stringify(lib)); libSaved = true; }
-  catch { libSaved = false; }
-  libFaces();
-}
-
-// Keeps every heart already on screen telling the truth, wherever it is.
-function libFaces() {
-  $$('[data-fav]').forEach((b) => {
-    const on = isFav(b.dataset.fav);
-    b.setAttribute('aria-pressed', String(on));
-    const label = on ? 'Remove from favorites' : 'Add to favorites';
-    if (b.classList.contains('fav-btn')) { b.setAttribute('aria-label', label); b.title = label; }
-    const word = b.querySelector('.fav-label');
-    if (word) word.textContent = on ? 'In library' : 'Favorite';
-  });
-}
-
-/* Asks the shell to keep a title's cover on disk. It costs nothing when the
-   cover is already stored, and this is the moment it matters: the title just
-   joined the library, which is the screen that has to work offline. */
-function keepCover(entry) {
-  if (entry && entry.slug && entry.cover) shellCall('cacheCover', entry.slug, entry.cover);
-}
-
-function toggleFav(slug) {
-  if (!slug) return;
-  const i = lib.favorites.findIndex((e) => e.slug === slug);
-  if (i >= 0) {
-    lib.favorites.splice(i, 1);
-  } else {
-    const entry = entryFor(slug);
-    lib.favorites.unshift(entry);
-    keepCover(entry);
+  // client/src/pl-hits.js
+  var ownIndex = null;
+  var plHitsSeq = 0;
+  async function loadOwnIndex() {
+    if (ownIndex) return ownIndex;
+    try {
+      const body = await api("/api/playlists");
+      ownIndex = Array.isArray(body.playlists) ? body.playlists : [];
+    } catch {
+      ownIndex = [];
+    }
+    return ownIndex;
   }
-  libWrite();
-  if (viewIs('library')) renderLibrary();
-}
-
-function recordHistory(slug) {
-  if (!slug) return;
-  const entry = entryFor(slug);
-  // A title opened again keeps the position it already had: re-watching from
-  // the start is a deliberate act, and opening it to check something is not.
-  const wasPartWay = lib.positions[slug];
-  lib.history = [entry, ...lib.history.filter((e) => e.slug !== slug)].slice(0, LIB_MAX_HISTORY);
-  if (wasPartWay) lib.positions[slug] = wasPartWay;
-  keepCover(entry);
-  libWrite();
-  if (viewIs('library')) renderLibrary();
-}
-
-/* ---- where each title was left ------------------------------------------ */
-//
-// History says a title was opened; it does not say it was finished. The
-// position is what turns the history into "continue watching", and it is
-// written sparsely — every five seconds at most, plus the two moments that
-// matter: pausing, and leaving the sheet.
-
-function savePosition(slug, vid) {
-  if (!slug || !vid) return;
-  const d = Number(vid.duration);
-  const t = Number(vid.currentTime);
-  if (!Number.isFinite(d) || d <= 0 || !Number.isFinite(t)) return;
-  if (t >= d - 10) { clearPosition(slug); return; }   // watched to the end
-  if (t < 5) return;                                  // nothing worth keeping
-  lib.positions[slug] = { t: Math.round(t), d: Math.round(d), at: Date.now() };
-  libWrite();
-}
-
-function clearPosition(slug) {
-  if (!lib.positions[slug]) return;
-  delete lib.positions[slug];
-  libWrite();
-}
-
-/** How far through a title is, as a percentage, or 0 when there is nothing. */
-function progressOf(slug) {
-  const p = lib.positions[slug];
-  if (!p || !p.d) return 0;
-  const pct = Math.round((p.t / p.d) * 100);
-  return pct > 1 && pct < 98 ? pct : 0;
-}
-
-function libMatches(e) {
-  if (!libQuery) return true;
-  const needle = libQuery.toLowerCase();
-  return String(e.name ?? '').toLowerCase().includes(needle)
-    || String(e.brand ?? '').toLowerCase().includes(needle);
-}
-
-function renderLibrary() {
-  const needle = libQuery.trim();
-  const favs = lib.favorites.filter(libMatches);
-  const hist = lib.history.filter(libMatches);
-
-  $('#lib-count').textContent = `${lib.favorites.length} favorite${lib.favorites.length === 1 ? '' : 's'} · ${lib.history.length} watched`;
-  $('#fav-count').textContent = needle ? `${favs.length} of ${lib.favorites.length}` : String(lib.favorites.length);
-  $('#hist-count').textContent = needle ? `${hist.length} of ${lib.history.length}` : String(lib.history.length);
-  $('#hist-clear').hidden = lib.history.length === 0;
-
-  const warn = $('#lib-warn');
-  warn.hidden = libSaved;
-  warn.textContent = 'This device will not keep local data, so favorites and history are forgotten when the app closes.';
-
-  $('#fav-grid').innerHTML = favs.map((e) => cardHtml(e, { local: true })).join('');
-  const favNote = $('#fav-note');
-  favNote.hidden = favs.length > 0;
-  favNote.textContent = needle
-    ? `No favorite matches “${libQuery}”.`
-    : 'Nothing filed yet. The heart on any card puts a title here.';
-
-  $('#hist-grid').innerHTML = hist.map((e) => cardHtml(e, { local: true, progress: true })).join('');
-  const histNote = $('#hist-note');
-  histNote.hidden = hist.length > 0;
-  histNote.textContent = needle
-    ? `Nothing you opened matches “${libQuery}”.`
-    : 'Nothing opened yet. A title lands here once a stream for it resolves.';
-
-  renderContinue(needle);
-}
-
-/**
- * The titles that are part-way through, newest first. This is the rail that
- * answers "where was I" — history alone cannot, because a finished title and an
- * abandoned one look identical in it.
- */
-function renderContinue(needle) {
-  const rail = $('#cont-rail');
-  const head = $('#cont-head');
-  if (!rail || !head) return;
-
-  const part = lib.history
-    .filter((e) => (!needle || libMatches(e)) && progressOf(e.slug) > 0)
-    .slice(0, 12);
-
-  head.hidden = part.length === 0;
-  rail.hidden = part.length === 0;
-  $('#cont-count').textContent = String(part.length);
-  const note = $('#cont-note');
-  note.hidden = part.length > 0;
-  note.textContent = 'Titles you start watching appear here, so you can pick them up where you stopped.';
-  rail.innerHTML = part.map((e) => cardHtml(e, { local: true, progress: true })).join('');
-}
-
-// The same toggle, as a pill, inside a title page.
-function favPill(slug) {
-  const on = isFav(slug);
-  return `<button class="pill pill-ghost" type="button" data-fav="${esc(slug)}" aria-pressed="${on}">
-      <svg viewBox="0 0 24 24" stroke-linejoin="round"><path d="M12 20.4 4.9 14.1A5.3 5.3 0 0 1 12 6.3a5.3 5.3 0 0 1 7.1 7.8Z"/></svg>
-      <span class="fav-label">${on ? 'In library' : 'Favorite'}</span>
-    </button>`;
-}
-
-/* ------------------------------------------------- playlists, found by name */
-//
-// A playlist is found by its own name, which is a different index from the
-// catalog: the crawled public playlists, plus the account's own when one is
-// connected. Both endpoints rank a title match above a content match; this
-// puts the result beside the grid, so typing a playlist's name answers with
-// the playlist instead of a wall of unrelated titles.
-
-let ownIndex = null;
-let plHitsSeq = 0;
-
-async function loadOwnIndex() {
-  if (ownIndex) return ownIndex;
-  try {
-    const body = await api('/api/playlists');
-    ownIndex = Array.isArray(body.playlists) ? body.playlists : [];
-  } catch { ownIndex = []; }
-  return ownIndex;
-}
-
-async function loadPlaylistHits(q) {
-  const box = $('#pl-hits');
-  const rail = $('#pl-hits-rail');
-  const count = $('#pl-hits-count');
-  if (!box) return;
-
-  const needle = String(q ?? '').trim();
-  const seq = ++plHitsSeq;
-  if (!needle) { box.hidden = true; rail.innerHTML = ''; count.textContent = ''; return; }
-
-  let mine = [];
-  let pub = [];
-  try {
-    const lower = needle.toLowerCase();
-    const [own, body] = await Promise.all([
-      loadOwnIndex(),
-      api('/api/public/playlists?' + new URLSearchParams({ q: needle, limit: '14', items: '0' })),
-    ]);
-    mine = own.filter((p) => String(p.title ?? '').toLowerCase().includes(lower));
-    pub = body.playlists ?? [];
-  } catch {
-    // An index that will not load must not disturb the grid beside it.
+  async function loadPlaylistHits(q) {
+    const box = $("#pl-hits");
+    const rail = $("#pl-hits-rail");
+    const count = $("#pl-hits-count");
+    if (!box) return;
+    const needle = String(q ?? "").trim();
+    const seq = ++plHitsSeq;
+    if (!needle) {
+      box.hidden = true;
+      rail.innerHTML = "";
+      count.textContent = "";
+      return;
+    }
+    let mine = [];
+    let pub = [];
+    try {
+      const lower = needle.toLowerCase();
+      const [own, body] = await Promise.all([
+        loadOwnIndex(),
+        api("/api/public/playlists?" + new URLSearchParams({ q: needle, limit: "14", items: "0" }))
+      ]);
+      mine = own.filter((p) => String(p.title ?? "").toLowerCase().includes(lower));
+      pub = body.playlists ?? [];
+    } catch {
+    }
+    if (seq !== plHitsSeq) return;
+    const html = [...mine.map(plCard), ...pub.map(ppCard)].join("");
+    box.hidden = !html;
+    count.textContent = html ? `${mine.length + pub.length} found` : "";
+    rail.innerHTML = html;
   }
-  if (seq !== plHitsSeq) return;   // a later keystroke already answered this one
 
-  const html = [...mine.map(plCard), ...pub.map(ppCard)].join('');
-  box.hidden = !html;
-  count.textContent = html ? `${mine.length + pub.length} found` : '';
-  rail.innerHTML = html;
-}
-
-/* ------------------------------------------------------------------ views */
-//
-// The nav switches views in place. Nothing scrolls to a section any more: the
-// active item in the menu is marked, and the page comes back to the top of the
-// view it just opened.
-
-const views = $$('.view');
-
-// The markup already names the view the page opens on. Adopting it here means
-// the boot call is not a *change* — otherwise it would scroll a reader who had
-// already started moving while the catalog was still loading behind them.
-document.body.dataset.view =
-  (views.find((v) => v.dataset.active === 'true') ?? views[0]).dataset.view;
-
-function showView(name) {
-  const target = views.find((v) => v.dataset.view === name) || views[0];
-  const changed = document.body.dataset.view !== target.dataset.view;
-  views.forEach((v) => {
-    if (v === target) v.dataset.active = 'true';
-    else v.removeAttribute('data-active');
-  });
-  document.body.dataset.view = target.dataset.view;
-
-  $$('.nav-link').forEach((b) => {
-    if (b.dataset.go === target.dataset.view) b.setAttribute('aria-current', 'page');
-    else b.removeAttribute('aria-current');
-  });
-
-  if (target.dataset.view === 'library') renderLibrary();
-  // Opening a different view starts at its top; pressing the tab you are
-  // already on must not throw away your place in it.
-  if (changed) scrollTo({ top: 0 });
-}
-
-/* ------------------------------------------------------------------ drag rails */
-
-function makeDraggable(rail) {
-  let down = false, startX = 0, startScroll = 0, moved = 0;
-  rail.addEventListener('pointerdown', (e) => {
-    if (e.pointerType === 'touch') return;   // native touch scroll is better
-    down = true; moved = 0; startX = e.clientX; startScroll = rail.scrollLeft;
-    rail.classList.add('dragging');
-  });
-  rail.addEventListener('pointermove', (e) => {
-    if (!down) return;
-    const dx = e.clientX - startX;
-    moved = Math.abs(dx);
-    rail.scrollLeft = startScroll - dx;
-  });
-  const up = () => { down = false; rail.classList.remove('dragging'); };
-  rail.addEventListener('pointerup', up);
-  rail.addEventListener('pointerleave', up);
-  rail.addEventListener('pointercancel', up);
-  // suppress the click that ends a drag, or grabbing a rail would open a card
-  rail.addEventListener('click', (e) => { if (moved > 6) { e.preventDefault(); e.stopPropagation(); } }, true);
-}
-
-/* ------------------------------------------------------------------ wiring */
-
-function refresh() {
-  state.page = 0;
-  loadGrid();
-  loadPlaylistHits(state.q).catch(() => {});
-}
-
-// One query, two boxes: the field that the pill turns into, and the one in the
-// Browse toolbar. Typing in either mirrors into the other, so they can never
-// disagree about what is on screen.
-function applyQuery(val, from) {
-  if (from !== $('#q')) $('#q').value = val;
-  if (from !== $('#nav-q')) $('#nav-q').value = val;
-  $('#search-shell').dataset.filled = String(!!val);
-  clearTimeout(debounce);
-  debounce = setTimeout(() => {
-    state.q = val.trim();
-    // The answer is the grid, and the grid is in Browse. Searching from the
-    // pill therefore goes there — as a view change, never as a scroll to a
-    // search box.
-    if (state.q && !viewIs('browse')) showView('browse');
+  // client/src/wiring.js
+  var debounce;
+  function refresh() {
+    state.page = 0;
+    loadGrid();
+    loadPlaylistHits(state.q).catch(() => {
+    });
+  }
+  function applyQuery(val, from) {
+    if (from !== $("#q")) $("#q").value = val;
+    if (from !== $("#nav-q")) $("#nav-q").value = val;
+    $("#search-shell").dataset.filled = String(!!val);
+    clearTimeout(debounce);
+    debounce = setTimeout(() => {
+      state.q = val.trim();
+      if (state.q && !viewIs("browse")) showView("browse");
+      refresh();
+    }, 240);
+  }
+  function setSearchOpen(open) {
+    if (open && menuIsOpen()) setMenuOpen(false);
+    $("#search-toggle").setAttribute("aria-expanded", String(open));
+    $("#nav").dataset.searching = String(open);
+    if (open) $("#nav-q").focus({ preventScroll: true });
+    else $("#nav-q").blur();
+    updateBackState();
+  }
+  $("#q").addEventListener("input", (e) => applyQuery(e.target.value, e.target));
+  $("#nav-q").addEventListener("input", (e) => applyQuery(e.target.value, e.target));
+  $("#search-clear").onclick = () => {
+    applyQuery("", null);
+    $("#q").focus({ preventScroll: true });
+  };
+  $("#nav-q-close").onclick = () => {
+    if ($("#nav-q").value) {
+      applyQuery("", null);
+      $("#nav-q").focus({ preventScroll: true });
+    } else setSearchOpen(false);
+  };
+  $("#sort").addEventListener("change", (e) => {
+    state.sort = e.target.value;
     refresh();
-  }, 240);
-}
-
-/** Swaps the pill's links for the search field, and back. Moves nothing else. */
-function setSearchOpen(open) {
-  // Searching and browsing behind the menu are two states of the same pill:
-  // one of it at a time.
-  if (open && menuIsOpen()) setMenuOpen(false);
-  $('#search-toggle').setAttribute('aria-expanded', String(open));
-  $('#nav').dataset.searching = String(open);
-  // preventScroll is the point: focusing an input normally makes the browser
-  // scroll it into view, which is how tapping the search icon used to yank the
-  // page down to the toolbar.
-  if (open) $('#nav-q').focus({ preventScroll: true });
-  else $('#nav-q').blur();
-  updateBackState();
-}
-
-$('#q').addEventListener('input', (e) => applyQuery(e.target.value, e.target));
-$('#nav-q').addEventListener('input', (e) => applyQuery(e.target.value, e.target));
-$('#search-clear').onclick = () => {
-  applyQuery('', null);
-  $('#q').focus({ preventScroll: true });
-};
-$('#nav-q-close').onclick = () => {
-  // With text in it, the × clears the query; empty, it puts the links back.
-  if ($('#nav-q').value) { applyQuery('', null); $('#nav-q').focus({ preventScroll: true }); }
-  else setSearchOpen(false);
-};
-$('#sort').addEventListener('change', (e) => { state.sort = e.target.value; refresh(); });
-
-$('#tag-rail').addEventListener('click', (e) => {
-  const chip = e.target.closest('.chip');
-  if (!chip) return;
-  const tag = chip.dataset.tag;
-  const i = state.tags.indexOf(tag);
-  if (i >= 0) state.tags.splice(i, 1); else state.tags.push(tag);
-  chip.setAttribute('aria-pressed', String(i < 0));
-  $('#clear-tags').hidden = state.tags.length === 0;
-  refresh();
-  showView('browse');   // the filtered grid is the answer, so go there
-});
-$('#clear-tags').onclick = () => {
-  state.tags = [];
-  $$('#tag-rail .chip').forEach((c) => c.setAttribute('aria-pressed', 'false'));
-  $('#clear-tags').hidden = true;
-  refresh();
-};
-
-$('#brand-rail').addEventListener('click', (e) => {
-  const chip = e.target.closest('.chip');
-  if (!chip) return;
-  state.brand = state.brand === chip.dataset.brand ? '' : chip.dataset.brand;
-  $$('#brand-rail .chip').forEach((c) => { c.style.borderColor = c === chip ? 'hsl(var(--primary))' : ''; });
-  refresh();
-  showView('browse');   // the filtered grid is the answer, so go there
-});
-
-$('#prev').onclick = () => { if (state.page > 0) { state.page--; loadGrid().then(() => scrollTo({ top: 0, behavior: 'smooth' })); } };
-$('#next').onclick = () => { if (state.page + 1 < state.pages) { state.page++; loadGrid().then(() => scrollTo({ top: 0, behavior: 'smooth' })); } };
-
-// One click, several intents. The heart is tested first because it is drawn on
-// top of a card and must file the title rather than open it. The menu's items
-// and the hero's buttons follow. Everything else that is a card opens the sheet
-// — in the grid, in the library, or inside a playlist.
-document.addEventListener('click', (e) => {
-  // A tap anywhere outside the menu shuts it: it is a popover, not a modal.
-  if (menuIsOpen() && !e.target.closest('#nav-menu') && !e.target.closest('#menu-toggle')) {
-    setMenuOpen(false);
-  }
-
-  const heart = e.target.closest('[data-fav]');
-  if (heart) { e.preventDefault(); toggleFav(heart.dataset.fav); return; }
-
-  const go = e.target.closest('[data-go]');
-  if (go) {
-    e.preventDefault();
-    if (menuIsOpen()) setMenuOpen(false);   // choosing a section shuts the menu
-    showView(go.dataset.go);
-    return;
-  }
-
-  const opener = e.target.closest('[data-open]');
-  if (opener) { e.preventDefault(); openVideo(opener.dataset.open); return; }
-
-  const card = e.target.closest('.card');
-  if (card?.dataset.slug) openVideo(card.dataset.slug);
-});
-document.addEventListener('keydown', (e) => {
-  if (e.key !== 'Enter' && e.key !== ' ') return;
-  const card = e.target.closest('.card');
-  if (card?.dataset.slug) { e.preventDefault(); openVideo(card.dataset.slug); }
-});
-
-$('#sheet-close').onclick = closeSheet;
-$('#sheet').addEventListener('click', (e) => { if (e.target === $('#sheet')) closeSheet(); });
-document.addEventListener('keydown', (e) => {
-  if (e.key !== 'Escape') return;
-  if ($('#nav').dataset.searching === 'true') setSearchOpen(false);
-  if (menuIsOpen()) setMenuOpen(false);
-  closeSheet();
-});
-
-/* The three-line button: one popover holding every section and every
-   appearance choice, so the pill itself stays buttons and a phone never has
-   to swipe the navbar to find the rest of the app. */
-function setMenuOpen(open) {
-  $('#nav-menu').hidden = !open;
-  $('#menu-toggle').setAttribute('aria-expanded', String(open));
-  updateBackState();
-}
-
-$('#menu-toggle').onclick = () => setMenuOpen(!menuIsOpen());
-
-$('#theme-seg').addEventListener('click', (e) => {
-  const pick = e.target.closest('[data-theme-pick]');
-  if (!pick) return;
-  prefs.theme = pick.dataset.themePick;
-  savePrefs();
-  applyPrefs();
-});
-$('#accent-row').addEventListener('click', (e) => {
-  const pick = e.target.closest('[data-accent-pick]');
-  if (!pick) return;
-  prefs.accent = pick.dataset.accentPick;
-  savePrefs();
-  applyPrefs();
-});
-$('#pref-motion').addEventListener('change', (e) => {
-  prefs.motion = e.target.checked ? 'reduced' : 'full';
-  savePrefs();
-  applyPrefs();
-});
-
-$('#search-toggle').onclick = () => {
-  setSearchOpen($('#search-toggle').getAttribute('aria-expanded') !== 'true');
-};
-$('#sort-toggle').onclick = () => {
-  const open = $('#sort-toggle').getAttribute('aria-expanded') !== 'true';
-  $('#sort-toggle').setAttribute('aria-expanded', String(open));
-  showView('browse');   // the order control is in the Browse toolbar
-  $('#sort').focus({ preventScroll: true });
-};
-
-$('#brand-btn').onclick = () => showView('browse');
-
-// Playlist search is its own box: title matches and content matches rank
-// differently, and folding them into the catalog search would blur both.
-let plDebounce;
-$('#pl-q')?.addEventListener('input', (e) => {
-  const val = e.target.value;
-  $('#pl-search-shell').dataset.filled = String(!!val);
-  clearTimeout(plDebounce);
-  plDebounce = setTimeout(loadPlaylists, 240);
-});
-$('#pl-clear')?.addEventListener('click', () => {
-  $('#pl-q').value = '';
-  $('#pl-search-shell').dataset.filled = 'false';
-  loadPlaylists();
-});
-$('#sess-reset')?.addEventListener('click', async () => {
-  await fetch('/api/session', { method: 'DELETE' });
-  await loadSession();
-});
-// Playlist cards now appear in two rails — your own, and the ones whose name
-// matched a catalog search — so this is delegated rather than bound to one.
-document.addEventListener('click', (e) => {
-  const card = e.target.closest('[data-playlist]');
-  if (card) { e.preventDefault(); openPlaylist(card.dataset.playlist); }
-});
-document.addEventListener('keydown', (e) => {
-  if (e.key !== 'Enter' && e.key !== ' ') return;
-  const card = e.target.closest('[data-playlist]');
-  if (card) { e.preventDefault(); openPlaylist(card.dataset.playlist); }
-});
-
-// Library: one box filters both lists, and history can be emptied on its own.
-let libDebounce;
-$('#lib-q')?.addEventListener('input', (e) => {
-  libQuery = e.target.value.trim();
-  $('#lib-search-shell').dataset.filled = String(!!e.target.value);
-  clearTimeout(libDebounce);
-  libDebounce = setTimeout(renderLibrary, 180);
-});
-$('#lib-clear')?.addEventListener('click', () => {
-  $('#lib-q').value = '';
-  $('#lib-search-shell').dataset.filled = 'false';
-  libQuery = '';
-  renderLibrary();
-});
-$('#hist-clear')?.addEventListener('click', () => {
-  lib.history = [];
-  // Once nothing is watched, nothing is part-way through either: leaving the
-  // positions behind would keep a Continue watching rail for a history the
-  // reader just emptied.
-  lib.positions = {};
-  libWrite();
-  renderLibrary();
-});
-
-/* ---- getting the library off the device, and back onto it --------------- */
-//
-// Favourites and history are the only thing this app owns, and they live in one
-// place. A file the reader keeps turns that into a backup and a way to move to
-// a new phone; both directions go through the shell, which owns the document
-// picker, and the file never passes through a server.
-
-function libMessage(text) {
-  const msg = $('#lib-msg');
-  if (!msg) return;
-  msg.hidden = !text;
-  msg.textContent = text || '';
-}
-
-$('#lib-export')?.addEventListener('click', () => {
-  if (!shellApi()) { libMessage('Exporting a file needs the Android app.'); return; }
-  shellCall('exportLibrary', JSON.stringify({
-    ...lib,
-    app: 'hanime-shell',
-    savedAt: new Date().toISOString(),
-  }));
-  libMessage('Choose where to keep the file.');
-});
-
-$('#lib-import')?.addEventListener('click', () => {
-  if (!shellApi()) { libMessage('Importing a file needs the Android app.'); return; }
-  libMessage('Choose a library file to merge in.');
-  shellCall('importLibrary');
-});
-
-// Called by the shell with the chosen file's text. The format belongs to this
-// file, so the parsing and the merging happen here rather than in Java.
-window.__shellLibraryImport = (text) => {
-  let data = null;
-  try { data = JSON.parse(text); } catch (e) { data = null; }
-  if (!data || typeof data !== 'object') {
-    libMessage('That file is not a library export — nothing was imported.');
-    return;
-  }
-
-  const favs = Array.isArray(data.favorites) ? data.favorites : [];
-  const hist = Array.isArray(data.history) ? data.history : [];
-
-  // A merge, never a replace: an import must not be able to lose what is
-  // already on the device, because the file could be older than the app.
-  const haveFav = new Set(lib.favorites.map((e) => e.slug));
-  favs.forEach((e) => {
-    if (!e || !e.slug || haveFav.has(e.slug)) return;
-    haveFav.add(e.slug);
-    lib.favorites.push(e);
-    keepCover(e);
+  });
+  $("#tag-rail").addEventListener("click", (e) => {
+    const chip = e.target.closest(".chip");
+    if (!chip) return;
+    const tag = chip.dataset.tag;
+    const i = state.tags.indexOf(tag);
+    if (i >= 0) state.tags.splice(i, 1);
+    else state.tags.push(tag);
+    chip.setAttribute("aria-pressed", String(i < 0));
+    $("#clear-tags").hidden = state.tags.length === 0;
+    refresh();
+    showView("browse");
+  });
+  $("#clear-tags").onclick = () => {
+    state.tags = [];
+    $$("#tag-rail .chip").forEach((c) => c.setAttribute("aria-pressed", "false"));
+    $("#clear-tags").hidden = true;
+    refresh();
+  };
+  $("#brand-rail").addEventListener("click", (e) => {
+    const chip = e.target.closest(".chip");
+    if (!chip) return;
+    state.brand = state.brand === chip.dataset.brand ? "" : chip.dataset.brand;
+    $$("#brand-rail .chip").forEach((c) => {
+      c.style.borderColor = c === chip ? "hsl(var(--primary))" : "";
+    });
+    refresh();
+    showView("browse");
+  });
+  $("#prev").onclick = () => {
+    if (state.page > 0) {
+      state.page--;
+      loadGrid().then(() => scrollTo({ top: 0, behavior: "smooth" }));
+    }
+  };
+  $("#next").onclick = () => {
+    if (state.page + 1 < state.pages) {
+      state.page++;
+      loadGrid().then(() => scrollTo({ top: 0, behavior: "smooth" }));
+    }
+  };
+  document.addEventListener("click", (e) => {
+    if (menuIsOpen() && !e.target.closest("#nav-menu") && !e.target.closest("#menu-toggle")) {
+      setMenuOpen(false);
+    }
+    const heart = e.target.closest("[data-fav]");
+    if (heart) {
+      e.preventDefault();
+      toggleFav(heart.dataset.fav);
+      return;
+    }
+    const go = e.target.closest("[data-go]");
+    if (go) {
+      e.preventDefault();
+      if (menuIsOpen()) setMenuOpen(false);
+      showView(go.dataset.go);
+      return;
+    }
+    const opener = e.target.closest("[data-open]");
+    if (opener) {
+      e.preventDefault();
+      openVideo(opener.dataset.open);
+      return;
+    }
+    const card = e.target.closest(".card");
+    if (card == null ? void 0 : card.dataset.slug) openVideo(card.dataset.slug);
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const card = e.target.closest(".card");
+    if (card == null ? void 0 : card.dataset.slug) {
+      e.preventDefault();
+      openVideo(card.dataset.slug);
+    }
+  });
+  $("#sheet-close").onclick = closeSheet;
+  $("#sheet").addEventListener("click", (e) => {
+    if (e.target === $("#sheet")) closeSheet();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    if ($("#nav").dataset.searching === "true") setSearchOpen(false);
+    if (menuIsOpen()) setMenuOpen(false);
+    closeSheet();
+  });
+  $("#search-toggle").onclick = () => {
+    setSearchOpen($("#search-toggle").getAttribute("aria-expanded") !== "true");
+  };
+  $("#sort-toggle").onclick = () => {
+    const open = $("#sort-toggle").getAttribute("aria-expanded") !== "true";
+    $("#sort-toggle").setAttribute("aria-expanded", String(open));
+    showView("browse");
+    $("#sort").focus({ preventScroll: true });
+  };
+  $("#brand-btn").onclick = () => showView("browse");
+  var plDebounce;
+  var _a7;
+  (_a7 = $("#pl-q")) == null ? void 0 : _a7.addEventListener("input", (e) => {
+    const val = e.target.value;
+    $("#pl-search-shell").dataset.filled = String(!!val);
+    clearTimeout(plDebounce);
+    plDebounce = setTimeout(loadPlaylists, 240);
+  });
+  var _a8;
+  (_a8 = $("#pl-clear")) == null ? void 0 : _a8.addEventListener("click", () => {
+    $("#pl-q").value = "";
+    $("#pl-search-shell").dataset.filled = "false";
+    loadPlaylists();
+  });
+  var _a9;
+  (_a9 = $("#sess-reset")) == null ? void 0 : _a9.addEventListener("click", async () => {
+    await fetch("/api/session", { method: "DELETE" });
+    await loadSession();
+  });
+  document.addEventListener("click", (e) => {
+    const card = e.target.closest("[data-playlist]");
+    if (card) {
+      e.preventDefault();
+      openPlaylist(card.dataset.playlist);
+    }
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const card = e.target.closest("[data-playlist]");
+    if (card) {
+      e.preventDefault();
+      openPlaylist(card.dataset.playlist);
+    }
   });
 
-  // The newer record of a title wins, and the list is re-sorted by it: merging
-  // by concatenation would push a title watched today behind one from last
-  // year, which is precisely the order that matters here.
-  const byslug = new Map(lib.history.map((e) => [e.slug, e]));
-  hist.forEach((e) => {
-    if (!e || !e.slug) return;
-    const existing = byslug.get(e.slug);
-    if (!existing || Number(e.at) > Number(existing.at)) { byslug.set(e.slug, e); keepCover(e); }
-  });
-  lib.history = [...byslug.values()]
-    .sort((a, b) => Number(b.at) - Number(a.at))
-    .slice(0, LIB_MAX_HISTORY);
+  // client/src/shell.js
+  var shellApi = () => {
+    try {
+      return window.Shell ?? null;
+    } catch (e) {
+      return null;
+    }
+  };
+  function shellCall(name, ...args) {
+    const shell = shellApi();
+    if (!shell || typeof shell[name] !== "function") return void 0;
+    try {
+      return shell[name](...args);
+    } catch (e) {
+      return void 0;
+    }
+  }
+  var backOpen = null;
+  function menuIsOpen() {
+    return $("#menu-toggle").getAttribute("aria-expanded") === "true";
+  }
+  function updateBackState() {
+    const open = $("#sheet").classList.contains("open") || menuIsOpen() || $("#nav").dataset.searching === "true";
+    if (open === backOpen) return;
+    backOpen = open;
+    shellCall("setBackEnabled", open);
+  }
+  window.__shellBack = () => {
+    if ($("#sheet").classList.contains("open")) {
+      closeSheet();
+      return true;
+    }
+    if (menuIsOpen()) {
+      setMenuOpen(false);
+      return true;
+    }
+    if ($("#nav").dataset.searching === "true") {
+      setSearchOpen(false);
+      return true;
+    }
+    return false;
+  };
+  window.__shellPip = (on) => {
+    document.body.dataset.pip = String(!!on);
+  };
 
-  const pos = data.positions && typeof data.positions === 'object' ? data.positions : {};
-  Object.keys(pos).forEach((slug) => {
-    const incoming = pos[slug];
-    if (!incoming || typeof incoming !== 'object') return;
-    const existing = lib.positions[slug];
-    if (existing && Number(existing.at) > Number(incoming.at)) return;
-    const t = Number(incoming.t);
-    const d = Number(incoming.d);
-    if (!Number.isFinite(t) || !Number.isFinite(d) || d <= 0 || t < 0 || t >= d) return;
-    lib.positions[slug] = { t: Math.round(t), d: Math.round(d), at: Number(incoming.at) || 0 };
-  });
-
-  libWrite();
-  renderLibrary();
-  libMessage(`Read ${favs.length} favorites and ${hist.length} history entries. `
-    + `This device now holds ${lib.favorites.length} favorites and ${lib.history.length} watched.`);
-};
-
-// Public playlist cards, plus the "in N playlists" chips inside a video sheet.
-document.addEventListener('click', (e) => {
-  const card = e.target.closest('[data-pp]');
-  if (!card) return;
-  e.preventDefault();
-  openPublicPlaylist(card.dataset.pp);
-});
-document.addEventListener('keydown', (e) => {
-  if (e.key !== 'Enter' && e.key !== ' ') return;
-  const card = e.target.closest('[data-pp]');
-  if (card) { e.preventDefault(); openPublicPlaylist(card.dataset.pp); }
-});
-$('#pp-q')?.addEventListener('input', (e) => {
-  $('#pp-search-shell').dataset.filled = String(!!e.target.value);
-});
-
-// broken covers collapse to the title rather than a torn frame
-document.addEventListener('error', (e) => {
-  if (e.target.tagName !== 'IMG') return;
-  const fb = e.target.parentElement?.querySelector('.card-fallback');
-  if (fb) { e.target.remove(); fb.hidden = false; } else { e.target.style.visibility = 'hidden'; }
-}, true);
-
-$$('.rail').forEach(makeDraggable);
-
-// Boot. Deliberately an async IIFE rather than top-level await: this script is
-// served to an installed Android app, and the WebView that ships with Android
-// 11 is Chromium 83, where top-level await in a module is a syntax error. One
-// syntax error kills the whole script, so the page came up blank. Everything
-// from Chromium 61 runs when it is wrapped like this.
-(async () => {
-  try {
-    await Promise.all([loadTags(), loadBrands(), loadFeatured()]);
-    await loadGrid();
-  } catch (e) {
-    $('#grid').innerHTML = `<p class="note">Could not reach the proxy — ${esc(e.message)}</p>`;
+  // client/src/rails.js
+  function makeDraggable(rail) {
+    let down = false, startX = 0, startScroll = 0, moved = 0;
+    rail.addEventListener("pointerdown", (e) => {
+      if (e.pointerType === "touch") return;
+      down = true;
+      moved = 0;
+      startX = e.clientX;
+      startScroll = rail.scrollLeft;
+      rail.classList.add("dragging");
+    });
+    rail.addEventListener("pointermove", (e) => {
+      if (!down) return;
+      const dx = e.clientX - startX;
+      moved = Math.abs(dx);
+      rail.scrollLeft = startScroll - dx;
+    });
+    const up = () => {
+      down = false;
+      rail.classList.remove("dragging");
+    };
+    rail.addEventListener("pointerup", up);
+    rail.addEventListener("pointerleave", up);
+    rail.addEventListener("pointercancel", up);
+    rail.addEventListener("click", (e) => {
+      if (moved > 6) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    }, true);
   }
 
-  // The account's own playlists are fetched once, for name search later; a
-  // device with no account simply answers with an empty list.
-  loadOwnIndex().catch(() => {});
-
-  // Playlists are independent of the catalog: a failure here must not blank the grid.
-  wirePublicPlaylists();
-  loadSession().catch(() => {});
-
-  showView('browse');
-  renderLibrary();
+  // client/src/boot.js
+  document.addEventListener("error", (e) => {
+    var _a10;
+    if (e.target.tagName !== "IMG") return;
+    const fb = (_a10 = e.target.parentElement) == null ? void 0 : _a10.querySelector(".card-fallback");
+    if (fb) {
+      e.target.remove();
+      fb.hidden = false;
+    } else {
+      e.target.style.visibility = "hidden";
+    }
+  }, true);
+  $$(".rail").forEach(makeDraggable);
+  (async () => {
+    try {
+      await Promise.all([loadTags(), loadBrands(), loadFeatured()]);
+      await loadGrid();
+    } catch (e) {
+      $("#grid").innerHTML = `<p class="note">Could not reach the proxy \u2014 ${esc(e.message)}</p>`;
+    }
+    loadOwnIndex().catch(() => {
+    });
+    wirePublicPlaylists();
+    loadSession().catch(() => {
+    });
+    showView("browse");
+    renderLibrary();
+  })();
 })();
+
 </script>
 </body>
 </html>

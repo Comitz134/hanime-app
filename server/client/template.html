@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en" class="dark summer-dark notranslate" translate="no">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#111111">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="/app.webmanifest">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@100..900&display=swap">
+<title>hanime</title>
+<style>
+/*@CSS@*/
+</style>
+</head>
+<body>
+
+<!-- floating pill nav -->
+<div class="nav-wrap">
+  <div class="nav" id="nav">
+    <div class="brand">
+      <button class="brand-mark" id="brand-btn" aria-label="Home" title="Home">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" width="24" height="24">
+          <circle cx="12" cy="12" r="4.4"/>
+          <ellipse cx="12" cy="12" rx="10.2" ry="3.6" transform="rotate(-22 12 12)"/>
+        </svg>
+      </button>
+      <span class="brand-word" id="brand-word">hanime</span>
+    </div>
+
+    <!-- The pill carries buttons only. Every section sits behind the three-line
+         button, so nothing on the bar has to be reached by swiping it. -->
+
+    <!-- The pill turns into the search field, in place: the buttons step aside
+         and the query is typed where the finger already is. Nothing here moves
+         the page, which is what the search button used to do. -->
+    <div class="nav-search" id="nav-search">
+      <svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+        <circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/>
+      </svg>
+      <input id="nav-q" type="search" inputmode="search" enterkeyhint="search"
+             placeholder="Search titles and playlists…" autocomplete="off" spellcheck="false">
+      <button class="nav-search-close" id="nav-q-close" type="button" aria-label="Close search">&times;</button>
+    </div>
+
+    <div class="nav-actions">
+      <button class="icon-btn" id="menu-toggle" type="button" aria-label="Menu"
+              aria-expanded="false" aria-controls="nav-menu" title="Menu">
+        <svg class="ico-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <path d="M4 7h16M4 12h16M4 17h16"/>
+        </svg>
+        <svg class="ico-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <path d="M6 6l12 12M18 6 6 18"/>
+        </svg>
+      </button>
+      <button class="icon-btn" id="sort-toggle" aria-label="Sort" aria-expanded="false" title="Sort">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <path d="M4 7h16M6 12h12M9 17h6"/>
+        </svg>
+      </button>
+      <button class="icon-btn" id="search-toggle" aria-label="Search" aria-expanded="false" title="Search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- One menu: where to go, and how the app looks while getting there. -->
+    <div class="nav-menu" id="nav-menu" hidden>
+      <nav class="nav-menu-group" aria-label="Sections">
+        <button class="nav-menu-item nav-link" type="button" data-go="browse" aria-current="page">Browse
+          <svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m5 13 4.5 4.5L19 7"/></svg>
+        </button>
+        <button class="nav-menu-item nav-link" type="button" data-go="genres">Genres
+          <svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m5 13 4.5 4.5L19 7"/></svg>
+        </button>
+        <button class="nav-menu-item nav-link" type="button" data-go="studios">Studios
+          <svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m5 13 4.5 4.5L19 7"/></svg>
+        </button>
+        <button class="nav-menu-item nav-link" type="button" data-go="playlists">Playlists
+          <svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m5 13 4.5 4.5L19 7"/></svg>
+        </button>
+        <button class="nav-menu-item nav-link" type="button" data-go="library">Library
+          <svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m5 13 4.5 4.5L19 7"/></svg>
+        </button>
+      </nav>
+
+      <div class="nav-menu-sep"></div>
+
+      <div class="nav-menu-group">
+        <div class="nav-menu-label">Theme</div>
+        <div class="menu-seg" id="theme-seg" role="group" aria-label="Theme">
+          <button type="button" data-theme-pick="dark" aria-pressed="false">Dark</button>
+          <button type="button" data-theme-pick="light" aria-pressed="false">Light</button>
+          <button type="button" data-theme-pick="system" aria-pressed="false">System</button>
+        </div>
+
+        <div class="nav-menu-label">Accent</div>
+        <div class="menu-swatches" id="accent-row" role="group" aria-label="Accent">
+          <button class="swatch" type="button" data-accent-pick="amber" aria-label="Amber" aria-pressed="false" style="--sw: 29.5 100% 74%"></button>
+          <button class="swatch" type="button" data-accent-pick="rose" aria-label="Rose" aria-pressed="false" style="--sw: 350 90% 72%"></button>
+          <button class="swatch" type="button" data-accent-pick="violet" aria-label="Violet" aria-pressed="false" style="--sw: 268 85% 76%"></button>
+          <button class="swatch" type="button" data-accent-pick="sky" aria-label="Sky" aria-pressed="false" style="--sw: 195 90% 72%"></button>
+          <button class="swatch" type="button" data-accent-pick="mint" aria-label="Mint" aria-pressed="false" style="--sw: 152 65% 68%"></button>
+        </div>
+
+        <label class="menu-row" for="pref-motion">
+          <span>Reduce motion</span>
+          <input type="checkbox" id="pref-motion">
+        </label>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="stack" style="padding-bottom:4rem">
+  <main class="container stack">
+
+    <!-- browse: what the catalog search, filters and grid all belong to -->
+    <div class="view" data-view="browse" data-active="true">
+
+      <!-- hero -->
+      <section class="hero" id="hero" aria-label="Featured">
+        <div class="hero-slide" data-active="true" id="hero-a"><div class="hero-body"></div></div>
+        <div class="hero-slide" id="hero-b"><div class="hero-body"></div></div>
+        <div class="hero-dots" id="hero-dots"></div>
+      </section>
+
+      <!-- search + sort -->
+      <section aria-label="Filters">
+        <div class="bar">
+          <label class="search-shell" id="search-shell">
+            <svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+              <circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/>
+            </svg>
+            <input id="q" type="search" inputmode="search" enterkeyhint="search"
+                   placeholder="Search titles, studios, tags…" autocomplete="off" spellcheck="false">
+            <button class="search-clear" id="search-clear" type="button" aria-label="Clear search">&times;</button>
+          </label>
+          <select id="sort" aria-label="Sort order">
+            <option value="released_at_unix:desc">Newest</option>
+            <option value="views:desc">Most viewed</option>
+            <option value="likes:desc">Most liked</option>
+            <option value="released_at_unix:asc">Oldest</option>
+            <option value="name:asc">A–Z</option>
+          </select>
+        </div>
+      </section>
+
+      <!-- playlists found by name -->
+      <section id="pl-hits" hidden>
+        <div class="sec-head">
+          <div class="sec-head-l">
+            <h2>Playlists by name</h2>
+            <span class="sec-count" id="pl-hits-count"></span>
+          </div>
+        </div>
+        <div class="rail" id="pl-hits-rail" aria-label="Playlists matching the search"></div>
+      </section>
+
+      <!-- browse grid -->
+      <section id="browse">
+        <div class="sec-head">
+          <div class="sec-head-l">
+            <h2>All Titles</h2>
+            <span class="sec-count" id="total-count">…</span>
+          </div>
+          <span class="sec-count" id="active-label" hidden></span>
+        </div>
+        <div class="grid" id="grid"></div>
+        <div class="pager" id="pager" hidden>
+          <button class="page-btn" id="prev">Prev</button>
+          <span class="pager-info" id="pageinfo"></span>
+          <button class="page-btn" id="next">Next</button>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- genres -->
+    <div class="view" data-view="genres">
+
+      <!-- genres rail -->
+      <section id="genres">
+        <div class="sec-head">
+          <div class="sec-head-l"><h2>Browse Genres</h2></div>
+          <button class="chip" id="clear-tags" type="button" hidden>Clear</button>
+        </div>
+        <div class="rail" id="tag-rail" aria-label="Genres"></div>
+      </section>
+
+    </div>
+
+    <!-- studios -->
+    <div class="view" data-view="studios" id="studios">
+
+      <!-- studios rail -->
+      <section>
+        <div class="sec-head">
+          <div class="sec-head-l"><h2>Studios</h2></div>
+        </div>
+        <div class="rail" id="brand-rail" aria-label="Studios"></div>
+      </section>
+
+    </div>
+
+    <!-- playlists -->
+    <div class="view" data-view="playlists">
+
+      <!-- public playlists -->
+      <section id="public-playlists">
+        <div class="sec-head">
+          <div class="sec-head-l">
+            <h2>Public Playlists</h2>
+            <span class="sec-count" id="pp-count">…</span>
+          </div>
+          <button class="chip" id="pp-more" type="button">Scan more</button>
+        </div>
+
+        <label class="search-shell" id="pp-search-shell" style="max-width:32rem">
+          <svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+            <circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/>
+          </svg>
+          <input id="pp-q" type="search" inputmode="search" placeholder="Search public playlists, creators and their titles…" autocomplete="off">
+          <button class="search-clear" id="pp-clear" type="button" aria-label="Clear">&times;</button>
+        </label>
+
+        <div class="rail" id="pp-rail" style="margin-top:1rem" aria-label="Public playlists"></div>
+        <p class="note" id="pp-note" hidden></p>
+      </section>
+
+      <div class="divider"></div>
+
+      <!-- playlists -->
+      <section id="playlists">
+        <div class="sec-head">
+          <div class="sec-head-l">
+            <h2>Your Playlists</h2>
+            <span class="sec-count sess-chip" id="sess-chip"><span class="sess-dot" id="sess-dot"></span><span id="sess-label">checking…</span></span>
+          </div>
+          <button class="chip" id="sess-reset" type="button" hidden>Disconnect</button>
+        </div>
+
+        <div id="connect-slot"></div>
+
+        <div id="playlists-body" hidden>
+          <label class="search-shell" id="pl-search-shell" style="max-width:28rem">
+            <svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+              <circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/>
+            </svg>
+            <input id="pl-q" type="search" inputmode="search" placeholder="Search playlists and their contents…" autocomplete="off">
+            <button class="search-clear" id="pl-clear" type="button" aria-label="Clear">&times;</button>
+          </label>
+          <div class="rail" id="pl-rail" style="margin-top:1rem" aria-label="Playlists"></div>
+          <p class="note" id="pl-note" hidden></p>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- library: favorites and watch history, kept on the device -->
+    <div class="view" data-view="library">
+
+      <!-- library -->
+      <section id="library">
+        <div class="sec-head">
+          <div class="sec-head-l">
+            <h2>Library</h2>
+            <span class="sec-count" id="lib-count">…</span>
+          </div>
+        </div>
+
+        <label class="search-shell" id="lib-search-shell" style="max-width:28rem">
+          <svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+            <circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/>
+          </svg>
+          <input id="lib-q" type="search" inputmode="search" placeholder="Filter favorites and history by name…" autocomplete="off">
+          <button class="search-clear" id="lib-clear" type="button" aria-label="Clear">&times;</button>
+        </label>
+
+        <div class="lib-tools">
+          <button class="chip" id="lib-export" type="button">Export library</button>
+          <button class="chip" id="lib-import" type="button">Import library</button>
+        </div>
+
+        <p class="note" id="lib-msg" hidden></p>
+        <p class="note" id="lib-warn" hidden></p>
+
+        <div class="sec-head" id="cont-head" style="margin-top:1.75rem">
+          <div class="sec-head-l">
+            <h2>Continue watching</h2>
+            <span class="sec-count" id="cont-count">0</span>
+          </div>
+        </div>
+        <div class="rail" id="cont-rail"></div>
+        <p class="note" id="cont-note" hidden></p>
+
+        <div class="sec-head" style="margin-top:1.75rem">
+          <div class="sec-head-l">
+            <h2>Favorites</h2>
+            <span class="sec-count" id="fav-count">0</span>
+          </div>
+        </div>
+        <div class="grid" id="fav-grid"></div>
+        <p class="note" id="fav-note" hidden></p>
+
+        <div class="divider"></div>
+
+        <div class="sec-head">
+          <div class="sec-head-l">
+            <h2>History</h2>
+            <span class="sec-count" id="hist-count">0</span>
+          </div>
+          <button class="chip" id="hist-clear" type="button" hidden>Clear history</button>
+        </div>
+        <div class="grid" id="hist-grid"></div>
+        <p class="note" id="hist-note" hidden></p>
+      </section>
+
+    </div>
+
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div class="footer-mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+          <circle cx="12" cy="12" r="4.4"/>
+          <ellipse cx="12" cy="12" rx="10.2" ry="3.6" transform="rotate(-22 12 12)"/>
+        </svg>
+        <strong style="font-size:.8125rem;letter-spacing:.16em;text-transform:uppercase">hanime</strong>
+      </div>
+      <h2>Served from your own bench.</h2>
+      <p id="footer-stat">Catalog and streams resolve through the local proxy.</p>
+      <div class="divider" style="margin:1.5rem 0"></div>
+      <p style="font-size:.6875rem">Local client. Not affiliated with any upstream service.</p>
+    </div>
+  </footer>
+</div>
+
+<!-- detail + player -->
+<div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="Title details">
+  <div class="sheet-panel">
+    <div class="sheet-top">
+      <button class="back-btn" id="sheet-close">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m15 18-6-6 6-6"/></svg>
+        Back
+      </button>
+      <span class="spacer"></span>
+      <span class="sec-count" id="sheet-count" hidden></span>
+    </div>
+    <div id="sheet-body"></div>
+  </div>
+</div>
+
+<!--
+  hls.js is bundled beside this file rather than fetched from a CDN. This page
+  is the product: playback must not depend on a third party staying up, staying
+  reachable from whatever network the device is on, or keeping a pinned version.
+  The copy is 1.5.17 and both this server (public/) and the Android app
+  (assets/) serve it from their own directory.
+-->
+<script src="hls.min.js"></script>
+<script type="module">
+/*@JS@*/
+</script>
+</body>
+</html>

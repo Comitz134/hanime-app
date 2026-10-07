@@ -1,0 +1,72 @@
+/* ---------------------------------------------------------------------------
+   Tokens lifted from the live reference via getComputedStyle, not eyeballed.
+   Values are bare HSL triplets consumed through hsl(var(--x)), same shape the
+   source site uses, so a re-theme is a token swap rather than a rewrite.
+   --------------------------------------------------------------------------- */
+:root {
+  --background: 0 0% 6.7%;
+  --foreground: 0 0% 93.3%;
+  --card: 0 0% 9.8%;
+  --card-foreground: 0 0% 93.3%;
+  --popover: 0 0% 9.8%;
+  --muted: 0 0% 13.3%;
+  --muted-foreground: 0 0% 70.6%;
+  --accent: 0 0% 16.5%;
+  --accent-foreground: 0 0% 93.3%;
+  --border: 45 14.3% 11%;
+  --input: 0 0% 28.2%;
+  --primary: 29.5 100% 88%;
+  --primary-foreground: 183.2 54.3% 6.9%;
+  --ring: 29.5 100% 88%;
+  --secondary: 28.2 17.5% 19%;
+  --brand-300: 29.5 100% 92%;
+  --brand-400: 29.5 100% 89.2%;
+  --brand-500: 29.5 100% 88%;
+  --brand-600: 29 85% 76%;
+  --radius: .5rem;
+  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-serif: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+  --ease-out-expo: cubic-bezier(.16, 1, .3, 1);
+}
+
+* , *::before, *::after { box-sizing: border-box; border-color: hsl(var(--border)); }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: var(--font-mono);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -.01em; }
+button, input, select { font: inherit; color: inherit; background: none; border: 0; }
+button { cursor: pointer; }
+img { display: block; }
+::selection { background: hsl(var(--primary) / .28); }
+
+/* thin scrollbars, matching the reference's restrained chrome */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: hsl(var(--accent)); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: hsl(var(--input)); }
+
+:focus-visible { outline: none; box-shadow: 0 0 0 1px hsl(var(--ring)); }
+
+.container {
+  width: 100%;
+  max-width: 1600px;
+  margin-inline: auto;
+  padding: 1rem .5rem;
+}
+@media (min-width: 640px)  { .container { padding: 1.5rem 1rem; } }
+@media (min-width: 1024px) { .container { padding: 1.5rem 1.5rem; } }
+
+.stack > * + * { margin-top: 1rem; }
+@media (min-width: 640px)  { .stack > * + * { margin-top: 1.5rem; } }
+@media (min-width: 1024px) { .stack > * + * { margin-top: 2rem; } }
+
+.divider { height: 1px; width: 100%; background: hsl(var(--border)); flex-shrink: 0; }
+

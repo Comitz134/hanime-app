@@ -14,7 +14,7 @@ machine of yours running anything.
 ```
 android/app/src/main/
 ├── assets/            the whole backend, shipped in the APK
-│   ├── index.html         the web client (byte-identical to server/public/)
+│   ├── index.html         the web client — generated bundle (see §3)
 │   ├── htv-signer.js      hanime's signature module, syntax-downgraded
 │   ├── htv-signer.wasm
 │   ├── signer.html        host page that boots the module
@@ -92,19 +92,30 @@ you are testing a browser the app does not ship.
 
 ## 3. Regenerate the bundled assets
 
-Required after changing the client or the vendored signer. Guards in
-`server/test/web-client.test.mjs` fail if you forget: the bundled copy must stay
-byte-identical to what the server serves, the signer must stay parseable by
+Required after changing the client sources under `server/client/` or the
+vendored signer. Guards in `server/test/web-client.test.mjs` fail if you
+forget: the committed bundle must match a fresh build of the sources (both
+copies of it), the signer must stay parseable by
 WebView 83, the nav's five targets must match five views, and the library's
 storage calls must stay wrapped in `try`. (112 tests. The updater's
 source/channel selection has 11 more as JVM tests:
 `gradle :app:testReleaseUnitTest`.)
 
+The client no longer ships as one hand-edited file. Its sources live in
+`server/client/` — `template.html` (markup), `styles/*.css` (9 sections),
+`src/*.js` (17 modules) — and esbuild bundles them into the single inline
+script in `index.html`:
+
 ```bash
 cd hanime-app
 
-# 1. the client — must stay byte-identical to what the server serves
-cp server/public/index.html server/public/app.webmanifest android/app/src/main/assets/
+# 1. the client — bundles server/client/ and writes BOTH copies at once
+#    (server/public/index.html and android/.../assets/index.html), so the two
+#    can never drift; the test suite calls the same render() and fails if
+#    either committed copy is stale.
+cd server && npm ci && npm run build:client && cd ..
+#    the webmanifest still rides along by copy
+cp server/public/app.webmanifest android/app/src/main/assets/
 
 # 2. the signer — downgrades 3 uses of ??= (Chrome 85+) for older WebViews
 node android/tools/make-signer-asset.mjs
@@ -156,8 +167,12 @@ Verifies / v2 scheme: true / signer CN=hanime shell (unchanged)
   assets/hls.min.js 413,952 bytes sha256 484054e8cd03d3f6d1781fb7f402bdc318d8a4c527f933a95c624e27cc9a9470
 ```
 
-The bundled client's digest above is the same digest as `server/public/index.html`
-in this tree — checked out of the packaged APK, not assumed.
+The bundled client's digest above is the one that shipped in the published v11
+APK — read back out of the packaged file, not assumed. The client has since
+been split into `server/client/` modules and rebuilt (§3), so the tree's
+`index.html` is a new bundle; its digest changes again with every client edit,
+and the freshness guard in the test suite is what keeps server and APK copies
+of it in step rather than a recorded hash.
 
 Release signing comes from `android/keystore.properties` + `android/keystore/`.
 **Reuse the same key across releases** — a different signer turns every update

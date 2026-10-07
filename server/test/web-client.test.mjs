@@ -1,4 +1,7 @@
-// Guards the web client, which has no build step and therefore no compiler.
+// Guards the web client, which is bundled by esbuild from client/ sources.
+// Assertions run against the committed bundle (public/index.html) — the file
+// that actually ships — so they are written against code and structure, never
+// against the bundler's comment or quote style.
 //
 // This exists because of a real bug: a CSS block was pasted inside the
 // <script> tag while adding the public-playlist section. The markup looked
@@ -222,21 +225,30 @@ test('the reskin tokens are still the measured ones', () => {
 });
 
 // ---------------------------------------------------------------------------
-// The Android app has no server to fetch the client from — it bundles a copy.
-// If the two drift, the shipped app silently runs an older UI than the one
-// this suite just exercised, and nothing anywhere would report it.
+// The client is generated: client/{template.html,styles/,src/} are the source
+// of truth, and both served copies are outputs of client/build.mjs. This guard
+// replaces the old byte-identity test — instead of checking that two hand-kept
+// copies match each other, it checks that both match what the sources build to
+// right now, so a stale bundle is caught before release.
 // ---------------------------------------------------------------------------
 
 const ANDROID = path.resolve(HERE, '../../android');
 
-test('the copy bundled into the Android app is this client, byte for byte', () => {
+test('the committed bundle is up to date with its sources', async () => {
+  const { render } = await import('../client/build.mjs');
+  const fresh = await render();
+  assert.equal(
+    html,
+    fresh,
+    'server/public/index.html is stale — regenerate it: cd server && npm run build:client',
+  );
   if (!fs.existsSync(ANDROID)) return; // server-only checkout
   const bundled = path.join(ANDROID, 'app/src/main/assets/index.html');
-  assert.ok(fs.existsSync(bundled), `missing ${bundled} — run the app build`);
+  assert.ok(fs.existsSync(bundled), `missing ${bundled} — run npm run build:client`);
   assert.equal(
     fs.readFileSync(bundled, 'utf8'),
-    html,
-    'android/app/src/main/assets/index.html is stale: re-copy public/index.html',
+    fresh,
+    'android/app/src/main/assets/index.html is stale — regenerate it: cd server && npm run build:client',
   );
 });
 
@@ -248,7 +260,9 @@ test('the client plays video through its own hls.js, not through a CDN', () => {
   assert.ok(!/cdn\.jsdelivr\.net/.test(html), 'the client still loads something from a CDN');
   assert.ok(/<script src="hls\.min\.js"><\/script>/.test(html),
     'the client does not load the bundled hls.js');
-  assert.ok(script.includes('window.Hls?.isSupported()'),
+  // The source is `window.Hls?.isSupported()`; esbuild prints it lowered and
+  // re-quoted, so match the two halves rather than the spelling.
+  assert.ok(/window\.Hls/.test(script) && /\.isSupported\(\)/.test(script),
     'the hls.js usage moved — this test no longer guards what it claims to');
 
   const vendored = path.resolve(HERE, '../public/hls.min.js');
@@ -291,8 +305,8 @@ test('back closes what is open, and the page decides that, not the shell', () =>
   assert.ok(/function updateBackState\(\)/.test(script), 'the back state is never computed');
 
   // Both things that take over the screen have to be covered by it.
-  assert.ok(/classList\.contains\('open'\)/.test(script), 'the sheet is not part of the back state');
-  assert.ok(/dataset\.searching === 'true'/.test(script), 'the search field is not part of it');
+  assert.ok(/classList\.contains\(["']open["']\)/.test(script), 'the sheet is not part of the back state');
+  assert.ok(/dataset\.searching === ["']true["']/.test(script), 'the search field is not part of it');
 
   // Moving backwards through state is not allowed to introduce a scroll jump;
   // the sheet is fixed and must stay that way.
@@ -306,8 +320,8 @@ test('a title remembers where it was left', () => {
     assert.ok(new RegExp(`function ${name}\\(`).test(script), `missing ${name}()`);
   }
   // Written while playing, and at the two moments that matter.
-  assert.ok(script.includes("addEventListener('timeupdate'"), 'nothing records progress while playing');
-  assert.ok(/addEventListener\('pause',[\s\S]{0,160}?savePosition/.test(script),
+  assert.ok(/addEventListener\(["']timeupdate["']/.test(script), 'nothing records progress while playing');
+  assert.ok(/addEventListener\(["']pause["'],[\s\S]{0,160}?savePosition/.test(script),
     'pausing does not record it');
   assert.ok(/if \(activeSlug && activeVid\) savePosition/.test(script),
     'closing the sheet does not record it');
@@ -336,7 +350,7 @@ test('the library can leave the device and come back', () => {
 
   // The file is not trusted: a parse failure must land in a message rather than
   // in the console, and a merge must never replace what is on the device.
-  assert.ok(/try \{ data = JSON\.parse\(text\); \} catch/.test(script), 'import parses unguarded');
+  assert.ok(/try \{[^}]*JSON\.parse\(text\)/.test(script), 'import parses unguarded');
   assert.ok(/haveFav/.test(script), 'an import overwrites the existing favourites');
   assert.ok(/byslug\.get\(e\.slug\)/.test(script), 'an import does not merge history by title');
 });
@@ -358,8 +372,9 @@ test('the navbar is a menu, not a strip you have to swipe', () => {
   assert.ok(/menuIsOpen\(\)[\s\S]{0,200}?setMenuOpen\(false\)/.test(script),
     '__shellBack never closes the menu');
   // Choosing a section is a decision: the menu must not stay over the view it
-  // just opened.
-  assert.ok(/if \(menuIsOpen\(\)\) setMenuOpen\(false\);\s*\/\/ choosing a section/.test(script),
+  // just opened. (The source says this with a trailing comment; the bundle
+  // keeps only the code.)
+  assert.ok(/if \(menuIsOpen\(\)\) setMenuOpen\(false\)/.test(script),
     'picking a section leaves the menu open');
   assert.ok(html.includes('.nav-menu '), 'no stylesheet rule draws the menu');
 });
@@ -395,7 +410,7 @@ test("appearance is the reader's, and it survives a restart", () => {
 test('picture in picture is offered only when the shell supports it', () => {
   const script = inlineScripts(html)[0];
   assert.ok(script.includes('pictureInPictureSupported'), 'the page never asks about PiP support');
-  assert.ok(script.includes("'enterPip'"), 'the page cannot ask for the small window');
+  assert.ok(/['"]enterPip['"]/.test(script), 'the page cannot ask for the small window');
   assert.ok(script.includes('window.__shellPip'), 'the shell cannot tell the page it is in PiP');
   assert.ok(script.includes("setVideoAspect"), 'the PiP window is never shaped to the video');
   // The button is in the player, which only exists once a stream resolved.

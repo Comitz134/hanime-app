@@ -1,0 +1,73 @@
+/* --------------------------------------------------------------------------
+   Playlists
+   -------------------------------------------------------------------------- */
+.pl-card {
+  flex: 0 0 auto; width: 8.5rem; scroll-snap-align: start; cursor: pointer;
+}
+@media (min-width: 640px) { .pl-card { width: 10.5rem; } }
+.pl-art {
+  position: relative; display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: 1fr;
+  aspect-ratio: 1 / 1; overflow: hidden;
+  border-radius: var(--radius); border: 1px solid rgb(255 255 255 / .08);
+  background: hsl(var(--card)); transition: border-color .3s, transform .4s var(--ease-out-expo);
+}
+@media (min-width: 640px) { .pl-art { border-radius: calc(var(--radius) + .25rem); } }
+.pl-card:hover .pl-art { border-color: rgb(255 255 255 / .2); transform: translateY(-3px); }
+.pl-art img { width: 100%; height: 100%; object-fit: cover; }
+.pl-art[data-count="1"] { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+.pl-art[data-count="1"] img { grid-column: 1 / -1; grid-row: 1 / -1; }
+.pl-art-empty { grid-column: 1 / -1; display: grid; place-items: center; font-size: .6875rem; color: hsl(var(--muted-foreground)); }
+.pl-more {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  background: rgb(0 0 0 / .55); font-size: .8125rem; font-weight: 600;
+  color: #fff; backdrop-filter: blur(2px);
+}
+.pl-name {
+  font-size: .75rem; font-weight: 500; margin: .5rem 0 .1rem; line-height: 1.35;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.pl-meta { font-size: .625rem; color: hsl(var(--muted-foreground)); margin: 0; }
+.pl-flags { display: inline-flex; gap: .25rem; margin-left: .3rem; }
+.pl-flag { font-size: .5625rem; padding: 0 .3rem; border-radius: 999px; background: hsl(var(--accent)); }
+
+.connect-card {
+  border-radius: var(--radius); border: 1px solid hsl(var(--border));
+  background: hsl(var(--card) / .4); padding: 1rem;
+}
+@media (min-width: 640px) { .connect-card { padding: 1.25rem; } }
+.connect-card h3 { font-size: .9375rem; margin-bottom: .375rem; }
+.connect-card p { font-size: .75rem; color: hsl(var(--muted-foreground)); margin: 0 0 .75rem; line-height: 1.6; }
+.connect-card code {
+  font-family: var(--font-mono); font-size: .6875rem;
+  background: hsl(var(--accent)); padding: .1rem .35rem; border-radius: .25rem;
+}
+.connect-row { display: flex; gap: .5rem; flex-wrap: wrap; }
+#cookie-input {
+  flex: 1 1 16rem; min-width: 0; height: 2.75rem; border-radius: 1rem;
+  background: hsl(var(--background)); border: 1px solid hsl(var(--border) / .8);
+  padding: 0 .875rem; font-size: .75rem;
+}
+#cookie-input:focus { border-color: hsl(var(--primary) / .5); }
+.connect-msg { font-size: .75rem; margin-top: .75rem; }
+.connect-msg[data-kind="ok"] { color: hsl(var(--brand-400)); }
+.connect-msg[data-kind="err"] { color: #ff8b9a; }
+
+.sess-chip { display: inline-flex; align-items: center; gap: .375rem; }
+.sess-dot { width: .375rem; height: .375rem; border-radius: 999px; background: hsl(var(--input)); }
+.sess-dot[data-live="true"] { background: hsl(var(--brand-500)); }
+
+.pl-items { display: grid; gap: .75rem; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); margin-top: 1rem; }
+@media (min-width: 640px) { .pl-items { grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 1rem; } }
+.unresolved {
+  border-radius: var(--radius); border: 1px dashed hsl(var(--border));
+  display: grid; place-items: center; padding: .5rem; aspect-ratio: 2 / 3;
+  font-size: .625rem; color: hsl(var(--muted-foreground)); text-align: center;
+}
+
+.footer { border-top: 1px solid hsl(var(--border)); background: hsl(var(--card) / .3); margin-top: 3rem; }
+.footer-inner { text-align: center; }
+.footer h2 { font-family: var(--font-serif); font-size: 1.5rem; font-weight: 400; margin-bottom: .5rem; }
+.footer p { font-size: .75rem; color: hsl(var(--muted-foreground)); margin: .25rem 0; }
+.footer-mark { display: inline-flex; align-items: center; gap: .5rem; margin-bottom: 1rem; }
+.footer-mark svg { width: 1.25rem; height: 1.25rem; color: hsl(var(--brand-300)); }
+

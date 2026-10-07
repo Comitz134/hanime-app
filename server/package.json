@@ -10,6 +10,10 @@
   "scripts": {
     "start": "node src/server.mjs",
     "dev": "node --watch src/server.mjs",
-    "selftest": "node --test \"test/*.test.mjs\""
+    "selftest": "node --test \"test/*.test.mjs\"",
+    "build:client": "node client/build.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
   }
 }

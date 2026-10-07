@@ -1,0 +1,41 @@
+/* --------------------------------------------------------------------------
+   Views
+
+   The nav used to be anchors into one long page: pressing "Studios" scrolled
+   the reader down to the studios rail. It now switches views in place, and
+   only the active one is laid out, so nothing is ever reached by scrolling.
+   -------------------------------------------------------------------------- */
+.view { display: none; }
+.view[data-active="true"] { display: block; }
+.view > * + * { margin-top: 2rem; }
+@media (min-width: 640px) { .view > * + * { margin-top: 2.5rem; } }
+.view .divider { margin-block: 2rem; }
+
+/* --------------------------------------------------------------------------
+   Favorites
+
+   One toggle in two shapes: a heart drawn on every card frame, and a pill
+   inside a title page, where there is room for a word next to it.
+   -------------------------------------------------------------------------- */
+.fav-btn {
+  position: absolute; top: .4rem; right: .4rem; z-index: 2;
+  width: 1.75rem; height: 1.75rem; display: grid; place-items: center;
+  border-radius: 999px; border: 1px solid rgb(255 255 255 / .2);
+  background: rgb(0 0 0 / .55); color: #fff;
+  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+  transition: color .2s, background .2s, border-color .2s, transform .2s;
+}
+.fav-btn svg { width: .875rem; height: .875rem; }
+.fav-btn:hover { transform: scale(1.08); border-color: hsl(var(--primary)); color: hsl(var(--primary)); }
+.fav-btn[aria-pressed="true"] {
+  color: hsl(var(--primary)); border-color: hsl(var(--primary)); background: rgb(0 0 0 / .8);
+}
+.fav-btn[aria-pressed="true"] svg { fill: currentColor; }
+
+.detail-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: 1rem; }
+.pill svg { width: .875rem; height: .875rem; fill: none; stroke: currentColor; stroke-width: 2; }
+.pill[aria-pressed="true"] {
+  background: hsl(var(--primary) / .14); border-color: hsl(var(--primary)); color: hsl(var(--primary));
+}
+.pill[aria-pressed="true"] svg { fill: currentColor; }
+
