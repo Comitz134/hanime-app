@@ -578,23 +578,26 @@ select#sort:focus { border-color: hsl(var(--primary) / .5); }
 
 
 /* --------------------------------------------------------------------------
-   Detail overlay
+   Detail page
+   One surface for both areas, laid out the way a series page reads:
+   a header across the top, then player and reading matter side by side.
+   Not a card floating over the page it came from.
    -------------------------------------------------------------------------- */
 .sheet {
   position: fixed; inset: 0; z-index: 10000;
-  background: hsl(var(--background) / .82);
-  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  /* A page, not an overlay: what is underneath must not read through it. */
+  background: hsl(var(--background));
   display: none; overflow-y: auto;
   overscroll-behavior: contain;
 }
 .sheet.open { display: block; animation: fade-in .22s ease forwards; }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 .sheet-panel {
-  max-width: 1000px; margin: 0 auto;
-  padding: calc(1rem + env(safe-area-inset-top)) .5rem 4rem;
+  max-width: 1280px; margin: 0 auto;
+  padding: calc(1rem + env(safe-area-inset-top)) .75rem 4rem;
 }
-@media (min-width: 640px) { .sheet-panel { padding-inline: 1rem; } }
-@media (min-width: 1024px){ .sheet-panel { padding-inline: 1.5rem; } }
+@media (min-width: 640px) { .sheet-panel { padding-inline: 1.25rem; } }
+@media (min-width: 1024px){ .sheet-panel { padding-inline: 2rem; } }
 
 .sheet-top { display: flex; align-items: center; gap: .5rem; margin-bottom: 1rem; position: sticky; top: 0; z-index: 2; }
 .sheet-top .spacer { flex: 1; }
@@ -607,12 +610,49 @@ select#sort:focus { border-color: hsl(var(--primary) / .5); }
 }
 .back-btn:hover { border-color: hsl(var(--input)); background: hsl(var(--accent) / .6); }
 
+/* ---- header: what this is, before anything plays ------------------------ */
+.detail-hero {
+  display: flex; gap: 1rem; align-items: flex-start;
+  padding-bottom: 1.25rem; margin-bottom: 1.25rem;
+  border-bottom: 1px solid hsl(var(--border) / .6);
+}
+.detail-poster {
+  flex: 0 0 auto; width: 84px; border-radius: .625rem; overflow: hidden;
+  border: 1px solid hsl(var(--border) / .7); background: hsl(var(--card));
+  aspect-ratio: 2 / 3;
+}
+@media (min-width: 640px) { .detail-poster { width: 108px; } }
+.detail-poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.detail-hero-text { min-width: 0; }
+.detail-kicker {
+  font-size: .6875rem; letter-spacing: .14em; text-transform: uppercase;
+  color: hsl(var(--muted-foreground)); margin-bottom: .375rem;
+}
+.detail-title {
+  font-family: var(--font-serif); font-weight: 400;
+  font-size: 1.375rem; line-height: 1.15; margin-bottom: .5rem;
+}
+@media (min-width: 640px) { .detail-title { font-size: 1.875rem; } }
+.detail-meta { font-size: .75rem; color: hsl(var(--muted-foreground)); margin-bottom: .75rem; }
+.detail-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+
+/* ---- the two columns ---------------------------------------------------- */
+.detail-grid { display: grid; grid-template-columns: 1fr; gap: 1.5rem; }
+@media (min-width: 960px) {
+  .detail-grid { grid-template-columns: minmax(0, 1fr) 340px; gap: 2rem; }
+  .detail-side { position: sticky; top: 3.5rem; align-self: start; max-height: calc(100vh - 5rem); overflow-y: auto; }
+}
+.detail-main { min-width: 0; }
+.detail-side { min-width: 0; }
+
 .player-card {
   border-radius: 1rem; overflow: hidden;
   border: 1px solid hsl(var(--border) / .6);
   background: hsl(var(--card) / .4);
 }
 video { width: 100%; display: block; background: #000; aspect-ratio: 16 / 9; }
+.lx-frame { aspect-ratio: 16 / 9; background: #000; }
+.lx-frame iframe { width: 100%; height: 100%; border: 0; display: block; }
 
 .quality { display: flex; flex-wrap: wrap; gap: .375rem; padding: .75rem; }
 .q-btn {
@@ -625,16 +665,52 @@ video { width: 100%; display: block; background: #000; aspect-ratio: 16 / 9; }
   color: hsl(var(--primary-foreground)); font-weight: 600;
 }
 
-.detail-head { margin-top: 1.25rem; }
-.detail-title {
-  font-family: var(--font-serif); font-weight: 400;
-  font-size: 1.5rem; line-height: 1.15; margin-bottom: .5rem;
+.detail-label {
+  font-size: .625rem; letter-spacing: .16em; text-transform: uppercase;
+  color: hsl(var(--muted-foreground)); margin: 1.125rem 0 .5rem;
 }
-@media (min-width: 640px) { .detail-title { font-size: 2rem; } }
-.detail-meta { font-size: .75rem; color: hsl(var(--muted-foreground)); margin-bottom: .875rem; }
-.detail-tags { display: flex; flex-wrap: wrap; gap: .375rem; margin-bottom: 1.25rem; }
-.detail-desc { font-size: .8125rem; line-height: 1.7; color: hsl(var(--fg, var(--foreground)) / .82); white-space: pre-wrap; }
+.detail-tags { display: flex; flex-wrap: wrap; gap: .375rem; margin-bottom: .75rem; }
+.detail-desc { font-size: .8125rem; line-height: 1.7; color: hsl(var(--foreground) / .82); white-space: pre-wrap; }
 .detail-desc:empty { display: none; }
+
+/* ---- sidebar: the episode list ------------------------------------------ */
+.side-row { display: flex; align-items: center; gap: .5rem; margin-bottom: .5rem; }
+.side-chip {
+  display: inline-block; padding: .25rem .625rem; border-radius: 999px;
+  background: hsl(var(--accent) / .16); border: 1px solid hsl(var(--accent) / .45);
+  color: hsl(var(--accent)); font-size: .6875rem; font-weight: 700; letter-spacing: .06em;
+}
+.side-title { font-size: .9375rem; font-weight: 600; line-height: 1.35; margin-bottom: .25rem; }
+
+.ep-list { display: flex; flex-direction: column; gap: .5rem; }
+.ep-card {
+  display: flex; gap: .625rem; align-items: center; text-align: left;
+  padding: .5rem; border-radius: .75rem; width: 100%;
+  border: 1px solid hsl(var(--border) / .7); background: hsl(var(--card) / .45);
+  transition: border-color .2s, background .2s;
+}
+.ep-card:hover { border-color: hsl(var(--input)); background: hsl(var(--card)); }
+.ep-card.active { border-color: hsl(var(--primary)); background: hsl(var(--primary) / .1); }
+.ep-thumb {
+  position: relative; flex: 0 0 auto; width: 86px; aspect-ratio: 16 / 9;
+  border-radius: .4375rem; overflow: hidden; background: hsl(var(--muted) / .3);
+}
+.ep-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ep-num {
+  position: absolute; left: .25rem; bottom: .25rem;
+  padding: .0625rem .375rem; border-radius: .25rem;
+  background: rgb(0 0 0 / .75); color: #fff; font-size: .5625rem; font-weight: 700;
+}
+.ep-text { min-width: 0; display: flex; flex-direction: column; gap: .125rem; }
+.ep-title { font-size: .75rem; font-weight: 700; }
+.ep-desc {
+  font-size: .6875rem; color: hsl(var(--muted-foreground));
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+
+.ep-nav { display: flex; justify-content: space-between; gap: .75rem; margin-top: .875rem; }
+
+#detail-recs { margin-top: 1.75rem; }
 
 .note { font-size: .8125rem; color: hsl(var(--muted-foreground)); padding: .75rem; }
 .center-spin { display: grid; place-items: center; padding: 3rem; }
@@ -647,16 +723,20 @@ video { width: 100%; display: block; background: #000; aspect-ratio: 16 / 9; }
 .lib-tools { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-top: .75rem; }
 
 /* Picture in picture: the small window is the video and nothing else. Left
-   alone, the whole document is squeezed in and the video becomes a stamp in the
-   corner of its own window. */
+   alone, the whole document is squeezed in and the video becomes a stamp in
+   the corner of its own window. */
 body[data-pip="true"] .sheet-panel { max-width: none; padding: 0; }
 body[data-pip="true"] .sheet-top,
-body[data-pip="true"] .detail-head,
+body[data-pip="true"] .detail-hero,
+body[data-pip="true"] .detail-side,
+body[data-pip="true"] .ep-nav,
+body[data-pip="true"] #detail-recs,
 body[data-pip="true"] .quality,
 body[data-pip="true"] #in-playlists,
 body[data-pip="true"] main,
 body[data-pip="true"] .footer,
 body[data-pip="true"] #nav { display: none; }
+body[data-pip="true"] .detail-grid { display: block; }
 body[data-pip="true"] .player-card {
   position: fixed; inset: 0; z-index: 20000;
   border: 0; border-radius: 0; background: #000;
@@ -875,6 +955,27 @@ body[data-motion="reduced"] *::after {
   transition-duration: .001ms !important;
 }
 
+/* --------------------------------------------------------------------------
+   The two areas: a normal-anime shelf, and a label that says which side of
+   the line a section is on.
+   -------------------------------------------------------------------------- */
+
+/* A quiet pill after a heading — "normal" here, "18+" over there — so the
+   area is stated in the page, not only in the menu. */
+.area-chip {
+  display: inline-block; vertical-align: middle;
+  margin-left: .5rem; padding: .125rem .5rem;
+  border-radius: 999px; font-size: .625rem; font-weight: 700;
+  letter-spacing: .1em; text-transform: uppercase;
+  border: 1px solid hsl(var(--border)); color: hsl(var(--muted-foreground));
+  background: hsl(var(--card) / .6); vertical-align: .15em;
+}
+h2 .area-chip { font-size: .5625rem; }
+
+/* The anime shelf reuses the browse grid and cards as they are; only the
+   search shell needs to sit above it, exactly like Browse's does. */
+#anime-search-shell { margin-bottom: 1.25rem; max-width: 32rem; }
+
 </style>
 </head>
 <body>
@@ -929,9 +1030,17 @@ body[data-motion="reduced"] *::after {
       </button>
     </div>
 
-    <!-- One menu: where to go, and how the app looks while getting there. -->
+    <!-- One menu: where to go, and how the app looks while getting there.
+         Two areas: normal anime up top, and everything from hanime.tv behind
+         an explicit 18+ label — the reader picks one or the other, and the
+         label says which is which before anything opens. -->
     <div class="nav-menu" id="nav-menu" hidden>
       <nav class="nav-menu-group" aria-label="Sections">
+        <div class="nav-menu-label">Anime</div>
+        <button class="nav-menu-item nav-link" type="button" data-go="anime">Anime
+          <svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m5 13 4.5 4.5L19 7"/></svg>
+        </button>
+        <div class="nav-menu-label">18+ · hanime</div>
         <button class="nav-menu-item nav-link" type="button" data-go="browse" aria-current="page">Browse
           <svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m5 13 4.5 4.5L19 7"/></svg>
         </button>
@@ -980,6 +1089,35 @@ body[data-motion="reduced"] *::after {
 <div class="stack" style="padding-bottom:4rem">
   <main class="container stack">
 
+    <!-- anime: the normal (non-adult) area — AniList catalog, Lunar episodes -->
+    <div class="view" data-view="anime">
+      <section id="anime-browse">
+        <div class="sec-head">
+          <div class="sec-head-l">
+            <h2>Anime <span class="area-chip">normal</span></h2>
+            <span class="sec-count" id="anime-count">…</span>
+          </div>
+        </div>
+
+        <label class="search-shell" id="anime-search-shell">
+          <svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+            <circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/>
+          </svg>
+          <input id="anime-q" type="search" inputmode="search" enterkeyhint="search"
+                 placeholder="Search anime titles…" autocomplete="off" spellcheck="false">
+          <button class="search-clear" id="anime-clear" type="button" aria-label="Clear search">&times;</button>
+        </label>
+
+        <div class="grid" id="anime-grid"></div>
+        <p class="note" id="anime-note" hidden></p>
+        <div class="pager" id="anime-pager" hidden>
+          <button class="page-btn" id="anime-prev">Prev</button>
+          <span class="pager-info" id="anime-pageinfo"></span>
+          <button class="page-btn" id="anime-next">Next</button>
+        </div>
+      </section>
+    </div>
+
     <!-- browse: what the catalog search, filters and grid all belong to -->
     <div class="view" data-view="browse" data-active="true">
 
@@ -1026,7 +1164,7 @@ body[data-motion="reduced"] *::after {
       <section id="browse">
         <div class="sec-head">
           <div class="sec-head-l">
-            <h2>All Titles</h2>
+            <h2>All Titles <span class="area-chip">18+</span></h2>
             <span class="sec-count" id="total-count">…</span>
           </div>
           <span class="sec-count" id="active-label" hidden></span>
@@ -1322,60 +1460,6 @@ body[data-motion="reduced"] *::after {
   }
   $("#menu-toggle").onclick = () => setMenuOpen(!menuIsOpen());
 
-  // client/src/views.js
-  var views = $$(".view");
-  document.body.dataset.view = (views.find((v) => v.dataset.active === "true") ?? views[0]).dataset.view;
-  function showView(name) {
-    const target = views.find((v) => v.dataset.view === name) || views[0];
-    const changed = document.body.dataset.view !== target.dataset.view;
-    views.forEach((v) => {
-      if (v === target) v.dataset.active = "true";
-      else v.removeAttribute("data-active");
-    });
-    document.body.dataset.view = target.dataset.view;
-    $$(".nav-link").forEach((b) => {
-      if (b.dataset.go === target.dataset.view) b.setAttribute("aria-current", "page");
-      else b.removeAttribute("aria-current");
-    });
-    if (target.dataset.view === "library") renderLibrary();
-    if (changed) scrollTo({ top: 0 });
-  }
-
-  // client/src/cards.js
-  function coverFor(slug, remote, opts) {
-    if (!opts || !opts.local) return remote;
-    const stored = shellCall("cachedCover", slug);
-    return stored ? stored : remote;
-  }
-  function cardHtml(v, opts) {
-    remember(v);
-    const name = v.name ?? v.title ?? v.slug;
-    const cover = coverFor(v.slug, v.cover ?? v.cover_url ?? "", opts);
-    const owned = isFav(v.slug);
-    const heart = owned ? "Remove from favorites" : "Add to favorites";
-    const views2 = Number(v.views);
-    const pct = opts && opts.progress ? progressOf(v.slug) : 0;
-    return `<article class="card" data-slug="${esc(v.slug)}" tabindex="0" role="button" aria-label="${esc(name)}">
-    <div class="card-frame">
-      <img loading="lazy" decoding="async" src="${esc(cover)}" alt="">
-      <div class="card-fallback" hidden>${esc(name)}</div>
-      <div class="card-scrim"></div>
-      ${Number.isFinite(views2) ? `<span class="card-badge">${fmtCount(views2)}</span>` : ""}
-      ${pct ? `<div class="card-progress"><span style="width:${pct}%"></span></div>` : ""}
-      <button class="fav-btn" type="button" data-fav="${esc(v.slug)}" aria-pressed="${owned}" aria-label="${heart}" title="${heart}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M12 20.4 4.9 14.1A5.3 5.3 0 0 1 12 6.3a5.3 5.3 0 0 1 7.1 7.8Z"/></svg>
-      </button>
-      <div class="card-play"><span>
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-      </span></div>
-    </div>
-    <div class="card-body">
-      <h3 class="card-title">${esc(name)}</h3>
-      <p class="card-meta">${esc(v.brand ?? "")}${v.released_at ? " \xB7 " + esc(v.released_at.slice(0, 4)) : ""}</p>
-    </div>
-  </article>`;
-  }
-
   // client/src/positions.js
   function savePosition(slug, vid) {
     if (!slug || !vid) return;
@@ -1446,6 +1530,25 @@ body[data-motion="reduced"] *::after {
       <svg viewBox="0 0 24 24" stroke-linejoin="round"><path d="M12 20.4 4.9 14.1A5.3 5.3 0 0 1 12 6.3a5.3 5.3 0 0 1 7.1 7.8Z"/></svg>
       <span class="fav-label">${on ? "In library" : "Favorite"}</span>
     </button>`;
+  }
+
+  // client/src/views.js
+  var views = $$(".view");
+  document.body.dataset.view = (views.find((v) => v.dataset.active === "true") ?? views[0]).dataset.view;
+  function showView(name) {
+    const target = views.find((v) => v.dataset.view === name) || views[0];
+    const changed = document.body.dataset.view !== target.dataset.view;
+    views.forEach((v) => {
+      if (v === target) v.dataset.active = "true";
+      else v.removeAttribute("data-active");
+    });
+    document.body.dataset.view = target.dataset.view;
+    $$(".nav-link").forEach((b) => {
+      if (b.dataset.go === target.dataset.view) b.setAttribute("aria-current", "page");
+      else b.removeAttribute("aria-current");
+    });
+    if (target.dataset.view === "library") renderLibrary();
+    if (changed) scrollTo({ top: 0 });
   }
 
   // client/src/library.js
@@ -1657,6 +1760,41 @@ body[data-motion="reduced"] *::after {
     libMessage(`Read ${favs.length} favorites and ${hist.length} history entries. This device now holds ${lib.favorites.length} favorites and ${lib.history.length} watched.`);
   };
 
+  // client/src/cards.js
+  function coverFor(slug, remote, opts) {
+    if (!opts || !opts.local) return remote;
+    const stored = shellCall("cachedCover", slug);
+    return stored ? stored : remote;
+  }
+  function cardHtml(v, opts) {
+    remember(v);
+    const name = v.name ?? v.title ?? v.slug;
+    const cover = coverFor(v.slug, v.cover ?? v.cover_url ?? "", opts);
+    const owned = isFav(v.slug);
+    const heart = owned ? "Remove from favorites" : "Add to favorites";
+    const views2 = Number(v.views);
+    const pct = opts && opts.progress ? progressOf(v.slug) : 0;
+    return `<article class="card" data-slug="${esc(v.slug)}" tabindex="0" role="button" aria-label="${esc(name)}">
+    <div class="card-frame">
+      <img loading="lazy" decoding="async" src="${esc(cover)}" alt="">
+      <div class="card-fallback" hidden>${esc(name)}</div>
+      <div class="card-scrim"></div>
+      ${Number.isFinite(views2) ? `<span class="card-badge">${fmtCount(views2)}</span>` : ""}
+      ${pct ? `<div class="card-progress"><span style="width:${pct}%"></span></div>` : ""}
+      <button class="fav-btn" type="button" data-fav="${esc(v.slug)}" aria-pressed="${owned}" aria-label="${heart}" title="${heart}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M12 20.4 4.9 14.1A5.3 5.3 0 0 1 12 6.3a5.3 5.3 0 0 1 7.1 7.8Z"/></svg>
+      </button>
+      <div class="card-play"><span>
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+      </span></div>
+    </div>
+    <div class="card-body">
+      <h3 class="card-title">${esc(name)}</h3>
+      <p class="card-meta">${esc(v.brand ?? "")}${v.released_at ? " \xB7 " + esc(v.released_at.slice(0, 4)) : ""}</p>
+    </div>
+  </article>`;
+  }
+
   // client/src/public-playlists.js
   var ppIndex = [];
   var ppQuery = "";
@@ -1849,6 +1987,16 @@ body[data-motion="reduced"] *::after {
   var activeHls = null;
   var activeVid = null;
   var activeSlug = null;
+  function openSheet() {
+    const sheet = $("#sheet");
+    sheet.classList.add("open");
+    document.body.style.overflow = "hidden";
+    sheet.scrollTop = 0;
+    updateBackState();
+    $("#sheet-body").innerHTML = '<div class="center-spin"><div class="spinner"></div></div>';
+    $("#sheet-count").hidden = true;
+    return sheet;
+  }
   function closeSheet() {
     if (activeSlug && activeVid) savePosition(activeSlug, activeVid);
     shellCall("setPlaying", false);
@@ -1862,6 +2010,11 @@ body[data-motion="reduced"] *::after {
       activeHls.destroy();
       activeHls = null;
     }
+    const frame = document.getElementById("lx-frame");
+    if (frame) {
+      frame.removeAttribute("src");
+      frame.remove();
+    }
     activeVid = null;
     activeSlug = null;
     $("#sheet").classList.remove("open");
@@ -1870,13 +2023,7 @@ body[data-motion="reduced"] *::after {
     updateBackState();
   }
   async function openVideo(slug) {
-    const sheet = $("#sheet");
-    sheet.classList.add("open");
-    document.body.style.overflow = "hidden";
-    sheet.scrollTop = 0;
-    updateBackState();
-    $("#sheet-body").innerHTML = '<div class="center-spin"><div class="spinner"></div></div>';
-    $("#sheet-count").hidden = true;
+    openSheet();
     let v;
     try {
       v = await api("/api/videos/" + encodeURIComponent(slug));
@@ -1887,21 +2034,51 @@ body[data-motion="reduced"] *::after {
     remember(v);
     $("#sheet-count").hidden = false;
     $("#sheet-count").textContent = fmtCount(v.views) + " views";
+    const tags = (v.tags ?? []).map((t) => `<span class="hero-tag">${esc(t)}</span>`).join("");
+    const desc = esc((v.description ?? "").replace(/<[^>]+>/g, " ").replace(/\s{2,}/g, " ").trim());
     $("#sheet-body").innerHTML = `
-    <div class="player-card">
-      <div id="player-slot"><div class="center-spin"><div class="spinner"></div></div></div>
+    <div class="detail-hero">
+      <div class="detail-poster"><img src="${esc(v.cover ?? "")}" alt="" loading="lazy"></div>
+      <div class="detail-hero-text">
+        <div class="detail-kicker">${esc(v.brand ?? "Unknown studio")}</div>
+        <h2 class="detail-title">${esc(v.name)}</h2>
+        <div class="detail-meta">${fmtCount(v.views)} views \xB7 ${fmtCount(v.likes)} likes${v.released_at ? " \xB7 " + esc(v.released_at.slice(0, 4)) : ""}</div>
+        <div class="detail-actions">${favPill(slug)}</div>
+      </div>
     </div>
-    <div class="detail-head">
-      <h2 class="detail-title">${esc(v.name)}</h2>
-      <div class="detail-meta">${esc(v.brand ?? "Unknown studio")} \xB7 ${fmtCount(v.views)} views \xB7 ${fmtCount(v.likes)} likes${v.released_at ? " \xB7 " + esc(v.released_at.slice(0, 4)) : ""}</div>
-      <div class="detail-actions">${favPill(slug)}</div>
-      <div class="detail-tags">${(v.tags ?? []).map((t) => `<span class="hero-tag">${esc(t)}</span>`).join("")}</div>
-      <p class="detail-desc">${esc((v.description ?? "").replace(/<[^>]+>/g, " ").replace(/\s{2,}/g, " ").trim())}</p>
-    </div>
-    <div id="in-playlists" hidden></div>`;
+    <div class="detail-grid">
+      <div class="detail-main">
+        <div class="player-card">
+          <div id="player-slot"><div class="center-spin"><div class="spinner"></div></div></div>
+        </div>
+        <div id="in-playlists" hidden></div>
+        <section id="detail-recs" hidden>
+          <div class="sec-head"><div class="sec-head-l"><h2 id="rec-head">More from this studio</h2></div></div>
+          <div class="rail" id="rec-rail" aria-label="Recommended"></div>
+        </section>
+      </div>
+      <aside class="detail-side">
+        <div class="detail-tags">${tags}</div>
+        <p class="detail-desc">${desc}</p>
+      </aside>
+    </div>`;
     playlistsForVideo(slug).catch(() => {
     });
+    loadStudioRecs(v.brand, slug).catch(() => {
+    });
     await mountPlayer(slug);
+  }
+  async function loadStudioRecs(brand, slug) {
+    if (!brand) return;
+    const data = await api(`/api/videos?brand=${encodeURIComponent(brand)}&per_page=12`);
+    const items = (data.data ?? []).filter((v) => v.slug !== slug);
+    if (!items.length) return;
+    const rail = $("#rec-rail");
+    const recs = $("#detail-recs");
+    if (!rail || !recs) return;
+    $("#rec-head").textContent = `More from ${brand}`;
+    rail.innerHTML = items.map((v) => cardHtml(v)).join("");
+    recs.hidden = false;
   }
   async function mountPlayer(slug) {
     const slot = $("#player-slot");
@@ -1995,6 +2172,247 @@ body[data-motion="reduced"] *::after {
       };
     });
   }
+
+  // client/src/anime.js
+  var aState = { q: "", page: 1, hasNext: false };
+  var aDebounce;
+  function animeCardHtml(m) {
+    const meta = [m.year, m.eps ? `${m.eps} eps` : null, m.format].filter(Boolean).map(esc).join(" \xB7 ");
+    return `<article class="card" data-anime="${Number(m.id)}" tabindex="0" role="button" aria-label="${esc(m.title)}">
+    <div class="card-frame">
+      <img loading="lazy" decoding="async" src="${esc(m.cover ?? "")}" alt="">
+      <div class="card-fallback" hidden>${esc(m.title)}</div>
+      <div class="card-scrim"></div>
+      ${m.score ? `<span class="card-badge">${esc(String(m.score))}</span>` : ""}
+      <div class="card-play"><span>
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+      </span></div>
+    </div>
+    <div class="card-body">
+      <h3 class="card-title">${esc(m.title)}</h3>
+      <p class="card-meta">${meta}</p>
+    </div>
+  </article>`;
+  }
+  function animeNote(msg) {
+    const note = $("#anime-note");
+    if (!note) return;
+    note.hidden = !msg;
+    note.textContent = msg || "";
+  }
+  async function loadAnime(page) {
+    var _a10;
+    const grid = $("#anime-grid");
+    const pager = $("#anime-pager");
+    if (page > 1) grid.innerHTML = '<div class="center-spin"><div class="spinner"></div></div>';
+    try {
+      const res = await fetch(`/api/anime/search?q=${encodeURIComponent(aState.q)}&page=${page}`);
+      if (!res.ok) throw new Error(`status ${res.status}`);
+      const data = await res.json();
+      aState.page = data.page;
+      aState.hasNext = !!data.hasNext;
+      grid.innerHTML = (data.items ?? []).map(animeCardHtml).join("");
+      $("#anime-count").textContent = `${((_a10 = data.items) == null ? void 0 : _a10.length) ?? 0}${aState.q ? " found" : " trending now"}`;
+      animeNote((data.items ?? []).length ? "" : "Nothing matched \u2014 try another title.");
+      pager.hidden = !data.hasNext && aState.page <= 1;
+      $("#anime-prev").disabled = aState.page <= 1;
+      $("#anime-next").disabled = !aState.hasNext;
+      $("#anime-pageinfo").textContent = `page ${aState.page}`;
+    } catch (e) {
+      grid.innerHTML = "";
+      $("#anime-count").textContent = "";
+      pager.hidden = true;
+      animeNote(`Could not load the anime catalog (${e.message}). This area is served by the Node server (server/src/anime.mjs).`);
+    }
+  }
+  function searchAnime(q) {
+    aState.q = (q ?? "").trim();
+    loadAnime(1);
+  }
+  var dState = { id: null, ep: 1, details: null, episodes: [] };
+  function epListHtml() {
+    return dState.episodes.map((ep) => `
+    <button class="ep-card${Number(ep.number) === dState.ep ? " active" : ""}" type="button"
+            data-ep="${Number(ep.number)}">
+      <span class="ep-thumb">${ep.img ? `<img src="${esc(ep.img)}" alt="" loading="lazy">` : ""}
+        <span class="ep-num">EP ${Number(ep.number)}</span></span>
+      <span class="ep-text">
+        <span class="ep-title">Episode ${Number(ep.number)}</span>
+        <span class="ep-desc">${esc(ep.title || "")}</span>
+      </span>
+    </button>`).join("");
+  }
+  function paintEpisodeSide() {
+    var _a10;
+    const ep = dState.episodes.find((e) => Number(e.number) === dState.ep);
+    const chip = $("#side-chip");
+    if (chip) chip.textContent = `S1 \xB7 E${dState.ep}${(ep == null ? void 0 : ep.hasDub) ? " \xB7 Sub/Dub" : " \xB7 Sub"}`;
+    const title = $("#side-ep-title");
+    if (title) title.textContent = (ep == null ? void 0 : ep.title) || `Episode ${dState.ep}`;
+    const desc = $("#side-ep-desc");
+    if (desc) desc.textContent = (ep == null ? void 0 : ep.description) || "";
+    const list = $("#ep-list");
+    if (list) list.innerHTML = epListHtml();
+    const line = $("#hero-ep-line");
+    if (line) line.textContent = `Episode ${dState.ep}${ep ? " \xB7 " + ep.title : ""}`;
+    const prev = $("#ep-prev");
+    if (prev) prev.disabled = dState.ep <= 1;
+    const next = $("#ep-next");
+    if (next) next.disabled = dState.ep >= (((_a10 = dState.details) == null ? void 0 : _a10.eps) ?? dState.episodes.length);
+  }
+  async function loadPlayer(ep) {
+    var _a10, _b;
+    const slot = $("#lx-slot");
+    if (!slot) return;
+    dState.ep = ep;
+    paintEpisodeSide();
+    try {
+      const res = await fetch(`/api/anime/${dState.id}/player?ep=${ep}`);
+      if (!res.ok) throw new Error(`status ${res.status}`);
+      const data = await res.json();
+      const src = (_b = (_a10 = data.sources) == null ? void 0 : _a10[0]) == null ? void 0 : _b.url;
+      if (!src) throw new Error("no source");
+      let frame = document.getElementById("lx-frame");
+      if (!frame) {
+        slot.innerHTML = `<div class="lx-frame"><iframe id="lx-frame" allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+          allowfullscreen referrerpolicy="origin" title="Player"></iframe></div>`;
+        frame = document.getElementById("lx-frame");
+      }
+      frame.src = src;
+    } catch (e) {
+      slot.innerHTML = `<p class="note">Could not resolve a player for episode ${ep} \u2014 ${esc(e.message)}</p>`;
+    }
+  }
+  async function openAnime(id, ep = 1) {
+    dState.id = Number(id);
+    dState.ep = Math.max(1, Number(ep) | 0);
+    openSheet();
+    let details = null;
+    let episodes = [];
+    try {
+      const [d, e] = await Promise.all([
+        fetch(`/api/anime/${dState.id}`).then((r) => {
+          if (!r.ok) throw new Error(`status ${r.status}`);
+          return r.json();
+        }),
+        fetch(`/api/anime/${dState.id}/episodes`).then((r) => {
+          if (!r.ok) throw new Error(`status ${r.status}`);
+          return r.json();
+        })
+      ]);
+      details = d.details;
+      episodes = e.data ?? [];
+    } catch (err) {
+      $("#sheet-body").innerHTML = `<p class="note">Could not load this title \u2014 ${esc(err.message)}</p>`;
+      return;
+    }
+    dState.details = details;
+    dState.episodes = episodes;
+    if (episodes.length && !episodes.some((e) => Number(e.number) === dState.ep)) dState.ep = 1;
+    const genres = (details.genres ?? []).map((g) => `<span class="hero-tag">${esc(g)}</span>`).join("");
+    const kicker = [
+      details.format,
+      details.year,
+      details.eps ? `${details.eps} eps` : null,
+      details.score ? `\u2605 ${(details.score / 10).toFixed(1)}` : null
+    ].filter(Boolean).map(esc).join(" \xB7 ");
+    $("#sheet-count").hidden = false;
+    $("#sheet-count").textContent = dState.episodes.length ? `${dState.episodes.length} episodes` : details.status ?? "";
+    $("#sheet-body").innerHTML = `
+    <div class="detail-hero">
+      <div class="detail-poster"><img src="${esc(details.cover ?? "")}" alt="" loading="lazy"></div>
+      <div class="detail-hero-text">
+        <div class="detail-kicker">${kicker}</div>
+        <h2 class="detail-title">${esc(details.title)}</h2>
+        <div class="detail-meta" id="hero-ep-line"></div>
+      </div>
+    </div>
+    <div class="detail-grid">
+      <div class="detail-main">
+        <div class="player-card">
+          <div id="lx-slot"><div class="center-spin"><div class="spinner"></div></div></div>
+        </div>
+        <div class="ep-nav">
+          <button class="page-btn" id="ep-prev" type="button">\u2190 Previous</button>
+          <button class="page-btn" id="ep-next" type="button">Next \u2192</button>
+        </div>
+        <section id="detail-recs" hidden>
+          <div class="sec-head"><div class="sec-head-l"><h2>Recommended</h2></div></div>
+          <div class="rail" id="rec-rail" aria-label="Recommended"></div>
+        </section>
+      </div>
+      <aside class="detail-side">
+        <div class="side-row"><span class="side-chip" id="side-chip"></span></div>
+        <h3 class="side-title" id="side-ep-title"></h3>
+        <div class="detail-label">Description</div>
+        <p class="detail-desc" id="side-ep-desc"></p>
+        <div class="detail-tags">${genres}</div>
+        <div class="detail-label">Episodes</div>
+        <div class="ep-list" id="ep-list"></div>
+      </aside>
+    </div>`;
+    const recs = details.recommendations ?? [];
+    if (recs.length) {
+      $("#rec-rail").innerHTML = recs.map(animeCardHtml).join("");
+      $("#detail-recs").hidden = false;
+    }
+    $("#ep-prev").onclick = () => {
+      if (dState.ep > 1) loadPlayer(dState.ep - 1);
+    };
+    $("#ep-next").onclick = () => loadPlayer(dState.ep + 1);
+    await loadPlayer(dState.ep);
+  }
+  function bindAnimeView() {
+    var _a10, _b, _c, _d;
+    (_a10 = $("#anime-q")) == null ? void 0 : _a10.addEventListener("input", (e) => {
+      const val = e.target.value;
+      $("#anime-search-shell").dataset.filled = String(!!val);
+      clearTimeout(aDebounce);
+      aDebounce = setTimeout(() => searchAnime(val), 240);
+    });
+    (_b = $("#anime-clear")) == null ? void 0 : _b.addEventListener("click", () => {
+      $("#anime-q").value = "";
+      $("#anime-search-shell").dataset.filled = "false";
+      searchAnime("");
+      $("#anime-q").focus({ preventScroll: true });
+    });
+    (_c = $("#anime-prev")) == null ? void 0 : _c.addEventListener("click", () => {
+      if (aState.page > 1) loadAnime(aState.page - 1).then(() => scrollTo({ top: 0, behavior: "smooth" }));
+    });
+    (_d = $("#anime-next")) == null ? void 0 : _d.addEventListener("click", () => {
+      if (aState.hasNext) loadAnime(aState.page + 1).then(() => scrollTo({ top: 0, behavior: "smooth" }));
+    });
+  }
+  bindAnimeView();
+  document.addEventListener("click", (e) => {
+    const card = e.target.closest("[data-anime]");
+    if (card) {
+      e.preventDefault();
+      openAnime(card.dataset.anime);
+      return;
+    }
+    const ep = e.target.closest("[data-ep]");
+    if (ep && dState.id) {
+      e.preventDefault();
+      loadPlayer(Number(ep.dataset.ep));
+    }
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const card = e.target.closest("[data-anime]");
+    if (card) {
+      e.preventDefault();
+      openAnime(card.dataset.anime);
+    }
+  });
+  var animeLoaded = false;
+  document.addEventListener("click", (e) => {
+    const go = e.target.closest("[data-go]");
+    if (go && go.dataset.go === "anime" && !animeLoaded) {
+      animeLoaded = true;
+      loadAnime(1);
+    }
+  });
 
   // client/src/hero.js
   function heroSlideHtml(v) {
@@ -2330,6 +2748,10 @@ body[data-motion="reduced"] *::after {
     clearTimeout(debounce);
     debounce = setTimeout(() => {
       state.q = val.trim();
+      if (viewIs("anime")) {
+        searchAnime(state.q);
+        return;
+      }
       if (state.q && !viewIs("browse")) showView("browse");
       refresh();
     }, 240);

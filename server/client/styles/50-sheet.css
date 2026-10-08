@@ -1,21 +1,24 @@
 /* --------------------------------------------------------------------------
-   Detail overlay
+   Detail page
+   One surface for both areas, laid out the way a series page reads:
+   a header across the top, then player and reading matter side by side.
+   Not a card floating over the page it came from.
    -------------------------------------------------------------------------- */
 .sheet {
   position: fixed; inset: 0; z-index: 10000;
-  background: hsl(var(--background) / .82);
-  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  /* A page, not an overlay: what is underneath must not read through it. */
+  background: hsl(var(--background));
   display: none; overflow-y: auto;
   overscroll-behavior: contain;
 }
 .sheet.open { display: block; animation: fade-in .22s ease forwards; }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 .sheet-panel {
-  max-width: 1000px; margin: 0 auto;
-  padding: calc(1rem + env(safe-area-inset-top)) .5rem 4rem;
+  max-width: 1280px; margin: 0 auto;
+  padding: calc(1rem + env(safe-area-inset-top)) .75rem 4rem;
 }
-@media (min-width: 640px) { .sheet-panel { padding-inline: 1rem; } }
-@media (min-width: 1024px){ .sheet-panel { padding-inline: 1.5rem; } }
+@media (min-width: 640px) { .sheet-panel { padding-inline: 1.25rem; } }
+@media (min-width: 1024px){ .sheet-panel { padding-inline: 2rem; } }
 
 .sheet-top { display: flex; align-items: center; gap: .5rem; margin-bottom: 1rem; position: sticky; top: 0; z-index: 2; }
 .sheet-top .spacer { flex: 1; }
@@ -28,12 +31,49 @@
 }
 .back-btn:hover { border-color: hsl(var(--input)); background: hsl(var(--accent) / .6); }
 
+/* ---- header: what this is, before anything plays ------------------------ */
+.detail-hero {
+  display: flex; gap: 1rem; align-items: flex-start;
+  padding-bottom: 1.25rem; margin-bottom: 1.25rem;
+  border-bottom: 1px solid hsl(var(--border) / .6);
+}
+.detail-poster {
+  flex: 0 0 auto; width: 84px; border-radius: .625rem; overflow: hidden;
+  border: 1px solid hsl(var(--border) / .7); background: hsl(var(--card));
+  aspect-ratio: 2 / 3;
+}
+@media (min-width: 640px) { .detail-poster { width: 108px; } }
+.detail-poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.detail-hero-text { min-width: 0; }
+.detail-kicker {
+  font-size: .6875rem; letter-spacing: .14em; text-transform: uppercase;
+  color: hsl(var(--muted-foreground)); margin-bottom: .375rem;
+}
+.detail-title {
+  font-family: var(--font-serif); font-weight: 400;
+  font-size: 1.375rem; line-height: 1.15; margin-bottom: .5rem;
+}
+@media (min-width: 640px) { .detail-title { font-size: 1.875rem; } }
+.detail-meta { font-size: .75rem; color: hsl(var(--muted-foreground)); margin-bottom: .75rem; }
+.detail-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+
+/* ---- the two columns ---------------------------------------------------- */
+.detail-grid { display: grid; grid-template-columns: 1fr; gap: 1.5rem; }
+@media (min-width: 960px) {
+  .detail-grid { grid-template-columns: minmax(0, 1fr) 340px; gap: 2rem; }
+  .detail-side { position: sticky; top: 3.5rem; align-self: start; max-height: calc(100vh - 5rem); overflow-y: auto; }
+}
+.detail-main { min-width: 0; }
+.detail-side { min-width: 0; }
+
 .player-card {
   border-radius: 1rem; overflow: hidden;
   border: 1px solid hsl(var(--border) / .6);
   background: hsl(var(--card) / .4);
 }
 video { width: 100%; display: block; background: #000; aspect-ratio: 16 / 9; }
+.lx-frame { aspect-ratio: 16 / 9; background: #000; }
+.lx-frame iframe { width: 100%; height: 100%; border: 0; display: block; }
 
 .quality { display: flex; flex-wrap: wrap; gap: .375rem; padding: .75rem; }
 .q-btn {
@@ -46,16 +86,52 @@ video { width: 100%; display: block; background: #000; aspect-ratio: 16 / 9; }
   color: hsl(var(--primary-foreground)); font-weight: 600;
 }
 
-.detail-head { margin-top: 1.25rem; }
-.detail-title {
-  font-family: var(--font-serif); font-weight: 400;
-  font-size: 1.5rem; line-height: 1.15; margin-bottom: .5rem;
+.detail-label {
+  font-size: .625rem; letter-spacing: .16em; text-transform: uppercase;
+  color: hsl(var(--muted-foreground)); margin: 1.125rem 0 .5rem;
 }
-@media (min-width: 640px) { .detail-title { font-size: 2rem; } }
-.detail-meta { font-size: .75rem; color: hsl(var(--muted-foreground)); margin-bottom: .875rem; }
-.detail-tags { display: flex; flex-wrap: wrap; gap: .375rem; margin-bottom: 1.25rem; }
-.detail-desc { font-size: .8125rem; line-height: 1.7; color: hsl(var(--fg, var(--foreground)) / .82); white-space: pre-wrap; }
+.detail-tags { display: flex; flex-wrap: wrap; gap: .375rem; margin-bottom: .75rem; }
+.detail-desc { font-size: .8125rem; line-height: 1.7; color: hsl(var(--foreground) / .82); white-space: pre-wrap; }
 .detail-desc:empty { display: none; }
+
+/* ---- sidebar: the episode list ------------------------------------------ */
+.side-row { display: flex; align-items: center; gap: .5rem; margin-bottom: .5rem; }
+.side-chip {
+  display: inline-block; padding: .25rem .625rem; border-radius: 999px;
+  background: hsl(var(--accent) / .16); border: 1px solid hsl(var(--accent) / .45);
+  color: hsl(var(--accent)); font-size: .6875rem; font-weight: 700; letter-spacing: .06em;
+}
+.side-title { font-size: .9375rem; font-weight: 600; line-height: 1.35; margin-bottom: .25rem; }
+
+.ep-list { display: flex; flex-direction: column; gap: .5rem; }
+.ep-card {
+  display: flex; gap: .625rem; align-items: center; text-align: left;
+  padding: .5rem; border-radius: .75rem; width: 100%;
+  border: 1px solid hsl(var(--border) / .7); background: hsl(var(--card) / .45);
+  transition: border-color .2s, background .2s;
+}
+.ep-card:hover { border-color: hsl(var(--input)); background: hsl(var(--card)); }
+.ep-card.active { border-color: hsl(var(--primary)); background: hsl(var(--primary) / .1); }
+.ep-thumb {
+  position: relative; flex: 0 0 auto; width: 86px; aspect-ratio: 16 / 9;
+  border-radius: .4375rem; overflow: hidden; background: hsl(var(--muted) / .3);
+}
+.ep-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ep-num {
+  position: absolute; left: .25rem; bottom: .25rem;
+  padding: .0625rem .375rem; border-radius: .25rem;
+  background: rgb(0 0 0 / .75); color: #fff; font-size: .5625rem; font-weight: 700;
+}
+.ep-text { min-width: 0; display: flex; flex-direction: column; gap: .125rem; }
+.ep-title { font-size: .75rem; font-weight: 700; }
+.ep-desc {
+  font-size: .6875rem; color: hsl(var(--muted-foreground));
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+
+.ep-nav { display: flex; justify-content: space-between; gap: .75rem; margin-top: .875rem; }
+
+#detail-recs { margin-top: 1.75rem; }
 
 .note { font-size: .8125rem; color: hsl(var(--muted-foreground)); padding: .75rem; }
 .center-spin { display: grid; place-items: center; padding: 3rem; }
@@ -68,16 +144,20 @@ video { width: 100%; display: block; background: #000; aspect-ratio: 16 / 9; }
 .lib-tools { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-top: .75rem; }
 
 /* Picture in picture: the small window is the video and nothing else. Left
-   alone, the whole document is squeezed in and the video becomes a stamp in the
-   corner of its own window. */
+   alone, the whole document is squeezed in and the video becomes a stamp in
+   the corner of its own window. */
 body[data-pip="true"] .sheet-panel { max-width: none; padding: 0; }
 body[data-pip="true"] .sheet-top,
-body[data-pip="true"] .detail-head,
+body[data-pip="true"] .detail-hero,
+body[data-pip="true"] .detail-side,
+body[data-pip="true"] .ep-nav,
+body[data-pip="true"] #detail-recs,
 body[data-pip="true"] .quality,
 body[data-pip="true"] #in-playlists,
 body[data-pip="true"] main,
 body[data-pip="true"] .footer,
 body[data-pip="true"] #nav { display: none; }
+body[data-pip="true"] .detail-grid { display: block; }
 body[data-pip="true"] .player-card {
   position: fixed; inset: 0; z-index: 20000;
   border: 0; border-radius: 0; background: #000;

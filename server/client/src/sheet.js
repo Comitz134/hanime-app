@@ -7,6 +7,7 @@
 // rebuilds.
 
 import { $, $$, api, clock, esc, fmtCount } from './core.js';
+import { cardHtml } from './cards.js';
 import { lib, recordHistory, remember } from './library.js';
 import { clearPosition, favPill, savePosition } from './positions.js';
 import { playlistsForVideo } from './public-playlists.js';
@@ -20,6 +21,18 @@ let activeHls = null;
 let activeVid = null;
 let activeSlug = null;
 
+/** The detail page is one surface for both areas: opening it is shared. */
+function openSheet() {
+  const sheet = $('#sheet');
+  sheet.classList.add('open');
+  document.body.style.overflow = 'hidden';
+  sheet.scrollTop = 0;
+  updateBackState();
+  $('#sheet-body').innerHTML = '<div class="center-spin"><div class="spinner"></div></div>';
+  $('#sheet-count').hidden = true;
+  return sheet;
+}
+
 function closeSheet() {
   // Leaving is the single best moment to remember where the video got to: the
   // next five-second tick may never arrive, and this is exactly where a person
@@ -30,6 +43,10 @@ function closeSheet() {
   const vid = $('#vid');
   if (vid) { vid.pause(); vid.removeAttribute('src'); vid.load(); }
   if (activeHls) { activeHls.destroy(); activeHls = null; }
+  // The anime area plays through an embed frame; closing the page has to stop
+  // that too, or audio keeps running behind the view the reader came back to.
+  const frame = document.getElementById('lx-frame');
+  if (frame) { frame.removeAttribute('src'); frame.remove(); }
   activeVid = null;
   activeSlug = null;
   $('#sheet').classList.remove('open');
@@ -39,13 +56,7 @@ function closeSheet() {
 }
 
 async function openVideo(slug) {
-  const sheet = $('#sheet');
-  sheet.classList.add('open');
-  document.body.style.overflow = 'hidden';
-  sheet.scrollTop = 0;
-  updateBackState();
-  $('#sheet-body').innerHTML = '<div class="center-spin"><div class="spinner"></div></div>';
-  $('#sheet-count').hidden = true;
+  openSheet();
 
   let v;
   try {
@@ -62,25 +73,62 @@ async function openVideo(slug) {
   $('#sheet-count').hidden = false;
   $('#sheet-count').textContent = fmtCount(v.views) + ' views';
 
+  const tags = (v.tags ?? []).map((t) => `<span class="hero-tag">${esc(t)}</span>`).join('');
+  const desc = esc((v.description ?? '').replace(/<[^>]+>/g, ' ').replace(/\s{2,}/g, ' ').trim());
+
+  // The page is laid out the way a series page reads: the title and its facts
+  // in a header across the top, the player and the reading matter side by
+  // side below it — not a card floating over the page it came from.
   $('#sheet-body').innerHTML = `
-    <div class="player-card">
-      <div id="player-slot"><div class="center-spin"><div class="spinner"></div></div></div>
+    <div class="detail-hero">
+      <div class="detail-poster"><img src="${esc(v.cover ?? '')}" alt="" loading="lazy"></div>
+      <div class="detail-hero-text">
+        <div class="detail-kicker">${esc(v.brand ?? 'Unknown studio')}</div>
+        <h2 class="detail-title">${esc(v.name)}</h2>
+        <div class="detail-meta">${fmtCount(v.views)} views · ${fmtCount(v.likes)} likes${
+          v.released_at ? ' · ' + esc(v.released_at.slice(0, 4)) : ''}</div>
+        <div class="detail-actions">${favPill(slug)}</div>
+      </div>
     </div>
-    <div class="detail-head">
-      <h2 class="detail-title">${esc(v.name)}</h2>
-      <div class="detail-meta">${esc(v.brand ?? 'Unknown studio')} · ${fmtCount(v.views)} views · ${fmtCount(v.likes)} likes${
-        v.released_at ? ' · ' + esc(v.released_at.slice(0, 4)) : ''}</div>
-      <div class="detail-actions">${favPill(slug)}</div>
-      <div class="detail-tags">${(v.tags ?? []).map((t) => `<span class="hero-tag">${esc(t)}</span>`).join('')}</div>
-      <p class="detail-desc">${esc((v.description ?? '').replace(/<[^>]+>/g, ' ').replace(/\s{2,}/g, ' ').trim())}</p>
-    </div>
-    <div id="in-playlists" hidden></div>`;
+    <div class="detail-grid">
+      <div class="detail-main">
+        <div class="player-card">
+          <div id="player-slot"><div class="center-spin"><div class="spinner"></div></div></div>
+        </div>
+        <div id="in-playlists" hidden></div>
+        <section id="detail-recs" hidden>
+          <div class="sec-head"><div class="sec-head-l"><h2 id="rec-head">More from this studio</h2></div></div>
+          <div class="rail" id="rec-rail" aria-label="Recommended"></div>
+        </section>
+      </div>
+      <aside class="detail-side">
+        <div class="detail-tags">${tags}</div>
+        <p class="detail-desc">${desc}</p>
+      </aside>
+    </div>`;
 
   // Reverse lookup: which public playlists carry this title. Independent of
   // playback, so a failure here never delays the stream.
   playlistsForVideo(slug).catch(() => {});
 
+  // Recommended reads from the same catalog the grid uses: the studio that
+  // made this one, so the rail is never a guess.
+  loadStudioRecs(v.brand, slug).catch(() => {});
+
   await mountPlayer(slug);
+}
+
+async function loadStudioRecs(brand, slug) {
+  if (!brand) return;
+  const data = await api(`/api/videos?brand=${encodeURIComponent(brand)}&per_page=12`);
+  const items = (data.data ?? []).filter((v) => v.slug !== slug);
+  if (!items.length) return;
+  const rail = $('#rec-rail');
+  const recs = $('#detail-recs');
+  if (!rail || !recs) return;
+  $('#rec-head').textContent = `More from ${brand}`;
+  rail.innerHTML = items.map((v) => cardHtml(v)).join('');
+  recs.hidden = false;
 }
 
 async function mountPlayer(slug) {
@@ -184,4 +232,4 @@ async function mountPlayer(slug) {
   });
 }
 
-export { activeHls, activeVid, activeSlug, closeSheet, openVideo, mountPlayer };
+export { activeHls, activeVid, activeSlug, closeSheet, openSheet, openVideo, mountPlayer };

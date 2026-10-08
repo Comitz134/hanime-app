@@ -103,7 +103,7 @@ test('the nav switches views, and every view it points at exists', () => {
   const targets = [...html.matchAll(/data-go="([a-z]+)"/g)].map((m) => m[1]);
   const views = [...html.matchAll(/data-view="([a-z]+)"/g)].map((m) => m[1]);
 
-  assert.deepEqual(targets, ['browse', 'genres', 'studios', 'playlists', 'library']);
+  assert.deepEqual(targets, ['anime', 'browse', 'genres', 'studios', 'playlists', 'library']);
   for (const t of targets) {
     assert.ok(views.includes(t), `the nav points at a view that does not exist: ${t}`);
   }
@@ -222,6 +222,62 @@ test('the reskin tokens are still the measured ones', () => {
   for (const [token, value] of Object.entries(expected)) {
     assert.ok(css.includes(`${token}: ${value}`), `${token} drifted from ${value}`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// Two areas share one client: normal anime (AniList catalog + Lunar episodes)
+// behind /api/anime/*, and everything from hanime.tv behind an 18+ label.
+// ---------------------------------------------------------------------------
+
+test('the normal anime area has its own view, search and shelf', () => {
+  assert.ok(html.includes(' data-view="anime"'), 'no view for the anime area');
+  for (const id of ['anime-browse', 'anime-grid', 'anime-q', 'anime-clear',
+    'anime-note', 'anime-count', 'anime-pager', 'anime-prev', 'anime-next',
+    'anime-pageinfo']) {
+    assert.ok(html.includes(` id="${id}"`), `missing #${id}`);
+  }
+
+  const script = inlineScripts(html)[0];
+  // The catalog, episodes and player all arrive through this server: the
+  // browser must never need a direct line to either upstream (Lunar answers
+  // only its own Origin).
+  assert.ok(script.includes('/api/anime/search'), 'the shelf never asks for the catalog');
+  assert.ok(/\/api\/anime\/\$\{[^}]+\}\/player\?ep=/.test(script), 'no player route');
+  assert.ok(script.includes('/api/anime/'), 'no detail route');
+  assert.ok(/function openAnime\(/.test(script), 'nothing opens an anime title');
+  assert.ok(script.includes('data-anime'), 'anime cards carry no id');
+  // The search pill follows the reader into the anime area instead of
+  // yanking them into the 18+ catalog.
+  assert.ok(/viewIs\(["']anime["']\)[\s\S]{0,120}?searchAnime\(/.test(script),
+    'the pill search ignores the anime area');
+});
+
+test('the detail page is a page, not a card floating over one', () => {
+  // The layout the reader asked for: title and facts in a header, player and
+  // reading matter in two columns below, episodes in the sidebar.
+  const script = inlineScripts(html)[0];
+  for (const marker of ['detail-hero', 'detail-grid', 'detail-main', 'detail-side',
+    'detail-poster', 'detail-kicker', 'ep-list', 'ep-card', 'lx-frame']) {
+    assert.ok(script.includes(marker), `the detail page never builds ${marker}`);
+  }
+  // One surface for both areas: the anime player reuses the sheet's open and
+  // close, so the back contract covers it without a second one.
+  assert.ok(/function openSheet\(\)/.test(script), 'the detail page has no shared opener');
+  assert.ok(/document\.getElementById\(["']lx-frame["']\)/.test(script),
+    'closing the page leaves the embed playing');
+  assert.ok(/class="detail-hero"[\s\S]{0,400}?detail-title/.test(script),
+    'the title is not in the header');
+});
+
+test('the two areas are labelled where the reader can see them', () => {
+  // Everything from hanime.tv is adult content and must say so before it is
+  // opened: in the menu, and on the section itself.
+  assert.ok(html.includes('18+ · hanime'), 'the menu does not label the adult area');
+  assert.ok(/All Titles <span class="area-chip">18\+<\/span>/.test(html),
+    'the adult grid carries no 18+ label');
+  assert.ok(/Anime <span class="area-chip">normal<\/span>/.test(html),
+    'the anime shelf carries no label');
+  assert.ok(html.includes('.area-chip'), 'no stylesheet rule draws the area label');
 });
 
 // ---------------------------------------------------------------------------

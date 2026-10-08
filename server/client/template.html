@@ -67,9 +67,17 @@
       </button>
     </div>
 
-    <!-- One menu: where to go, and how the app looks while getting there. -->
+    <!-- One menu: where to go, and how the app looks while getting there.
+         Two areas: normal anime up top, and everything from hanime.tv behind
+         an explicit 18+ label — the reader picks one or the other, and the
+         label says which is which before anything opens. -->
     <div class="nav-menu" id="nav-menu" hidden>
       <nav class="nav-menu-group" aria-label="Sections">
+        <div class="nav-menu-label">Anime</div>
+        <button class="nav-menu-item nav-link" type="button" data-go="anime">Anime
+          <svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m5 13 4.5 4.5L19 7"/></svg>
+        </button>
+        <div class="nav-menu-label">18+ · hanime</div>
         <button class="nav-menu-item nav-link" type="button" data-go="browse" aria-current="page">Browse
           <svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m5 13 4.5 4.5L19 7"/></svg>
         </button>
@@ -118,6 +126,35 @@
 <div class="stack" style="padding-bottom:4rem">
   <main class="container stack">
 
+    <!-- anime: the normal (non-adult) area — AniList catalog, Lunar episodes -->
+    <div class="view" data-view="anime">
+      <section id="anime-browse">
+        <div class="sec-head">
+          <div class="sec-head-l">
+            <h2>Anime <span class="area-chip">normal</span></h2>
+            <span class="sec-count" id="anime-count">…</span>
+          </div>
+        </div>
+
+        <label class="search-shell" id="anime-search-shell">
+          <svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+            <circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/>
+          </svg>
+          <input id="anime-q" type="search" inputmode="search" enterkeyhint="search"
+                 placeholder="Search anime titles…" autocomplete="off" spellcheck="false">
+          <button class="search-clear" id="anime-clear" type="button" aria-label="Clear search">&times;</button>
+        </label>
+
+        <div class="grid" id="anime-grid"></div>
+        <p class="note" id="anime-note" hidden></p>
+        <div class="pager" id="anime-pager" hidden>
+          <button class="page-btn" id="anime-prev">Prev</button>
+          <span class="pager-info" id="anime-pageinfo"></span>
+          <button class="page-btn" id="anime-next">Next</button>
+        </div>
+      </section>
+    </div>
+
     <!-- browse: what the catalog search, filters and grid all belong to -->
     <div class="view" data-view="browse" data-active="true">
 
@@ -164,7 +201,7 @@
       <section id="browse">
         <div class="sec-head">
           <div class="sec-head-l">
-            <h2>All Titles</h2>
+            <h2>All Titles <span class="area-chip">18+</span></h2>
             <span class="sec-count" id="total-count">…</span>
           </div>
           <span class="sec-count" id="active-label" hidden></span>

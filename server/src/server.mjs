@@ -26,6 +26,7 @@ import { account, setCookie, clear as clearSession, sessionInfo, raw as rawSessi
 import { buildIndex, searchPlaylists, allItems } from './playlists.mjs';
 import { crawl, crawlLock, loadIndex as loadCrawlIndex, indexStats as crawlStats } from './playlist-crawl.mjs';
 import { versionPayload, streamApk } from './app-release.mjs';
+import { handleAnime } from './anime.mjs';
 import {
   searchPlaylists as searchPublicPlaylists,
   getPlaylist as getPublicPlaylist,
@@ -670,6 +671,9 @@ const server = http.createServer(async (req, res) => {
     if (videoPlaylistsMatch) return await handleVideoPlaylists(decodeURIComponent(videoPlaylistsMatch[1]), res);
 
     if (pathname === '/api/health') return await handleHealth(res);
+
+    // Normal (non-adult) anime: AniList catalog + LunarX episodes/player.
+    if (pathname.startsWith('/api/anime/')) return await handleAnime(url, res, pathname);
     if (pathname === '/api/videos') return await handleVideos(url, res);
     if (pathname === '/api/tags') return await handleTags(res);
     if (pathname === '/api/brands') return await handleBrands(res);

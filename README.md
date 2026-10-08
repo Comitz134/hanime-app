@@ -439,6 +439,41 @@ stored: `GET /api/playlists`, `/api/playlists/items`, `/api/playlists/:slug`,
 `/api/playlists/debug`. The public crawl lives under `/api/public/playlists*`
 and returns `configured: false`-free results with no account at all.
 
+## Two areas
+
+The client now carries two libraries behind one menu:
+
+- **Anime** (normal) — search and browse through AniList, episode lists and
+  the embed player through lunarx.to, both fetched by the server under
+  `/api/anime/*`:
+
+  | Route | Answers with |
+  |---|---|
+  | `/api/anime/search?q=&page=` | AniList search, or trending when `q` is empty |
+  | `/api/anime/:id` | one title: description, genres, recommendations |
+  | `/api/anime/:id/episodes` | the season's episodes, via lunarx.to |
+  | `/api/anime/:id/player?ep=` | the embed URL lunarx.to itself would play |
+
+  The two upstreams share one key: the `:id` is the AniList id, which is also
+  what lunarx.to names its anime. LunarX answers `400` to any request carrying
+  another site's Origin, so a browser can never call it directly — every call
+  goes through this server, which speaks as `lunarx.to` on the way out and
+  caches answers (episodes and player links included) in memory. Playback is
+  the same embed LunarX plays by default, so what works there works here.
+- **18+ · hanime** — everything from hanime.tv, labelled in the menu and with
+  an `18+` chip on the section itself.
+
+Opening a title in either area lands on the same detail page: the title and
+its facts in a header across the top, the player and the reading matter in
+two columns below (the episode list lives in the sidebar for anime), and
+recommendations underneath — the layout described in "Web client design"
+below, not a card floating over the page it came from.
+
+The Android shell's Java API does not answer `/api/anime/*` yet: in the APK
+the Anime view reports that the area is served by the Node server instead of
+loading a shelf. Everything else, both areas' detail pages included, works in
+the app because it is all client code.
+
 ## Web client design
 
 The web client's visual system is a clone of the layout and design language of

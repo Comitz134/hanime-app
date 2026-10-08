@@ -7,6 +7,7 @@
 // rebuilds.
 
 import { $, $$, api, state } from './core.js';
+import { searchAnime } from './anime.js';
 import { loadGrid } from './data.js';
 import { toggleFav, viewIs } from './library.js';
 import { setMenuOpen } from './menu.js';
@@ -35,6 +36,10 @@ function applyQuery(val, from) {
   clearTimeout(debounce);
   debounce = setTimeout(() => {
     state.q = val.trim();
+    // The pill searches whatever area is on screen: in the anime area the
+    // answer is that area's grid, and typing must not yank the reader into
+    // the 18+ catalog.
+    if (viewIs('anime')) { searchAnime(state.q); return; }
     // The answer is the grid, and the grid is in Browse. Searching from the
     // pill therefore goes there — as a view change, never as a scroll to a
     // search box.

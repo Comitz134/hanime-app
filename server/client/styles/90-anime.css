@@ -1,0 +1,20 @@
+/* --------------------------------------------------------------------------
+   The two areas: a normal-anime shelf, and a label that says which side of
+   the line a section is on.
+   -------------------------------------------------------------------------- */
+
+/* A quiet pill after a heading — "normal" here, "18+" over there — so the
+   area is stated in the page, not only in the menu. */
+.area-chip {
+  display: inline-block; vertical-align: middle;
+  margin-left: .5rem; padding: .125rem .5rem;
+  border-radius: 999px; font-size: .625rem; font-weight: 700;
+  letter-spacing: .1em; text-transform: uppercase;
+  border: 1px solid hsl(var(--border)); color: hsl(var(--muted-foreground));
+  background: hsl(var(--card) / .6); vertical-align: .15em;
+}
+h2 .area-chip { font-size: .5625rem; }
+
+/* The anime shelf reuses the browse grid and cards as they are; only the
+   search shell needs to sit above it, exactly like Browse's does. */
+#anime-search-shell { margin-bottom: 1.25rem; max-width: 32rem; }

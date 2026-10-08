@@ -21,5 +21,6 @@ import './pl-hits.js';
 import './views.js';
 import './rails.js';
 import './menu.js';
+import './anime.js';
 import './wiring.js';
 import './boot.js';
