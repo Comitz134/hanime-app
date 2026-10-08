@@ -151,7 +151,7 @@ async function loadPlayer(ep) {
 async function openAnime(id, ep = 1) {
   dState.id = Number(id);
   dState.ep = Math.max(1, Number(ep) | 0);
-  openSheet();
+  openSheet('anime', String(id), String(dState.ep));
 
   let details = null;
   let episodes = [];

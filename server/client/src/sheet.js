@@ -10,6 +10,7 @@ import { $, $$, api, clock, esc, fmtCount } from './core.js';
 import { cardHtml } from './cards.js';
 import { lib, recordHistory, remember } from './library.js';
 import { clearPosition, favPill, savePosition } from './positions.js';
+import { dropClosedEntry, isApplying, pushNav } from './nav-history.js';
 import { playlistsForVideo } from './public-playlists.js';
 import { shellCall, updateBackState } from './shell.js';
 import { views } from './views.js';
@@ -21,8 +22,21 @@ let activeHls = null;
 let activeVid = null;
 let activeSlug = null;
 
+/** What the sheet is showing — kind, its id, and the chapter if the reader
+ *  is open — so the back stack can reopen exactly this later. */
+let sheetOrigin = null;
+
+const sheetState = () => ($('#sheet').classList.contains('open') ? sheetOrigin : null);
+
+/** The reader moves between chapters; the origin moves with it. */
+const setSheetOrigin = (origin) => { sheetOrigin = origin; };
+
 /** The detail page is one surface for both areas: opening it is shared. */
-function openSheet() {
+function openSheet(kind, ref, chapter) {
+  // Recorded before anything on screen changes: a snapshot taken after the
+  // open would describe the sheet that is already there.
+  pushNav();
+  sheetOrigin = kind ? { kind, ref: String(ref), chapter: chapter ? String(chapter) : null } : null;
   const sheet = $('#sheet');
   sheet.classList.add('open');
   document.body.style.overflow = 'hidden';
@@ -49,14 +63,20 @@ function closeSheet() {
   if (frame) { frame.removeAttribute('src'); frame.remove(); }
   activeVid = null;
   activeSlug = null;
+  sheetOrigin = null;
   $('#sheet').classList.remove('open');
   document.body.style.overflow = '';
   document.body.dataset.pip = 'false';
+  // Closing is a way of navigating too. When it lands on the state at the
+  // top of the stack, the entry that opened the sheet cancels out; a back
+  // press spent on an already-visible state is a press that did nothing.
+  // (Applying a snapshot — a real back press — has already popped.)
+  if (!isApplying()) dropClosedEntry();
   updateBackState();
 }
 
 async function openVideo(slug) {
-  openSheet();
+  openSheet('video', slug);
 
   let v;
   try {
@@ -232,4 +252,4 @@ async function mountPlayer(slug) {
   });
 }
 
-export { activeHls, activeVid, activeSlug, closeSheet, openSheet, openVideo, mountPlayer };
+export { activeHls, activeVid, activeSlug, closeSheet, openSheet, openVideo, mountPlayer, sheetState, setSheetOrigin };

@@ -8,7 +8,7 @@
 
 import { cardHtml } from './cards.js';
 import { $, api, esc } from './core.js';
-import { updateBackState } from './shell.js';
+import { openSheet } from './sheet.js';
 
 /* ------------------------------------------------------------------ playlists */
 
@@ -170,13 +170,7 @@ async function loadPlaylists() {
 }
 
 async function openPlaylist(slug) {
-  const sheet = $('#sheet');
-  sheet.classList.add('open');
-  document.body.style.overflow = 'hidden';
-  sheet.scrollTop = 0;
-  updateBackState();
-  $('#sheet-count').hidden = true;
-  $('#sheet-body').innerHTML = '<div class="center-spin"><div class="spinner"></div></div>';
+  openSheet('playlist', slug);
 
   let p;
   try {

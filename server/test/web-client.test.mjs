@@ -103,7 +103,7 @@ test('the nav switches views, and every view it points at exists', () => {
   const targets = [...html.matchAll(/data-go="([a-z]+)"/g)].map((m) => m[1]);
   const views = [...html.matchAll(/data-view="([a-z]+)"/g)].map((m) => m[1]);
 
-  assert.deepEqual(targets, ['anime', 'browse', 'genres', 'studios', 'playlists', 'library', 'settings']);
+  assert.deepEqual(targets, ['anime', 'manga', 'browse', 'genres', 'studios', 'playlists', 'library', 'settings']);
   for (const t of targets) {
     assert.ok(views.includes(t), `the nav points at a view that does not exist: ${t}`);
   }
@@ -268,7 +268,7 @@ test('the detail page is a page, not a card floating over one', () => {
   }
   // One surface for both areas: the anime player reuses the sheet's open and
   // close, so the back contract covers it without a second one.
-  assert.ok(/function openSheet\(\)/.test(script), 'the detail page has no shared opener');
+  assert.ok(/function openSheet\(/.test(script), 'the detail page has no shared opener');
   assert.ok(/document\.getElementById\(["']lx-frame["']\)/.test(script),
     'closing the page leaves the embed playing');
   assert.ok(/class="detail-hero"[\s\S]{0,400}?detail-title/.test(script),
@@ -283,7 +283,51 @@ test('the two areas are labelled where the reader can see them', () => {
     'the adult grid carries no 18+ label');
   assert.ok(/Anime <span class="area-chip">normal<\/span>/.test(html),
     'the anime shelf carries no label');
+  assert.ok(/Manga <span class="area-chip">mangafire<\/span>/.test(html),
+    'the manga shelf does not say where its catalog comes from');
   assert.ok(html.includes('.area-chip'), 'no stylesheet rule draws the area label');
+});
+
+// ---------------------------------------------------------------------------
+// The manga area reads mangafire.to: the client signs and fetches the catalog
+// itself (their CORS is wide open), and only reader images pass through a
+// backend, because their image CDN refuses hotlinks.
+// ---------------------------------------------------------------------------
+
+test('the manga area has its own view, shelf and reader', () => {
+  assert.ok(html.includes(' data-view="manga"'), 'no view for the manga area');
+  for (const id of ['manga-browse', 'manga-search-shell', 'manga-q', 'manga-clear',
+    'manga-filters', 'manga-type', 'manga-status', 'manga-genre', 'manga-filter-clear',
+    'manga-grid', 'manga-note', 'manga-count', 'manga-pager', 'manga-prev', 'manga-next',
+    'manga-pageinfo']) {
+    assert.ok(html.includes(` id="${id}"`), `missing #${id}`);
+  }
+
+  const script = inlineScripts(html)[0];
+  // The catalog is fetched by the client straight from mangafire — no Node
+  // or Java catalog proxy exists for it, by design.
+  assert.ok(script.includes('https://mangafire.to/api'), 'the catalog never reaches mangafire');
+  assert.ok(script.includes('vrf'), 'the listing requests are never signed');
+  // Their image CDN 403s hotlinks, so reader pages go through the proxy on
+  // both backends; covers do not need it and stay on their real URLs.
+  assert.ok(script.includes('/api/manga/page'), 'reader pages are never proxied');
+  assert.ok(script.includes('static.mfcdn.nl') || script.includes('poster'),
+    'covers lost their direct CDN source');
+  // The surface: cards that open a title, a title page, a chapter reader.
+  assert.ok(/function openManga\(/.test(script), 'nothing opens a manga title');
+  assert.ok(/function openChapter\(/.test(script), 'nothing opens a chapter');
+  assert.ok(script.includes('data-manga'), 'manga cards carry no id');
+  assert.ok(script.includes('data-mfch'), 'chapters carry no id');
+  assert.ok(script.includes('ensureManga()'), 'the shelf is never loaded');
+  assert.ok(script.includes('/filter-options'), 'the filters never ask upstream what exists');
+  // Option values are upstream's own enums — anything else would be refused.
+  assert.ok(html.includes('value="on_hiatus"'), 'the status options are not upstream enums');
+  assert.ok(html.includes('value="manhwa"'), 'the type options are not upstream enums');
+  // One surface, like the other two areas: the detail renders into the shared
+  // sheet, so the back contract covers it without a second one.
+  assert.ok(/openSheet\((['"])manga\1/.test(script),
+    'the manga title page does not use the shared sheet');
+  assert.ok(/class="ch-list"|ch-list/.test(script), 'the title page has no chapter list');
 });
 
 // ---------------------------------------------------------------------------
@@ -374,6 +418,52 @@ test('back closes what is open, and the page decides that, not the shell', () =>
   // the sheet is fixed and must stay that way.
   assert.ok(!script.includes('history.pushState'),
     'a history entry was added — that is the WebView-back approach this replaced');
+});
+
+test('back walks a stack like a browser, down to the state the app opened in', () => {
+  // The reader asked for back to keep stepping — view, title, chapter, back
+  // down to how the app started — without ever leaving the app. That is an
+  // owned stack of snapshots, not the WebView's history: one entry per move,
+  // popped one press at a time.
+  const script = inlineScripts(html)[0];
+  assert.ok(/function pushNav\(/.test(script), 'nothing records where back would return to');
+  assert.ok(/function goBack\(/.test(script), 'nothing walks the stack');
+  assert.ok(/function dropClosedEntry\(/.test(script),
+    'closing the sheet does not cancel the entry that opened it');
+  assert.ok(/function snapshot\(/.test(script), 'the stack stores no snapshots');
+  assert.ok(script.includes('s.y'), 'restoring never returns the reader to their place in the page');
+
+  // __shellBack must answer every press. A "false" anywhere in it tells the
+  // shell the press is free — and a free press leaves the app.
+  const start = script.indexOf('window.__shellBack');
+  const end = script.indexOf('window.__shellPip');
+  assert.ok(start >= 0 && end > start, 'the shell back handler moved');
+  const handler = script.slice(start, end);
+  assert.ok(handler.includes('return true'), '__shellBack does not answer every press');
+  assert.ok(!handler.includes('return false'), '__shellBack reports an unhandled press — back could exit');
+  // Every surface that opens is recorded: views, sheets, chapters.
+  assert.ok(/function showView\([\s\S]{0,400}?pushNav\(/.test(script),
+    'switching views is not a step back can take');
+  assert.ok(/function openSheet\([\s\S]{0,200}?pushNav\(/.test(script),
+    'opening the sheet is not a step back can take');
+});
+
+test('the shell never hands back to the operating system', () => {
+  // The Java side of the same contract: handleBack() used to end in a
+  // return false, which the dispatcher answered with finish(). Both are gone —
+  // at the bottom of the stack the press is spent, and the app stays.
+  if (!fs.existsSync(ANDROID)) return; // server-only checkout
+  const main = fs.readFileSync(
+    path.join(ANDROID, 'app/src/main/java/app/hanime/shell/MainActivity.java'), 'utf8');
+  const start = main.indexOf('private boolean handleBack()');
+  const end = main.indexOf('picture in picture', start);
+  assert.ok(start >= 0 && end > start, 'handleBack() moved — this test no longer guards it');
+  const body = main.slice(start, end);
+  assert.ok(!body.includes('return false'),
+    'handleBack can decline the press — the OS would take it and close the app');
+  assert.ok(!/if\s*\(\s*!handleBack\(\)\s*\)/.test(main),
+    'the back dispatcher still finishes the activity when nothing took the press');
+  assert.ok(!/\bfinish\(\);/.test(main), 'MainActivity still finishes itself somewhere');
 });
 
 test('a title remembers where it was left', () => {

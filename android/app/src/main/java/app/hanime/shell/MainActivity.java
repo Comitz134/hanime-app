@@ -607,20 +607,25 @@ public class MainActivity extends Activity {
 
     // --------------------------------------------------------------- back
     //
-    // Back has to dismiss what is on screen before it leaves the app, and only
-    // the page knows what that is: a detail sheet, a playlist, or the search
-    // field that replaced the nav. So the page reports whether it has something
-    // to dismiss (Shell.setBackEnabled) and answers the dismissal when asked
-    // (window.__shellBack). Without it the app exited out from under an open
-    // sheet, because a single-page client never grows a WebView history to walk
-    // back through.
+    // Back belongs to whatever is on screen, and only the page knows what
+    // that is: a detail sheet, a reader chapter, a playlist, the search field
+    // that replaced the nav — and now the history stack the page keeps, which
+    // back walks one step at a time like a browser's back. The page reports
+    // whether there is anything left to walk to (Shell.setBackEnabled) and
+    // performs the step when asked (window.__shellBack).
+    //
+    // Back never leaves the app. There is no path through this method that
+    // finishes the activity: at the state the app opened in, the press is
+    // simply spent. What used to be here — falling through to finish() when
+    // nothing wanted the press — is exactly how a single-page app used to
+    // close on the second press from home.
     //
     // Two delivery paths, because Android changed its mind about back: the
     // OnBackInvokedDispatcher (API 33+, once the manifest opts in) and the
     // legacy key event. Both land in handleBack, and the same press arriving
     // twice is collapsed by the debounce below.
 
-    /** True while the page has something for back to dismiss. */
+    /** True while the page has something for back to walk to. */
     private volatile boolean backEnabled = false;
 
     private long lastBackAt = 0L;
@@ -633,12 +638,11 @@ public class MainActivity extends Activity {
             getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                     OnBackInvokedDispatcher.PRIORITY_DEFAULT,
                     () -> {
-                        if (!handleBack()) {
-                            // Nothing was dismissed, so this is the app's own
-                            // back. The dispatcher never falls through to the
-                            // default behaviour itself.
-                            finish();
-                        }
+                        // The dispatcher never falls through to the default
+                        // behaviour itself, and handleBack() never returns
+                        // false — back dismisses a step or is spent on the
+                        // spot, but it does not leave the app.
+                        handleBack();
                     });
         } catch (Exception e) {
             Log.w(TAG, "predictive back is unavailable", e);
@@ -651,7 +655,7 @@ public class MainActivity extends Activity {
         return handleBack();
     }
 
-    /** @return true when something on screen used the press. */
+    /** @return true always — the press is used or spent, never handed to the OS. */
     private boolean handleBack() {
         long now = SystemClock.uptimeMillis();
         if (lastBackConsumed && now - lastBackAt < 120) return true;
@@ -665,18 +669,23 @@ public class MainActivity extends Activity {
             return true;
         }
         if (backEnabled && web != null) {
-            // The page closes its own sheet or search field. Either way it used
-            // the press, so the app does not also leave.
+            // The page walks its own stack one step — closing its sheet,
+            // stepping a chapter back, or returning to the previous view —
+            // and answers every press, including the one at the bottom.
             web.evaluateJavascript("window.__shellBack&&window.__shellBack()", null);
             lastBackConsumed = true;
             return true;
         }
         if (web != null && web.canGoBack()) {
+            // The page never grows WebView history itself, so this is only a
+            // safety net for history restored from a previous process.
             web.goBack();
             lastBackConsumed = true;
             return true;
         }
-        return false;
+        // The bottom: the state the app opened in. The press is spent here.
+        lastBackConsumed = true;
+        return true;
     }
 
     // ------------------------------------------------- picture in picture

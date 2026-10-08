@@ -9,6 +9,7 @@
 import './core.js';
 import './prefs.js';
 import './shell.js';
+import './nav-history.js';
 import './hero.js';
 import './cards.js';
 import './data.js';
@@ -23,5 +24,6 @@ import './rails.js';
 import './menu.js';
 import './settings.js';
 import './anime.js';
+import './manga.js';
 import './wiring.js';
 import './boot.js';

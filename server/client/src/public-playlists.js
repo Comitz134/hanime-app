@@ -8,8 +8,7 @@
 
 import { cardHtml } from './cards.js';
 import { $, api, esc, fmtCount } from './core.js';
-import { closeSheet } from './sheet.js';
-import { updateBackState } from './shell.js';
+import { closeSheet, openSheet } from './sheet.js';
 import { showView, views } from './views.js';
 
 /* ----------------------------------------------------------- public playlists */
@@ -86,13 +85,7 @@ async function loadPublicPlaylists(q = ppQuery) {
 }
 
 async function openPublicPlaylist(slug) {
-  const sheet = $('#sheet');
-  sheet.classList.add('open');
-  document.body.style.overflow = 'hidden';
-  sheet.scrollTop = 0;
-  updateBackState();
-  $('#sheet-count').hidden = true;
-  $('#sheet-body').innerHTML = '<div class="center-spin"><div class="spinner"></div></div>';
+  openSheet('public', slug);
 
   let p;
   try {

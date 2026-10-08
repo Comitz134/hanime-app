@@ -11,6 +11,8 @@ import { searchAnime } from './anime.js';
 import { loadGrid, renderTags, setTagQuery } from './data.js';
 import { toggleFav, viewIs } from './library.js';
 import { setMenuOpen } from './menu.js';
+import { searchManga } from './manga.js';
+import { goBack } from './nav-history.js';
 import { loadPlaylistHits } from './pl-hits.js';
 import { loadPlaylists, loadSession, openPlaylist } from './playlists.js';
 import { closeSheet, openVideo } from './sheet.js';
@@ -37,9 +39,10 @@ function applyQuery(val, from) {
   debounce = setTimeout(() => {
     state.q = val.trim();
     // The pill searches whatever area is on screen: in the anime area the
-    // answer is that area's grid, and typing must not yank the reader into
-    // the 18+ catalog.
+    // answer is that area's grid, in the manga area that area's shelf — and
+    // typing must not yank the reader into the 18+ catalog.
     if (viewIs('anime')) { searchAnime(state.q); return; }
+    if (viewIs('manga')) { searchManga(state.q); return; }
     // The answer is the grid, and the grid is in Browse. Searching from the
     // pill therefore goes there — as a view change, never as a scroll to a
     // search box.
@@ -154,13 +157,19 @@ document.addEventListener('keydown', (e) => {
   if (card?.dataset.slug) { e.preventDefault(); openVideo(card.dataset.slug); }
 });
 
-$('#sheet-close').onclick = closeSheet;
-$('#sheet').addEventListener('click', (e) => { if (e.target === $('#sheet')) closeSheet(); });
+// The sheet's Back — the button, the backdrop, the Escape key — is a back
+// press rather than a close: it walks the stack one step, so a reader in a
+// chapter returns to its title page before the view beneath it. Only an empty
+// stack falls back to closing outright.
+const sheetBack = () => { if (!goBack()) closeSheet(); };
+
+$('#sheet-close').onclick = sheetBack;
+$('#sheet').addEventListener('click', (e) => { if (e.target === $('#sheet')) sheetBack(); });
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
-  if ($('#nav').dataset.searching === 'true') setSearchOpen(false);
-  if (menuIsOpen()) setMenuOpen(false);
-  closeSheet();
+  if ($('#nav').dataset.searching === 'true') { setSearchOpen(false); return; }
+  if (menuIsOpen()) { setMenuOpen(false); return; }
+  if ($('#sheet').classList.contains('open')) sheetBack();
 });
 
 

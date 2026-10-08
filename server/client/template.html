@@ -76,6 +76,10 @@
         <button class="nav-menu-item nav-link" type="button" data-go="anime" aria-current="page">Anime
           <svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m5 13 4.5 4.5L19 7"/></svg>
         </button>
+        <div class="nav-menu-label">Manga</div>
+        <button class="nav-menu-item nav-link" type="button" data-go="manga">Manga
+          <svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m5 13 4.5 4.5L19 7"/></svg>
+        </button>
         <div class="nav-menu-label">18+ · hanime</div>
         <button class="nav-menu-item nav-link" type="button" data-go="browse">Browse
           <svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m5 13 4.5 4.5L19 7"/></svg>
@@ -167,6 +171,63 @@
           <button class="page-btn" id="anime-prev">Prev</button>
           <span class="pager-info" id="anime-pageinfo"></span>
           <button class="page-btn" id="anime-next">Next</button>
+        </div>
+      </section>
+    </div>
+
+    <!-- manga: read straight from mangafire.to's own API — signed listings,
+         hotlinked covers, reader pages behind this server's image proxy. It
+         opens as their trending shelf and narrows into a search the moment
+         anything is typed or filtered. -->
+    <div class="view" data-view="manga">
+      <section id="manga-browse">
+        <div class="sec-head">
+          <div class="sec-head-l">
+            <h2>Manga <span class="area-chip">mangafire</span></h2>
+            <span class="sec-count" id="manga-count">…</span>
+          </div>
+        </div>
+
+        <label class="search-shell" id="manga-search-shell">
+          <svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+            <circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/>
+          </svg>
+          <input id="manga-q" type="search" inputmode="search" enterkeyhint="search"
+                 placeholder="Search manga, manhwa, manhua…" autocomplete="off" spellcheck="false">
+          <button class="search-clear" id="manga-clear" type="button" aria-label="Clear search">&times;</button>
+        </label>
+
+        <!-- The enum values are upstream's: types, statuses and (once the
+             view is opened) the genre list arrive from /api/filter-options,
+             so nothing here can drift out of sync with their API. -->
+        <div class="filter-row" id="manga-filters">
+          <select id="manga-type" class="filter-select" aria-label="Type">
+            <option value="">All types</option>
+            <option value="manga">Manga</option>
+            <option value="manhwa">Manhwa</option>
+            <option value="manhua">Manhua</option>
+            <option value="other">Other</option>
+          </select>
+          <select id="manga-status" class="filter-select" aria-label="Status">
+            <option value="">Any status</option>
+            <option value="releasing">Releasing</option>
+            <option value="finished">Finished</option>
+            <option value="on_hiatus">On hiatus</option>
+            <option value="discontinued">Discontinued</option>
+            <option value="not_yet_released">Not yet released</option>
+          </select>
+          <select id="manga-genre" class="filter-select" aria-label="Genre">
+            <option value="">All genres</option>
+          </select>
+          <button class="chip" id="manga-filter-clear" type="button" hidden>Clear filters</button>
+        </div>
+
+        <div class="grid" id="manga-grid"></div>
+        <p class="note" id="manga-note" hidden></p>
+        <div class="pager" id="manga-pager" hidden>
+          <button class="page-btn" id="manga-prev">Prev</button>
+          <span class="pager-info" id="manga-pageinfo"></span>
+          <button class="page-btn" id="manga-next">Next</button>
         </div>
       </section>
     </div>

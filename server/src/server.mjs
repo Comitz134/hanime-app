@@ -20,7 +20,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { getCatalog, getSources, warm, SITE_BASE } from './hanime.mjs';
+import { getCatalog, getSources, warm, SITE_BASE, USER_AGENT } from './hanime.mjs';
 import { mangle, unmangle, fetchUpstream, relayPlaylist, relayBinary } from './hls.mjs';
 import { account, setCookie, clear as clearSession, sessionInfo, raw as rawSession } from './session.mjs';
 import { buildIndex, searchPlaylists, allItems } from './playlists.mjs';
@@ -588,6 +588,50 @@ async function handleRelay(url, res, req) {
 }
 
 // --------------------------------------------------------------------------
+// manga reader pages
+// --------------------------------------------------------------------------
+//
+// The manga area talks to mangafire.to directly — its JSON API answers any
+// origin, so only the reader images need a server: their CDN answers a
+// hotlink without a mangafire Referer with a 403. Covers are exempt (their
+// static CDN allows them) and are used at their real URLs.
+//
+// The route is an image proxy, so the target is not arbitrary: https only,
+// and a host that belongs to their CDN — anything else is refused before a
+// byte is fetched.
+
+const MANGA_IMAGE_HOST = /^(?:[\w-]+\.)*mfcdn\d*\.(?:nl|xyz|com)$|^(?:[\w-]+\.)*mangafire\.to$/;
+
+async function handleMangaPage(url, res) {
+  let target;
+  try { target = new URL(url.searchParams.get('u') ?? ''); } catch { target = null; }
+  if (!target || target.protocol !== 'https:') return text(res, 400, 'bad image link');
+  if (!MANGA_IMAGE_HOST.test(target.hostname)) return text(res, 403, 'host not allowed');
+
+  const upstream = await fetch(target, {
+    headers: {
+      'user-agent': USER_AGENT,
+      referer: 'https://mangafire.to/',
+      accept: 'image/*,*/*;q=0.8',
+    },
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!upstream.ok) return text(res, 502, `upstream ${upstream.status}`);
+
+  const type = (upstream.headers.get('content-type') ?? '').split(';')[0].toLowerCase();
+  if (!type.startsWith('image/')) return text(res, 502, 'upstream did not answer an image');
+
+  const bytes = Buffer.from(await upstream.arrayBuffer());
+  res.writeHead(200, {
+    'content-type': type,
+    'content-length': bytes.length,
+    'cache-control': 'public, max-age=86400',
+    'access-control-allow-origin': '*',
+  });
+  res.end(bytes);
+}
+
+// --------------------------------------------------------------------------
 // static
 // --------------------------------------------------------------------------
 
@@ -671,6 +715,9 @@ const server = http.createServer(async (req, res) => {
     if (videoPlaylistsMatch) return await handleVideoPlaylists(decodeURIComponent(videoPlaylistsMatch[1]), res);
 
     if (pathname === '/api/health') return await handleHealth(res);
+
+    // Manga reader pages, proxied with the Referer their CDN demands.
+    if (pathname === '/api/manga/page') return await handleMangaPage(url, res);
 
     // Normal (non-adult) anime: AniList catalog + LunarX episodes/player.
     if (pathname.startsWith('/api/anime/')) return await handleAnime(url, res, pathname);

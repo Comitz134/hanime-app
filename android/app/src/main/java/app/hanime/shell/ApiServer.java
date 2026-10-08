@@ -114,6 +114,11 @@ final class ApiServer {
             return json(r.status, r.body);
         }
 
+        // Manga reader pages, proxied with the Referer their image CDN
+        // demands — the one thing about mangafire that cannot be fetched
+        // straight from the page (their JSON API answers any origin).
+        if (path.equals("/api/manga/page")) return MangaPage.serve(firsts(q).get("u"));
+
         if (path.equals("/api/session")) {
             // No account cookie pasted yet; the client renders its connect card.
             return json(200, "{\"configured\":false,\"playlists\":[],\"stats\":{}}");

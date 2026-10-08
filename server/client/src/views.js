@@ -7,6 +7,7 @@
 // rebuilds.
 
 import { $$ } from './core.js';
+import { pushNav } from './nav-history.js';
 import { renderLibrary } from './positions.js';
 
 /* ------------------------------------------------------------------ views */
@@ -26,6 +27,10 @@ document.body.dataset.view =
 function showView(name) {
   const target = views.find((v) => v.dataset.view === name) || views[0];
   const changed = document.body.dataset.view !== target.dataset.view;
+  // Recorded while the screen still holds the view being left, so back has
+  // somewhere to return to. A restore calls this too, and history does not
+  // record itself.
+  if (changed) pushNav();
   views.forEach((v) => {
     if (v === target) v.dataset.active = 'true';
     else v.removeAttribute('data-active');
