@@ -469,9 +469,12 @@ two columns below (the episode list lives in the sidebar for anime), and
 recommendations underneath — the layout described in "Web client design"
 below, not a card floating over the page it came from.
 
-The Android shell's Java API does not answer `/api/anime/*` yet: in the APK
-the Anime view reports that the area is served by the Node server instead of
-loading a shelf. Everything else, both areas' detail pages included, works in
+The Android shell answers `/api/anime/*` from Java (`Anime.java`) with the
+same routes and response shapes as the Node server — AniList for the catalog,
+LunarX for episodes and the player, same TTL cache, same origin spoofing — so
+the Anime view loads a shelf in the APK with no server running anywhere. The
+JVM tests (`AnimeTest`) stub both upstreams and pin the same contract the
+Node suite pins; everything else, both areas' detail pages included, works in
 the app because it is all client code.
 
 ## Web client design

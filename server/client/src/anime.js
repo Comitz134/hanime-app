@@ -66,10 +66,10 @@ async function loadAnime(page) {
     grid.innerHTML = '';
     $('#anime-count').textContent = '';
     pager.hidden = true;
-    // The app shell answers /api/* from Java and does not know these routes;
-    // say where the area lives rather than showing an empty grid.
+    // Both backends answer these routes (Node in the server, Java in the app
+    // shell); a failure here is the network or the upstream, not the place.
     animeNote(`Could not load the anime catalog (${e.message}). `
-      + 'This area is served by the Node server (server/src/anime.mjs).');
+      + 'The catalog comes from AniList — check the connection and try again.');
   }
 }
 

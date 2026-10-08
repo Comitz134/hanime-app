@@ -106,6 +106,14 @@ final class ApiServer {
             return json(200, body);
         }
 
+        // The normal-anime family: AniList catalog + LunarX episodes/player,
+        // the same routes the Node server serves, answered here so the app
+        // needs no proxy. Anime.handle answers every /api/anime/* path itself.
+        if (path.startsWith("/api/anime/")) {
+            Anime.Result r = Anime.handle(path, firsts(q));
+            return json(r.status, r.body);
+        }
+
         if (path.equals("/api/session")) {
             // No account cookie pasted yet; the client renders its connect card.
             return json(200, "{\"configured\":false,\"playlists\":[],\"stats\":{}}");

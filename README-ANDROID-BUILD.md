@@ -41,6 +41,7 @@ everything:
 | `/api/videos/:slug/sources` | Java: handshake → `x-token` → relay links |
 | `/relay?u=&s=` | Java: signed upstream fetch, playlist rewrite, byte passthrough |
 | `/api/public/playlists*` | Java, over `assets/playlists.json` |
+| `/api/anime/*` | Java: AniList catalog + LunarX episodes/player (`Anime.java`) |
 | `/api/session`, `/api/app/version` | session / update source (see §6) |
 | fonts, `hls.js` from jsdelivr, image CDN | left to the WebView (returns null) |
 | client state: favorites, watch history | the WebView's `localStorage`, no request at all (see §7) |

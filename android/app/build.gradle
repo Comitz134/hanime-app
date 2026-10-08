@@ -106,8 +106,12 @@ dependencies {
     implementation 'androidx.core:core:1.13.1'
 
     // Unit tests for the updater's pure source/channel selection — the logic
-    // that decides which manifest a check consults, tested without a device.
+    // that decides which manifest a check consults, tested without a device —
+    // and for the /api/anime handlers, whose JSON shaping is the contract the
+    // client consumes. org.json is real on a device but a stub in a JVM test,
+    // so the tests link the real implementation.
     testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
 }
 
 // Surface the version the APK will actually carry, so a release is never

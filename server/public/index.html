@@ -2222,7 +2222,7 @@ h2 .area-chip { font-size: .5625rem; }
       grid.innerHTML = "";
       $("#anime-count").textContent = "";
       pager.hidden = true;
-      animeNote(`Could not load the anime catalog (${e.message}). This area is served by the Node server (server/src/anime.mjs).`);
+      animeNote(`Could not load the anime catalog (${e.message}). The catalog comes from AniList \u2014 check the connection and try again.`);
     }
   }
   function searchAnime(q) {
