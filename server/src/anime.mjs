@@ -121,7 +121,7 @@ const DETAILS_QUERY = `
       startDate { year } format status genres
       coverImage { large } bannerImage
       recommendations(perPage: 10, sort: [RATING_DESC]) {
-        nodes { media { id title { romaji } coverImage { large }
+        nodes { mediaRecommendation { id title { romaji } coverImage { large }
                         averageScore episodes startDate { year } } }
       }
     }
@@ -152,9 +152,14 @@ function shapeDetails(m) {
       .replace(/<[^>]+>/g, ' ')
       .replace(/[ \t]{2,}/g, ' ')
       .trim(),
+    // AniList names two fields per recommendation: `media` is the title you
+    // are already looking at, `mediaRecommendation` is the suggested one.
+    // Selecting `media` fills the rail with the watched anime itself, so the
+    // suggestion is taken from `mediaRecommendation` and the watched id is
+    // dropped if it ever arrives.
     recommendations: (m.recommendations?.nodes ?? [])
-      .map((n) => n.media)
-      .filter(Boolean)
+      .map((n) => n.mediaRecommendation)
+      .filter((r) => r && r.id !== m.id)
       .map(shapeCard),
   };
 }

@@ -67,7 +67,13 @@ const anilistDetails = {
       ...anilistCard,
       description: 'A <b>description</b> with<br> a line break.',
       recommendations: {
-        nodes: [{ media: { ...anilistCard, id: 99002, title: { romaji: 'Rec no Hito' } } }],
+        // AniList's real shape: `media` is the title being viewed, and
+        // `mediaRecommendation` is the suggested one. A fixture that only
+        // carried `media` could never catch the rail repeating itself.
+        nodes: [{
+          media: anilistCard,
+          mediaRecommendation: { ...anilistCard, id: 99002, title: { romaji: 'Rec no Hito' } },
+        }],
       },
     },
   },
@@ -115,6 +121,8 @@ test('details carry the description text and the recommendations', async () => {
   assert.ok(res.json.details.description.includes('line break'));
   assert.equal(res.json.details.recommendations[0].id, 99002);
   assert.equal(res.json.details.recommendations[0].title, 'Rec no Hito');
+  assert.ok(res.json.details.recommendations.every((r) => r.id !== res.json.details.id),
+    'the watched title must never appear in its own recommendations');
 });
 
 test('episodes are proxied as lunarx.to, which is the whole point', async () => {

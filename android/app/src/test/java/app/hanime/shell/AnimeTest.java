@@ -2,6 +2,7 @@ package app.hanime.shell;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -105,7 +106,12 @@ public class AnimeTest {
     private static final String ANILIST_DETAILS = "{\"data\":{\"Media\":"
             + ANILIST_CARD.substring(0, ANILIST_CARD.length() - 1) + ","
             + "\"description\": \"A <b>description</b> with<br> a line break.\","
+            // AniList's real shape: `media` is the title being viewed,
+            // `mediaRecommendation` is the suggested one. A fixture without
+            // the self-reference could never catch the rail repeating itself.
             + "\"recommendations\":{\"nodes\":[{\"media\":"
+            + ANILIST_CARD
+            + ",\"mediaRecommendation\":"
             + ANILIST_CARD.replace("99001", "99002")
                     .replace("Test no Hito", "Rec no Hito")
             + "}]}}}}";
@@ -160,6 +166,10 @@ public class AnimeTest {
         JSONArray recs = details.getJSONArray("recommendations");
         assertEquals(99002, recs.getJSONObject(0).getInt("id"));
         assertEquals("Rec no Hito", recs.getJSONObject(0).getString("title"));
+        for (int i = 0; i < recs.length(); i++) {
+            assertNotEquals("the watched title must never appear in its own recommendations",
+                    details.getInt("id"), recs.getJSONObject(i).getInt("id"));
+        }
     }
 
     @Test

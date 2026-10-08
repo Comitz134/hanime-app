@@ -96,7 +96,7 @@ final class Anime {
             + "      startDate { year } format status genres\n"
             + "      coverImage { large } bannerImage\n"
             + "      recommendations(perPage: 10, sort: [RATING_DESC]) {\n"
-            + "        nodes { media { id title { romaji } coverImage { large }\n"
+            + "        nodes { mediaRecommendation { id title { romaji } coverImage { large }\n"
             + "                        averageScore episodes startDate { year } } }\n"
             + "      }\n"
             + "    }\n"
@@ -346,8 +346,15 @@ final class Anime {
         if (nodes != null) {
             for (int i = 0; i < nodes.length(); i++) {
                 JSONObject node = nodes.optJSONObject(i);
-                JSONObject media = node == null ? null : node.optJSONObject("media");
-                if (media != null) recs.put(shapeCard(media));
+                // AniList names two fields per recommendation: `media` is the
+                // title you are already looking at, `mediaRecommendation` is
+                // the suggested one. Selecting `media` fills the rail with the
+                // watched anime itself; the watched id is dropped as well if
+                // it ever arrives.
+                JSONObject rec = node == null ? null : node.optJSONObject("mediaRecommendation");
+                if (rec == null) continue;
+                if (rec.opt("id") != null && rec.opt("id").equals(m.opt("id"))) continue;
+                recs.put(shapeCard(rec));
             }
         }
         out.put("recommendations", recs);
