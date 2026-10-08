@@ -158,22 +158,21 @@ sha256sum "$APK"
 Current build:
 
 ```
-package: name='app.hanime.shell' versionCode='11' versionName='1.0.10'
+package: name='app.hanime.shell' versionCode='12' versionName='1.0.11'
 sdkVersion:'26'   targetSdkVersion:'34'
 launchable-activity: name='app.hanime.shell.MainActivity'
 permissions: INTERNET, ACCESS_NETWORK_STATE, REQUEST_INSTALL_PACKAGES, POST_NOTIFICATIONS
 Verifies / v2 scheme: true / signer CN=hanime shell (unchanged)
-1,266,746 bytes / sha256 d7e51684c6431a14d14d3f80c1b858b5832bed0f3b39fe83be47887ff72cbd55
-  assets/index.html 113,655 bytes sha256 85a6aefe235f93b2aa6e28295c500ab4e30527343b6a2ef1ed37db49a62fa0c9
+1,307,742 bytes / sha256 148ab8f35133a8d6e8d0c25bdcfc7d9bcea55bcdd2cfac0f28b383f828ccdddc
+  assets/index.html 123,793 bytes sha256 195dbff7b107177ca2f1195e0b0dd94c0162676e1ce8aef31f32287dc9bb4d6c
   assets/hls.min.js 413,952 bytes sha256 484054e8cd03d3f6d1781fb7f402bdc318d8a4c527f933a95c624e27cc9a9470
 ```
 
-The bundled client's digest above is the one that shipped in the published v11
-APK — read back out of the packaged file, not assumed. The client has since
-been split into `server/client/` modules and rebuilt (§3), so the tree's
-`index.html` is a new bundle; its digest changes again with every client edit,
-and the freshness guard in the test suite is what keeps server and APK copies
-of it in step rather than a recorded hash.
+The bundled client's digest above is the one that shipped in the published v12
+APK — read back out of the packaged file, not assumed — and it is byte-identical
+to `server/public/index.html` in this tree. The digest changes with every client
+edit; the freshness guard in the test suite is what keeps the server and APK
+copies in step, rather than any recorded hash.
 
 Release signing comes from `android/keystore.properties` + `android/keystore/`.
 **Reuse the same key across releases** — a different signer turns every update
@@ -192,6 +191,49 @@ $ADB logcat -s Shell ShellSigner ShellCatalog ShellPage
 
 No server to start. The app fetches the catalogue directly from upstream the
 first time it opens (`ShellCatalog: catalog warm: 3429 entries in …`).
+
+### 5.1 The emulator, for testing a build before it ships
+
+The same AVD every check above was run on: `shell35` (pixel_5, API 35,
+WebView 124). Boot it headless — about 30 seconds:
+
+```bash
+rm -f ~/.android/avd/shell35.avd/*.lock
+/f/atc/android-sdk/emulator/emulator -avd shell35 -no-window -no-audio \
+  -no-boot-anim -no-snapshot -gpu swiftshader_indirect &
+export PATH="/f/atc/android-sdk/platform-tools:$PATH"
+adb wait-for-device
+until [ "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1" ]; do sleep 1; done
+
+# install the build under test and open it
+adb install -r hanime-app/android/app/build/outputs/apk/release/app-release.apk
+adb shell am start -n app.hanime.shell/.MainActivity
+
+# read what the app is doing
+adb logcat -s Shell ShellUpdater ShellApi ShellCatalog
+```
+
+Fresh machine: create the AVD once first —
+`avdmanager create avd -n shell35 -k "system-images;android-35;google_apis_playstore;x86_64" -d pixel_5`.
+
+To drive the page itself (menu, themes, player, back — anything in the
+client), attach to the WebView over DevTools. `MainActivity` enables WebView
+debugging unconditionally, so this works on release builds, not just debug:
+
+```bash
+PID=$(adb shell pidof -s app.hanime.shell | tr -d '\r')
+adb forward tcp:9222 localabstract:webview_devtools_remote_$PID
+node hanime-app/tools/webview-probe.mjs your-page-script.js
+```
+
+The page script must evaluate to a string (usually `JSON.stringify({...})`);
+the probe prints it plus any console output the page produced, and exits
+non-zero when the script throws or the page navigates away.
+
+Before cutting a release, the same flow exercises the updater end to end:
+install the **previous** version, cold-start it, and watch for `update check:
+AVAILABLE` → download → `sha256 …` → "ready to install" in logcat — exactly
+what the 1.0.11 release produced from the v11 install on this AVD.
 
 ---
 
