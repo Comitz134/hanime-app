@@ -1,0 +1,66 @@
+/* --------------------------------------------------------------------------
+   MyAnimeList tracking
+   --------------------------------------------------------------------------
+
+   The row lives in the detail sheets' side column, under the facts, and in
+   Settings as a card. It is deliberately plain: a bordered box, a two-part
+   head, one line of controls. An empty .mal-slot renders nothing at all —
+   that is what an unconfigured build shows, and a slot still waiting on MAL
+   shows a head with no controls rather than a layout that jumps.
+   -------------------------------------------------------------------------- */
+
+.mal-slot:empty { display: none; }
+
+.mal-box {
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+  padding: .6rem .7rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  background: hsl(var(--card));
+}
+.mal-slot + .detail-label,
+.mal-slot + .detail-tags { margin-top: .75rem; }
+
+.mal-head {
+  display: flex;
+  justify-content: space-between;
+  gap: .5rem;
+  font-size: .6875rem;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: hsl(var(--muted-foreground));
+}
+.mal-entry { text-transform: none; letter-spacing: 0; }
+
+.mal-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .4rem;
+}
+.mal-controls select,
+.mal-controls input {
+  font: inherit;
+  font-size: .8125rem;
+  padding: .3rem .45rem;
+  color: hsl(var(--foreground));
+  background: hsl(var(--background));
+  border: 1px solid hsl(var(--border));
+  border-radius: calc(var(--radius) - .1rem);
+  min-width: 0;
+}
+.mal-prog { width: 7.5rem; }
+.mal-controls .chip { font-size: .8125rem; padding: .3rem .6rem; }
+
+.mal-msg {
+  margin: 0;
+  font-size: .78rem;
+  color: hsl(var(--muted-foreground));
+}
+.mal-msg[data-tone="bad"] { color: hsl(0 75% 70%); }
+.mal-msg[data-tone="good"] { color: hsl(152 45% 62%); }
+
+/* Settings' own states: the account line and the buttons that change it. */
+#mal-card .settings-actions { justify-content: flex-start; }

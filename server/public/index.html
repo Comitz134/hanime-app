@@ -1125,6 +1125,73 @@ h2 .area-chip { font-size: .5625rem; }
   background: hsl(var(--muted) / .2);
 }
 
+/* --------------------------------------------------------------------------
+   MyAnimeList tracking
+   --------------------------------------------------------------------------
+
+   The row lives in the detail sheets' side column, under the facts, and in
+   Settings as a card. It is deliberately plain: a bordered box, a two-part
+   head, one line of controls. An empty .mal-slot renders nothing at all —
+   that is what an unconfigured build shows, and a slot still waiting on MAL
+   shows a head with no controls rather than a layout that jumps.
+   -------------------------------------------------------------------------- */
+
+.mal-slot:empty { display: none; }
+
+.mal-box {
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+  padding: .6rem .7rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  background: hsl(var(--card));
+}
+.mal-slot + .detail-label,
+.mal-slot + .detail-tags { margin-top: .75rem; }
+
+.mal-head {
+  display: flex;
+  justify-content: space-between;
+  gap: .5rem;
+  font-size: .6875rem;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: hsl(var(--muted-foreground));
+}
+.mal-entry { text-transform: none; letter-spacing: 0; }
+
+.mal-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .4rem;
+}
+.mal-controls select,
+.mal-controls input {
+  font: inherit;
+  font-size: .8125rem;
+  padding: .3rem .45rem;
+  color: hsl(var(--foreground));
+  background: hsl(var(--background));
+  border: 1px solid hsl(var(--border));
+  border-radius: calc(var(--radius) - .1rem);
+  min-width: 0;
+}
+.mal-prog { width: 7.5rem; }
+.mal-controls .chip { font-size: .8125rem; padding: .3rem .6rem; }
+
+.mal-msg {
+  margin: 0;
+  font-size: .78rem;
+  color: hsl(var(--muted-foreground));
+}
+.mal-msg[data-tone="bad"] { color: hsl(0 75% 70%); }
+.mal-msg[data-tone="good"] { color: hsl(152 45% 62%); }
+
+/* Settings' own states: the account line and the buttons that change it. */
+#mal-card .settings-actions { justify-content: flex-start; }
+
 </style>
 </head>
 <body>
@@ -1626,6 +1693,21 @@ h2 .area-chip { font-size: .5625rem; }
             <p class="note" id="set-note" hidden></p>
           </div>
         </div>
+
+        <div class="settings-card" id="mal-card">
+          <div class="settings-card-head">
+            <h3>MyAnimeList</h3>
+            <p class="settings-hint">One list across the anime area, the 18+ shelf and manga — status, score and progress write straight to your MAL account.</p>
+          </div>
+          <div class="settings-card-body">
+            <div class="settings-row"><span>Account</span><span class="settings-val" id="mal-user">…</span></div>
+            <div class="settings-actions">
+              <button class="chip" id="mal-link" type="button" hidden>Link MyAnimeList</button>
+              <button class="chip" id="mal-unlink" type="button" hidden>Unlink</button>
+            </div>
+            <p class="note" id="mal-note" hidden></p>
+          </div>
+        </div>
       </section>
 
     </div>
@@ -1674,6 +1756,100 @@ h2 .area-chip { font-size: .5625rem; }
 <script src="hls.min.js"></script>
 <script type="module">
 (() => {
+  // client/src/ad-guard.js
+  var blocked = 0;
+  var mark = (why) => {
+    blocked += 1;
+    if (window.__adGuard) window.__adGuard.blocked = blocked;
+    return why;
+  };
+  var external = (href) => {
+    if (!/^(?:https?:)?\/\//i.test(href)) return false;
+    try {
+      return new URL(href, window.location.origin).origin !== window.location.origin;
+    } catch (e) {
+      return true;
+    }
+  };
+  var isAdAnchor = (el) => !!(el && el.nodeType === 1 && el.tagName === "A" && external(el.getAttribute("href") || ""));
+  function purge(root) {
+    if (!root || root.nodeType !== 1 || !root.querySelectorAll) return;
+    const found = root.querySelectorAll("a[href]");
+    for (const a of found) {
+      if (isAdAnchor(a)) {
+        mark("purged");
+        a.remove();
+      }
+    }
+  }
+  function admit(node) {
+    if (isAdAnchor(node)) {
+      mark("dropped");
+      return false;
+    }
+    purge(node);
+    return true;
+  }
+  for (const name of ["appendChild", "insertBefore"]) {
+    const original = Element.prototype[name];
+    Element.prototype[name] = function guarded(node, ...rest) {
+      if (!admit(node)) return node;
+      return original.call(this, node, ...rest);
+    };
+  }
+  for (const name of ["append", "prepend"]) {
+    const original = Element.prototype[name];
+    Element.prototype[name] = function guarded(...nodes) {
+      const keep = nodes.filter((n) => admit(n));
+      return original.call(this, ...keep);
+    };
+  }
+  {
+    const original = Element.prototype.replaceChildren;
+    Element.prototype.replaceChildren = function guarded(...nodes) {
+      return original.call(this, ...nodes.filter((n) => admit(n)));
+    };
+  }
+  var sweep = (nodes) => {
+    for (const node of nodes) {
+      if (node.nodeType !== 1) continue;
+      if (isAdAnchor(node)) {
+        mark("observed");
+        node.remove();
+        continue;
+      }
+      purge(node);
+    }
+  };
+  var startSweep = () => {
+    if (!document.documentElement) {
+      setTimeout(startSweep, 0);
+      return;
+    }
+    new MutationObserver((records) => {
+      for (const r of records) sweep(r.addedNodes);
+    }).observe(document.documentElement, { childList: true, subtree: true });
+  };
+  startSweep();
+  var cancel = (e) => {
+    const path = typeof e.composedPath === "function" ? e.composedPath() : [e.target];
+    for (const el of path) {
+      if (el && el.nodeType === 1 && el.tagName === "A" && external(el.getAttribute("href") || "")) {
+        mark("click");
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+    }
+  };
+  document.addEventListener("click", cancel, true);
+  document.addEventListener("auxclick", cancel, true);
+  window.open = () => {
+    mark("window.open");
+    return null;
+  };
+  window.__adGuard = { blocked };
+
   // client/src/core.js
   var $ = (s, r = document) => r.querySelector(s);
   var $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -2371,6 +2547,7 @@ h2 .area-chip { font-size: .5625rem; }
         </section>
       </div>
       <aside class="detail-side">
+        <div class="mal-slot" data-mal-kind="anime" data-mal-title="${esc(v.name)}"></div>
         <div class="detail-tags">${tags}</div>
         <p class="detail-desc">${desc}</p>
       </aside>
@@ -2663,6 +2840,7 @@ h2 .area-chip { font-size: .5625rem; }
       <aside class="detail-side">
         <div class="side-row"><span class="side-chip" id="side-chip"></span></div>
         <h3 class="side-title" id="side-ep-title"></h3>
+        <div class="mal-slot" data-mal-kind="anime" data-mal-id="${details.malId ?? ""}" data-mal-title="${esc(details.title)}"></div>
         <div class="detail-label">Description</div>
         <p class="detail-desc" id="side-ep-desc"></p>
         <div class="detail-tags">${genres}</div>
@@ -5881,6 +6059,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
         <div class="mf-facts">
           ${facts.map(([k, v]) => `<div class="mf-fact"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join("")}
         </div>
+        <div class="mal-slot" data-mal-kind="manga" data-mal-id="${d.malId ?? ""}" data-mal-title="${esc(d.title)}"></div>
       </aside>
     </div>`;
     renderChapterList();
@@ -6754,6 +6933,411 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     if (go && go.dataset.go === "settings") fillSettings();
   });
 
+  // client/src/mal.js
+  var MAL_CLIENT_ID = "63e08e44f57ef1b4644322939ebd9fa6";
+  var AUTHORIZE = "https://myanimelist.net/v1/oauth2/authorize";
+  var AUTH_KEY = "mal.auth";
+  var FLOW_KEY = "mal.flow";
+  var IDS_KEY = "mal.ids";
+  var TTL_FALLBACK_MS = 36e5;
+  var STATUSES = {
+    anime: [
+      ["watching", "Watching"],
+      ["completed", "Completed"],
+      ["on_hold", "On hold"],
+      ["dropped", "Dropped"],
+      ["plan_to_watch", "Plan to watch"]
+    ],
+    manga: [
+      ["reading", "Reading"],
+      ["completed", "Completed"],
+      ["on_hold", "On hold"],
+      ["dropped", "Dropped"],
+      ["plan_to_read", "Plan to read"]
+    ]
+  };
+  var PROGRESS = {
+    anime: { put: "num_watched_episodes", get: "num_episodes_watched", label: "ep watched" },
+    manga: { put: "num_chapters_read", get: "num_chapters_read", label: "chapters read" }
+  };
+  function load(key, fallback) {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
+    } catch (e) {
+      return fallback;
+    }
+  }
+  function save(key, value) {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch (e) {
+    }
+  }
+  function drop(key) {
+    try {
+      localStorage.removeItem(key);
+    } catch (e) {
+    }
+  }
+  var auth = () => load(AUTH_KEY, null);
+  var configured = () => !!MAL_CLIENT_ID;
+  var linked = () => {
+    const a = auth();
+    return !!(a && a.access);
+  };
+  function randomToken(length) {
+    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
+    const out = [];
+    if (window.crypto && window.crypto.getRandomValues) {
+      const buf = new Uint8Array(length);
+      window.crypto.getRandomValues(buf);
+      for (let i = 0; i < length; i += 1) out.push(alphabet[buf[i] % alphabet.length]);
+    } else {
+      for (let i = 0; i < length; i += 1) {
+        out.push(alphabet[Math.floor(Math.random() * alphabet.length)]);
+      }
+    }
+    return out.join("");
+  }
+  var redirectUri = () => `${window.location.origin}/`;
+  function startLogin() {
+    const verifier = randomToken(64);
+    const state2 = randomToken(32);
+    save(FLOW_KEY, { state: state2, verifier, at: Date.now() });
+    const params = new URLSearchParams({
+      response_type: "code",
+      client_id: MAL_CLIENT_ID,
+      state: state2,
+      redirect_uri: redirectUri(),
+      code_challenge: verifier,
+      code_challenge_method: "plain"
+    });
+    window.location.assign(`${AUTHORIZE}?${params.toString()}`);
+  }
+  var notice = "";
+  async function handleMalCallback() {
+    const query = new URLSearchParams(window.location.search);
+    const code = query.get("code");
+    const state2 = query.get("state");
+    const problem = query.get("error");
+    if (!code && !problem) return false;
+    const flow = load(FLOW_KEY, null);
+    drop(FLOW_KEY);
+    try {
+      window.history.replaceState(null, "", window.location.pathname + window.location.hash);
+    } catch (e) {
+    }
+    if (problem) {
+      notice = problem === "access_denied" ? "MyAnimeList sign-in was cancelled." : `MyAnimeList sign-in failed: ${problem}`;
+      return false;
+    }
+    if (!flow || !state2 || state2 !== flow.state) {
+      notice = "MyAnimeList sign-in state did not match \u2014 please try again.";
+      return false;
+    }
+    try {
+      const body = await tokenRequest({
+        grant_type: "authorization_code",
+        code,
+        code_verifier: flow.verifier,
+        redirect_uri: redirectUri()
+      });
+      save(AUTH_KEY, tokenState(body, null));
+      notice = "";
+      return true;
+    } catch (e) {
+      notice = `MyAnimeList sign-in failed: ${e.message}`;
+      return false;
+    }
+  }
+  function tokenState(body, previous) {
+    const ttl = Number(body.expires_in) > 0 ? Number(body.expires_in) * 1e3 : TTL_FALLBACK_MS;
+    return {
+      access: body.access_token,
+      // A successful refresh issues a new refresh token; the old one dies
+      // with it, so keeping the previous one would strand the next attempt.
+      refresh: body.refresh_token || previous && previous.refresh || null,
+      expiresAt: Date.now() + ttl
+    };
+  }
+  async function tokenRequest(fields) {
+    const params = new URLSearchParams({ client_id: MAL_CLIENT_ID, ...fields });
+    const res = await fetch(`/api/mal/token?${params.toString()}`, { method: "POST" });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok || !body.access_token) {
+      throw new Error(body.error_description || body.error || `status ${res.status}`);
+    }
+    return body;
+  }
+  var refreshing = null;
+  function refreshAccess() {
+    if (refreshing) return refreshing;
+    refreshing = (async () => {
+      const current = auth();
+      if (!current || !current.refresh) {
+        const err = new Error("session expired \u2014 link MyAnimeList again");
+        err.permanent = true;
+        throw err;
+      }
+      const body = await tokenRequest({
+        grant_type: "refresh_token",
+        refresh_token: current.refresh
+      });
+      const next = tokenState(body, current);
+      save(AUTH_KEY, next);
+      return next;
+    })().finally(() => {
+      refreshing = null;
+    });
+    return refreshing;
+  }
+  async function currentAccess() {
+    const a = auth();
+    if (!a || !a.access) {
+      const err = new Error("not linked");
+      err.permanent = true;
+      throw err;
+    }
+    if (a.expiresAt && Date.now() > a.expiresAt - 3e4) return refreshAccess();
+    return a;
+  }
+  async function mal(path, { method = "GET" } = {}, retry = true) {
+    const session = await currentAccess();
+    const res = await fetch(`/api/mal/v2${path}`, {
+      method,
+      headers: { authorization: `Bearer ${session.access}` }
+    });
+    if (res.status === 401 && retry) {
+      await refreshAccess();
+      return mal(path, { method }, false);
+    }
+    if (!res.ok) {
+      const detail = await res.json().catch(() => ({}));
+      const err = new Error(detail.error || `status ${res.status}`);
+      err.status = res.status;
+      throw err;
+    }
+    return res.status === 204 ? null : res.json();
+  }
+  async function resolveMalId(kind, id, title) {
+    if (id) return Number(id);
+    const cache = load(IDS_KEY, {});
+    const key = `${kind}:${String(title ?? "").toLowerCase()}`;
+    if (cache[key]) return cache[key];
+    const found = await mal(`/${kind}?q=${encodeURIComponent(title)}&limit=6&fields=id,title`);
+    const items = (found.data ?? []).map((x) => ({ id: Number(x.id), title: x.title ?? "" }));
+    const wanted = String(title ?? "").toLowerCase();
+    const exact = items.find((x) => x.title.toLowerCase() === wanted);
+    const starts = items.find((x) => x.title.toLowerCase().startsWith(wanted));
+    const hit = exact || starts || items[0];
+    if (!hit || !hit.id) return null;
+    cache[key] = hit.id;
+    save(IDS_KEY, cache);
+    return hit.id;
+  }
+  function getEntry(kind, id) {
+    return mal(`/${kind}/${id}/mylist_status`).catch((e) => {
+      if (e.status === 404) return null;
+      throw e;
+    });
+  }
+  function setEntry(kind, id, { status, score, progress }) {
+    const params = new URLSearchParams({ status });
+    if (score !== "" && score != null) params.set("score", String(Number(score)));
+    if (progress !== "" && progress != null) {
+      params.set(PROGRESS[kind].put, String(Number(progress)));
+    }
+    return mal(`/${kind}/${id}/mylist_status?${params.toString()}`, { method: "PUT" });
+  }
+  function removeEntry(kind, id) {
+    return mal(`/${kind}/${id}/mylist_status`, { method: "DELETE" });
+  }
+  var filling = /* @__PURE__ */ new WeakSet();
+  function statusOptions(kind, selected) {
+    return STATUSES[kind].map(([value, label2]) => `<option value="${value}"${value === selected ? " selected" : ""}>${label2}</option>`).join("");
+  }
+  function slotLinkHtml() {
+    return '<div class="mal-box" data-state="idle"><div class="mal-head"><span>MyAnimeList</span></div><button class="chip mal-link" type="button">Link account to track</button></div>';
+  }
+  function slotFormHtml(kind, entry) {
+    const progress = PROGRESS[kind];
+    const score = entry && entry.score ? String(entry.score) : "";
+    const current = entry && entry.status ? entry.status : "";
+    const read = entry ? String(entry[progress.get] ?? "") : "";
+    return `<div class="mal-box" data-state="ready" data-entry="${entry ? "1" : "0"}">
+    <div class="mal-head"><span>MyAnimeList</span><span class="mal-entry">${entry ? "on your list" : "not on your list"}</span></div>
+    <div class="mal-controls">
+      <select class="mal-status" aria-label="MyAnimeList status">
+        <option value=""${current ? "" : " selected"} disabled>Choose status\u2026</option>
+        ${statusOptions(kind, current)}
+      </select>
+      <select class="mal-score" aria-label="MyAnimeList score">
+        <option value=""${score ? "" : " selected"}>score: \u2014</option>
+        ${[10, 9, 8, 7, 6, 5, 4, 3, 2, 1].map((n) => `<option value="${n}"${score === String(n) ? " selected" : ""}>score: ${n}</option>`).join("")}
+      </select>
+      <input class="mal-prog" type="number" min="0" inputmode="numeric"
+             placeholder="${progress.label}" value="${esc(read)}" aria-label="${progress.label}">
+      <button class="chip mal-save" type="button">Save</button>
+      <button class="chip mal-remove" type="button"${entry ? "" : " hidden"}>Remove</button>
+    </div>
+    <p class="mal-msg" hidden></p>
+  </div>`;
+  }
+  function slotMessage(slot, text, tone) {
+    const msg = slot.querySelector(".mal-msg");
+    if (!msg) return;
+    msg.hidden = !text;
+    msg.textContent = text || "";
+    if (tone) msg.dataset.tone = tone;
+  }
+  async function fillMalSlot(slot) {
+    if (!configured() || filling.has(slot)) return;
+    filling.add(slot);
+    try {
+      if (!linked()) {
+        slot.innerHTML = slotLinkHtml();
+        slot.querySelector(".mal-link").addEventListener("click", startLogin);
+        return;
+      }
+      const kind = slot.dataset.malKind === "manga" ? "manga" : "anime";
+      const title = slot.dataset.malTitle ?? "";
+      slot.innerHTML = '<div class="mal-box" data-state="loading"><div class="mal-head"><span>MyAnimeList</span><span class="mal-entry">looking this up\u2026</span></div></div>';
+      const id = await resolveMalId(kind, slot.dataset.malId || "", title);
+      if (!slot.isConnected) return;
+      if (!id) {
+        slot.innerHTML = '<div class="mal-box" data-state="none"><div class="mal-head"><span>MyAnimeList</span><span class="mal-entry">no match for this title</span></div></div>';
+        return;
+      }
+      const entry = await getEntry(kind, id);
+      if (!slot.isConnected) return;
+      renderSlotForm(slot, kind, id, entry);
+    } catch (e) {
+      if (!slot.isConnected) return;
+      slot.innerHTML = "";
+      const box = document.createElement("div");
+      box.className = "mal-box";
+      box.dataset.state = "error";
+      box.innerHTML = `<div class="mal-head"><span>MyAnimeList</span><span class="mal-entry">${esc(e.message)}</span></div>`;
+      slot.appendChild(box);
+    } finally {
+      filling.delete(slot);
+    }
+  }
+  function renderSlotForm(slot, kind, id, entry) {
+    slot.innerHTML = slotFormHtml(kind, entry);
+    const status = slot.querySelector(".mal-status");
+    const score = slot.querySelector(".mal-score");
+    const prog = slot.querySelector(".mal-prog");
+    slot.querySelector(".mal-save").addEventListener("click", async () => {
+      if (!status.value) {
+        slotMessage(slot, "Pick a status first.", "bad");
+        return;
+      }
+      const button = slot.querySelector(".mal-save");
+      button.disabled = true;
+      try {
+        const updated = await setEntry(kind, id, {
+          status: status.value,
+          score: score.value,
+          progress: prog.value
+        });
+        renderSlotForm(slot, kind, id, updated);
+        slotMessage(slot, "Saved to MyAnimeList.", "good");
+      } catch (e) {
+        button.disabled = false;
+        slotMessage(slot, `Could not save \u2014 ${e.message}`, "bad");
+      }
+    });
+    const remove = slot.querySelector(".mal-remove");
+    if (remove) {
+      remove.addEventListener("click", async () => {
+        remove.disabled = true;
+        try {
+          await removeEntry(kind, id);
+          renderSlotForm(slot, kind, id, null);
+          slotMessage(slot, "Removed from your list.", "");
+        } catch (e) {
+          remove.disabled = false;
+          slotMessage(slot, `Could not remove \u2014 ${e.message}`, "bad");
+        }
+      });
+    }
+  }
+  function watchSlots() {
+    document.querySelectorAll(".mal-slot").forEach(fillMalSlot);
+    if (!document.documentElement) return;
+    new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of record.addedNodes) {
+          if (node.nodeType !== 1) continue;
+          if (node.matches && node.matches(".mal-slot")) fillMalSlot(node);
+          if (node.querySelectorAll) node.querySelectorAll(".mal-slot").forEach(fillMalSlot);
+        }
+      }
+    }).observe(document.documentElement, { childList: true, subtree: true });
+  }
+  async function fillMalSettings() {
+    const who = document.getElementById("mal-user");
+    if (!who) return;
+    const note = document.getElementById("mal-note");
+    const link = document.getElementById("mal-link");
+    const unlink = document.getElementById("mal-unlink");
+    if (!configured()) {
+      who.textContent = "not configured";
+      if (note) {
+        note.hidden = false;
+        note.textContent = "This build has no MyAnimeList client id, so tracking is switched off. Register an application at myanimelist.net/apiconfig and set its id in the client to turn it on.";
+      }
+      link.hidden = true;
+      unlink.hidden = true;
+      return;
+    }
+    if (!linked()) {
+      who.textContent = "not linked";
+      link.hidden = false;
+      unlink.hidden = true;
+      if (note) {
+        note.hidden = !notice;
+        if (notice) note.textContent = notice;
+      }
+      return;
+    }
+    try {
+      const me = await mal("/users/@me");
+      who.textContent = `@${me.name}`;
+      link.hidden = true;
+      unlink.hidden = false;
+      if (note) note.hidden = true;
+    } catch (e) {
+      who.textContent = e.permanent ? "not linked" : "unreachable";
+      link.hidden = e.permanent ? false : true;
+      unlink.hidden = false;
+      if (note) {
+        note.hidden = false;
+        note.textContent = e.permanent ? "The MyAnimeList session expired \u2014 link again." : `MyAnimeList: ${e.message}`;
+      }
+    }
+  }
+  document.addEventListener("click", (e) => {
+    const go = e.target.closest("[data-go]");
+    if (go && go.dataset.go === "settings") fillMalSettings();
+  });
+  (() => {
+    const link = document.getElementById("mal-link");
+    const unlink = document.getElementById("mal-unlink");
+    if (link) link.addEventListener("click", startLogin);
+    if (unlink) {
+      unlink.addEventListener("click", () => {
+        drop(AUTH_KEY);
+        drop(IDS_KEY);
+        notice = "MyAnimeList unlinked from this device.";
+        fillMalSettings();
+      });
+    }
+  })();
+  watchSlots();
+
   // client/src/boot.js
   document.addEventListener("error", (e) => {
     var _a10;
@@ -6768,6 +7352,10 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
   }, true);
   $$(".rail").forEach(makeDraggable);
   (async () => {
+    try {
+      await handleMalCallback();
+    } catch (e) {
+    }
     fillSettings();
     try {
       await Promise.all([loadTags(), loadBrands(), loadFeatured(), ensureAnime()]);

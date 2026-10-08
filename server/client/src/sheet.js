@@ -122,6 +122,7 @@ async function openVideo(slug) {
         </section>
       </div>
       <aside class="detail-side">
+        <div class="mal-slot" data-mal-kind="anime" data-mal-title="${esc(v.name)}"></div>
         <div class="detail-tags">${tags}</div>
         <p class="detail-desc">${desc}</p>
       </aside>

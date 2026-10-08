@@ -139,7 +139,7 @@ function catalogQuery({ q, page, genre, format, status }) {
 const DETAILS_QUERY = `
   query ($id: Int) {
     Media(id: $id, type: ANIME) {
-      id title { romaji } description(asHtml: false) episodes averageScore
+      id idMal title { romaji } description(asHtml: false) episodes averageScore
       startDate { year } format status genres
       coverImage { large } bannerImage
       recommendations(perPage: 10, sort: [RATING_DESC]) {
@@ -169,6 +169,9 @@ function shapeCard(m) {
 function shapeDetails(m) {
   return {
     ...shapeCard(m),
+    // AniList carries MAL's own id for the title — one field, and the
+    // tracking row never has to search by name for the anime area.
+    malId: m.idMal ?? null,
     description: (m.description ?? '')
       .replace(/<br\s*\/?>/gi, '\n')
       .replace(/<[^>]+>/g, ' ')

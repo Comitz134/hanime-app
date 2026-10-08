@@ -27,6 +27,7 @@ import { buildIndex, searchPlaylists, allItems } from './playlists.mjs';
 import { crawl, crawlLock, loadIndex as loadCrawlIndex, indexStats as crawlStats } from './playlist-crawl.mjs';
 import { versionPayload, streamApk } from './app-release.mjs';
 import { handleAnime } from './anime.mjs';
+import { handleMalApi, handleMalToken } from './mal.mjs';
 import {
   searchPlaylists as searchPublicPlaylists,
   getPlaylist as getPublicPlaylist,
@@ -718,6 +719,11 @@ const server = http.createServer(async (req, res) => {
 
     // Manga reader pages, proxied with the Referer their CDN demands.
     if (pathname === '/api/manga/page') return await handleMangaPage(url, res);
+
+    // MyAnimeList: the PKCE exchange and the API pipe. MAL answers no
+    // browser origin, so every tracking call crosses the server here.
+    if (pathname === '/api/mal/token') return await handleMalToken(url, req, res);
+    if (pathname.startsWith('/api/mal/v2/')) return await handleMalApi(url, req, res, pathname);
 
     // Normal (non-adult) anime: AniList catalog + LunarX episodes/player.
     if (pathname.startsWith('/api/anime/')) return await handleAnime(url, res, pathname);

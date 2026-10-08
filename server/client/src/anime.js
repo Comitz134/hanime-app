@@ -204,6 +204,7 @@ async function openAnime(id, ep = 1) {
       <aside class="detail-side">
         <div class="side-row"><span class="side-chip" id="side-chip"></span></div>
         <h3 class="side-title" id="side-ep-title"></h3>
+        <div class="mal-slot" data-mal-kind="anime" data-mal-id="${details.malId ?? ''}" data-mal-title="${esc(details.title)}"></div>
         <div class="detail-label">Description</div>
         <p class="detail-desc" id="side-ep-desc"></p>
         <div class="detail-tags">${genres}</div>

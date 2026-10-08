@@ -509,6 +509,71 @@ Applied as `body[data-theme]`, `body[data-accent]` and `body[data-motion]`.
 The choices survive a restart and a self-update because they live in
 app-owned storage, and a storage that refuses simply keeps the defaults.
 
+### 7.3 Tracking on MyAnimeList
+
+One list, three areas: the anime shelf (AniList's own `idMal`), the manga shelf
+(mangafire's `malId` when the title carries one, a one-time title search when
+it does not) and the 18+ shelf (title search) all render the same tracking row
+inside a detail sheet, and all of them write to the same MyAnimeList list.
+Settings → MyAnimeList holds the account: link, unlink, and the reason when
+something failed.
+
+**Two credentials, and only one of them is a secret.**
+
+| Piece | Where it lives | Why there |
+|---|---|---|
+| client id | `server/client/src/mal.js` (`MAL_CLIENT_ID`), compiled into both copies of `index.html` | a client id is public — it rides in every authorize URL |
+| client secret | `.env` as `MAL_CLIENT_SECRET` (server), `local.properties` as `malClientSecret` (app → `BuildConfig`) | never in version control; both are gitignored |
+
+A **public** (PKCE) registration issues no secret and the token route simply
+omits the field. A **web service** registration does issue one, MAL then refuses
+the exchange without it (`401 invalid_client`), and that secret ends up inside
+the APK — readable by anyone who downloads the release. Nothing of the reader's
+own leaks with it: the tokens stay on the device, and redeeming a code still
+needs the pre-registered redirect URI to come back to the app. Registering a
+PKCE client instead is the way to ship no secret at all.
+
+**Redirect URIs — MAL matches them exactly, and both are registered:**
+
+| URI | Which copy uses it |
+|---|---|
+| `https://hanime.tv/` | the app: `MainActivity` loads the bundled client at that origin from assets |
+| `http://localhost:8787/` | the server copy, on whatever port `PORT` says |
+
+The flow is authorization-code with PKCE, `code_challenge_method=plain` — the
+only method MAL supports. The login page opens as a normal navigation, and
+`shouldOverrideUrlLoading` lets exactly two things through: the app's own origin
+and `*.myanimelist.net`. Everything else http(s) is still swallowed, so an
+injected ad overlay cannot borrow the same door.
+
+Neither backend stores anything: `/api/mal/token` performs the exchange (fields
+allowlisted, the secret added server-side) and `/api/mal/v2/…` forwards the
+caller's own bearer token. Both are query-only, because Android's WebView
+interceptor is never handed a request body, and both refuse a foreign browser
+origin — this server must not be borrowable as an open relay.
+
+Measured against the live endpoints, no account needed:
+
+- the authorize URL answers `303 → login.php?from=/dialog/authorization` for
+  this client id and both redirect URIs, while a bogus client id or an
+  unregistered redirect URI answers `401`. That is how the registration was
+  checked without a login.
+- through the **server** relay: the exchange reached MAL's own complaint about
+  the code (`400 … "Cannot decrypt the authorization code"`) — client
+  authentication passed — and `/api/mal/v2/users/@me` with a bogus token came
+  back `401 {"error":"invalid_token"}`.
+- through the **in-app** relay, driven from the page: the same two answers,
+  plus `401 "The refresh token is invalid."` — which is the check that the
+  secret actually reached `BuildConfig`.
+- **back out of the sign-in works.** Pressing back on MAL's login page returns
+  to the app. Worth stating because the WebView reports *no* history for that
+  page even though the page's own `history.length` is 2, so the shell walks the
+  history when there is one and reloads its own page when there is not.
+
+Not verified here: a completed sign-in and a written list entry. Both need the
+reader's MAL account, so the last mile is theirs — everything up to the login
+page, and both pipes, are what is measured above.
+
 ---
 
 ## 8. Verified on a device

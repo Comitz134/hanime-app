@@ -661,3 +661,55 @@ test('the bundled signer parses on the WebViews this app runs inside', () => {
     'private class member survives: regenerate the asset',
   );
 });
+
+// Tracking is one concern across three areas — anime (AniList's idMal),
+// manga (mangafire's malId) and the 18+ shelf (resolved by title) — and it
+// must never leave the app: the login is a navigation, the exchange and the
+// API are pipes through our own backends, and the tokens stay client-side.
+test('MyAnimeList tracking reaches every area without leaving the app', () => {
+  const script = inlineScripts(html)[0];
+
+  // The settings card, and the four ids its states are written into.
+  for (const id of ['mal-card', 'mal-user', 'mal-link', 'mal-unlink', 'mal-note']) {
+    assert.ok(html.includes(` id="${id}"`), `missing #${id}`);
+  }
+
+  // The login: MAL's authorize endpoint, PKCE with the only challenge
+  // method it supports, and a redirect back to this copy's own origin.
+  assert.ok(/myanimelist\.net\/v1\/oauth2\/authorize/.test(script),
+    'no authorize endpoint');
+  assert.ok(/code_challenge_method:\s*["']plain["']/.test(script),
+    'PKCE must use MAL\'s plain challenge');
+  assert.ok(/location\.origin/.test(script),
+    'the redirect must return to the origin that started the flow');
+  assert.ok(/await handleMalCallback\(\)/.test(script),
+    'the redirect lands nowhere: the code is never exchanged');
+
+  // Everything else crosses our own pipes — MAL answers no browser origin.
+  assert.ok(/\/api\/mal\/token/.test(script), 'the exchange misses the pipe');
+  assert.ok(/`\/api\/mal\/v2\$\{path\}`/.test(script), 'the API misses the pipe');
+  assert.ok(/grant_type:\s*["']refresh_token["']/.test(script),
+    'a one-hour access token with no refresh is a one-hour feature');
+
+  // A slot in each area's detail sheet: anime and 18+ by AniList's idMal,
+  // manga by mangafire's own malId on the title.
+  assert.ok(/data-mal-kind="manga"/.test(script), 'manga detail has no tracking slot');
+  const animeSlots = script.match(/data-mal-kind="anime"/g) ?? [];
+  assert.ok(animeSlots.length >= 2,
+    'the anime and 18+ detail pages each need a tracking slot');
+  assert.ok(/data-mal-id="\$\{[^}]*malId/.test(script),
+    'a known MAL id must reach the slot instead of a title search');
+
+  // MAL's own status spellings — anything else is refused upstream.
+  const statuses = ['watching', 'completed', 'on_hold', 'dropped', 'plan_to_watch',
+    'reading', 'plan_to_read'];
+  for (const status of statuses) {
+    const quoted = script.includes(`"${status}"`) || script.includes(`'${status}'`);
+    assert.ok(quoted, `missing MAL status ${status}`);
+  }
+
+  // Progress writes the field MAL reads: episodes watched for anime,
+  // chapters read for manga.
+  assert.ok(script.includes('num_watched_episodes'), 'anime progress has no field');
+  assert.ok(script.includes('num_chapters_read'), 'manga progress has no field');
+});

@@ -19,7 +19,10 @@ if (!scriptPath) {
 }
 
 const script = fs.readFileSync(scriptPath, 'utf8');
-const list = await (await fetch('http://localhost:9222/json')).json();
+// /json/list, not the old /json alias: the alias answers a bare 302, and
+// fetch does not follow it out of habit — the list came back empty on a
+// WebView new enough to have dropped it.
+const list = await (await fetch('http://localhost:9222/json/list')).json();
 const target = list.find((t) => t.url === 'https://hanime.tv/');
 if (!target) {
   console.error('no https://hanime.tv/ target. targets: '

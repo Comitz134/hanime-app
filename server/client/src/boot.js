@@ -8,6 +8,7 @@
 
 import { $, $$, esc } from './core.js';
 import { ensureAnime } from './anime.js';
+import { handleMalCallback } from './mal.js';
 import { loadBrands, loadFeatured, loadGrid, loadTags } from './data.js';
 import { loadOwnIndex } from './pl-hits.js';
 import { loadSession } from './playlists.js';
@@ -33,6 +34,14 @@ $$('.rail').forEach(makeDraggable);
 // syntax error kills the whole script, so the page came up blank. Everything
 // from Chromium 61 runs when it is wrapped like this.
 (async () => {
+  // Before anything else: a MyAnimeList redirect lands here with a code in
+  // the query. The code is exchanged (and the address bar cleaned) first, so
+  // a reload can never replay it and the settings rows below open already
+  // knowing whether the account is linked.
+  try {
+    await handleMalCallback();
+  } catch (e) { /* a failed exchange is reported by the settings card */ }
+
   // Before any network: the settings rows are local facts about the build,
   // not something a slow catalog should hold up.
   fillSettings();

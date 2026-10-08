@@ -182,6 +182,7 @@ function renderDetail() {
         <div class="mf-facts">
           ${facts.map(([k, v]) => `<div class="mf-fact"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('')}
         </div>
+        <div class="mal-slot" data-mal-kind="manga" data-mal-id="${d.malId ?? ''}" data-mal-title="${esc(d.title)}"></div>
       </aside>
     </div>`;
 

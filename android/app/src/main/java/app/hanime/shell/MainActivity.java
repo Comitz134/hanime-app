@@ -668,6 +668,24 @@ public class MainActivity extends Activity {
             lastBackConsumed = true;
             return true;
         }
+        // A page from somewhere else — the MyAnimeList sign-in, the only one
+        // the shell still walks to — is its own history, and the app's stack
+        // is behind it, not a step of it. Back belongs to the page on screen:
+        // otherwise a reader who decides not to sign in would spend presses
+        // closing sheets they cannot see.
+        if (web != null && web.getUrl() != null && !web.getUrl().startsWith(currentBase())) {
+            // Measured on the emulator: after the MyAnimeList sign-in page
+            // arrives through its redirect, the WebView reports no history to
+            // walk even though the sign-in page's own history has two entries
+            // — so the press cannot be spent on canGoBack(). Walking it when
+            // there is somewhere to walk, and reloading the app's own page
+            // when there is not, leaves the reader in the app either way.
+            Log.i(TAG, "back off a foreign page: " + web.getUrl());
+            if (web.canGoBack()) web.goBack();
+            else loadServer();
+            lastBackConsumed = true;
+            return true;
+        }
         if (backEnabled && web != null) {
             // The page walks its own stack one step — closing its sheet,
             // stepping a chapter back, or returning to the previous view —
@@ -807,15 +825,24 @@ public class MainActivity extends Activity {
             Uri uri = request.getUrl();
             String scheme = uri.getScheme() == null ? "" : uri.getScheme();
 
-            // Anything outside the shell's own pages goes to the real browser:
-            // an in-app WebView with no address bar is the wrong place to end up
-            // on an external site.
             boolean httpish = scheme.equals("http") || scheme.equals("https");
             if (httpish && uri.toString().startsWith(currentBase())) {
                 return false;
             }
+            // MyAnimeList signs the user in through its own pages, and the
+            // redirect back lands on currentBase — those two are the only
+            // external http(s) loads this shell still performs.
+            if (httpish && isMalLoginHost(uri.getHost())) {
+                return false;
+            }
+            // Everything else http(s) is swallowed, never handed to the
+            // browser: an invisible ad overlay — or any injected link at all —
+            // must not be able to pop the browser open on an ad. In-page
+            // external navigation has no legitimate caller (the client renders
+            // no external anchors; the ⋮ menu's "Open in browser" is an
+            // explicit action with its own intent and still works).
             if (httpish) {
-                startNow(new Intent(Intent.ACTION_VIEW, uri));
+                Log.i(TAG, "suppressed external navigation: " + uri);
                 return true;
             }
             // tel:, mailto:, intent: and the rest.
@@ -839,6 +866,13 @@ public class MainActivity extends Activity {
             CharSequence description = error.getDescription();
             Log.w(TAG, "main frame failed: " + description);
             showError(getString(R.string.webview_unreachable, currentBase()));
+        }
+
+        /** Hosts the MyAnimeList login may arrive from (their pages live on
+         *  myanimelist.net; subdomains count because redirects roam). */
+        private boolean isMalLoginHost(String host) {
+            return host != null
+                    && (host.equals("myanimelist.net") || host.endsWith(".myanimelist.net"));
         }
     }
 

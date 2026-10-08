@@ -132,7 +132,7 @@ final class Anime {
     private static final String DETAILS_QUERY =
             "\n  query ($id: Int) {\n"
             + "    Media(id: $id, type: ANIME) {\n"
-            + "      id title { romaji } description(asHtml: false) episodes averageScore\n"
+            + "      id idMal title { romaji } description(asHtml: false) episodes averageScore\n"
             + "      startDate { year } format status genres\n"
             + "      coverImage { large } bannerImage\n"
             + "      recommendations(perPage: 10, sort: [RATING_DESC]) {\n"
@@ -379,6 +379,10 @@ final class Anime {
 
     static JSONObject shapeDetails(JSONObject m) throws JSONException {
         JSONObject out = shapeCard(m);
+        // AniList carries MAL's own id for the title — one field, and the
+        // tracking row never has to search by name for the anime area.
+        Object malId = m.opt("idMal");
+        out.put("malId", malId == null || malId == JSONObject.NULL ? JSONObject.NULL : malId);
         out.put("description", flattenDescription(m.optString("description", "")));
         JSONArray recs = new JSONArray();
         JSONObject recommendations = m.optJSONObject("recommendations");

@@ -67,7 +67,7 @@ final class ApiServer {
 
         try {
             if (path.equals("/relay")) return HlsRelay.handle(firsts(query));
-            if (path.startsWith("/api/")) return api(path, query);
+            if (path.startsWith("/api/")) return api(path, query, request);
             // Library covers, answered from the app's own storage. Checked
             // before assets so the two can never be confused: nothing under
             // /covers/ is ever served out of the APK.
@@ -83,7 +83,8 @@ final class ApiServer {
 
     // ------------------------------------------------------------------ api
 
-    private WebResourceResponse api(String path, Map<String, List<String>> q) throws Exception {
+    private WebResourceResponse api(String path, Map<String, List<String>> q,
+                                    WebResourceRequest request) throws Exception {
         if (path.equals("/api/videos")) return json(200, Catalog.videos(q));
         if (path.equals("/api/tags")) return json(200, Catalog.tags());
         if (path.equals("/api/brands")) return json(200, Catalog.brands());
@@ -119,6 +120,25 @@ final class ApiServer {
         // straight from the page (their JSON API answers any origin).
         if (path.equals("/api/manga/page")) return MangaPage.serve(firsts(q).get("u"));
 
+        // MyAnimeList: the PKCE exchange and the API pipe. MAL answers no
+        // browser origin, so every tracking call crosses Java here — same
+        // query-only contract as the Node server's /api/mal routes (Mal.java).
+        if (path.equals("/api/mal/token")) {
+            if (!"POST".equals(request.getMethod())) {
+                return json(405, "{\"error\":\"method_not_allowed\"}");
+            }
+            Mal.Result r = Mal.token(request.getUrl().getEncodedQuery());
+            return json(r.status, r.body);
+        }
+        if (path.startsWith("/api/mal/")) {
+            Mal.Result r = Mal.api(
+                    path.substring("/api/mal/".length()),
+                    request.getUrl().getEncodedQuery(),
+                    request.getMethod(),
+                    header(request, "Authorization"));
+            return json(r.status, r.body);
+        }
+
         if (path.equals("/api/session")) {
             // No account cookie pasted yet; the client renders its connect card.
             return json(200, "{\"configured\":false,\"playlists\":[],\"stats\":{}}");
@@ -139,6 +159,16 @@ final class ApiServer {
     }
 
     // --------------------------------------------------------------- assets
+
+    /** Case-insensitive request-header lookup: fetch sends lowercase. */
+    private static String header(WebResourceRequest request, String name) {
+        Map<String, String> headers = request.getRequestHeaders();
+        if (headers == null) return null;
+        for (Map.Entry<String, String> e : headers.entrySet()) {
+            if (e.getKey().equalsIgnoreCase(name)) return e.getValue();
+        }
+        return null;
+    }
 
     /**
      * Parse a query string the way URLSearchParams does: repeated keys collect,

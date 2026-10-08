@@ -46,6 +46,9 @@ afterEach(() => { globalThis.fetch = realFetch; });
 
 const anilistCard = {
   id: 99001,
+  // AniList's cross-reference to the MAL entry — the tracking row's direct
+  // id for the anime area, no title search needed.
+  idMal: 20,
   title: { romaji: 'Test no Hito' },
   episodes: 12,
   averageScore: 81,
@@ -151,6 +154,8 @@ test('details carry the description text and the recommendations', async () => {
   assert.ok(res.json.details.description.includes('line break'));
   assert.equal(res.json.details.recommendations[0].id, 99002);
   assert.equal(res.json.details.recommendations[0].title, 'Rec no Hito');
+  assert.equal(res.json.details.malId, 20,
+    'the MAL id must reach the client or tracking searches by name');
   assert.ok(res.json.details.recommendations.every((r) => r.id !== res.json.details.id),
     'the watched title must never appear in its own recommendations');
 });

@@ -6,6 +6,9 @@
 // code calls a function from another module. Top-level statements are DOM
 // listener registrations, plain initialisers and the boot IIFE in boot.js,
 // which is listed last and imports everything it drives.
+// Ad guard first: it must patch the DOM before any other module's top-level
+// code runs — vendor chunks included (see ad-guard.js for what it stops).
+import './ad-guard.js';
 import './core.js';
 import './prefs.js';
 import './shell.js';
@@ -23,6 +26,7 @@ import './views.js';
 import './rails.js';
 import './menu.js';
 import './settings.js';
+import './mal.js';
 import './anime.js';
 import './manga.js';
 import './wiring.js';

@@ -17,6 +17,16 @@ if (keystorePropsFile.exists()) {
     keystorePropsFile.withInputStream { keystoreProps.load(it) }
 }
 
+// Optional MyAnimeList client secret. MAL issues one to "web service"
+// registrations and none to public (PKCE) clients — when there is none the
+// field stays empty and the token route omits it. Kept in local.properties
+// (gitignored, like sdk.dir) so a secret never lands in version control.
+def localPropsFile = rootProject.file('local.properties')
+def localProps = new Properties()
+if (localPropsFile.exists()) {
+    localPropsFile.withInputStream { localProps.load(it) }
+}
+
 android {
     namespace 'app.hanime.shell'
     compileSdk 34
@@ -25,8 +35,8 @@ android {
         applicationId 'app.hanime.shell'
         minSdk 26          // adaptive icons + modern WebView APIs; Android 8.0+
         targetSdk 34
-        versionCode 17
-        versionName '1.0.16'
+        versionCode 18
+        versionName '1.0.17'
 
         // Where the updater asks for new builds. Empty means "no update source
         // configured": the check reports that instead of dialling a dead host.
@@ -57,6 +67,12 @@ android {
         // Kept for the settings screen's "use the default" shortcut.
         buildConfigField 'String', 'DEFAULT_SERVER_URL',
                 '"' + (project.findProperty('serverUrl') ?: 'http://10.0.2.2:8787') + '"'
+
+        // MyAnimeList client secret, if the registration issued one. Empty
+        // for public PKCE clients, which need no secret at all.
+        def malSecret = (localProps.getProperty('malClientSecret') ?: '')
+                .replace('\\', '\\\\').replace('"', '\\"')
+        buildConfigField 'String', 'MAL_CLIENT_SECRET', '"' + malSecret + '"'
     }
 
     signingConfigs {

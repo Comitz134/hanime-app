@@ -88,6 +88,9 @@ public class AnimeTest {
 
     private static final String ANILIST_CARD = "{"
             + "\"id\": 99001,"
+            // AniList's cross-reference to the MAL entry — the tracking row's
+            // direct id for the anime area, no title search needed.
+            + "\"idMal\": 20,"
             + "\"title\": {\"romaji\": \"Test no Hito\"},"
             + "\"episodes\": 12,"
             + "\"averageScore\": 81,"
@@ -192,6 +195,8 @@ public class AnimeTest {
         JSONArray recs = details.getJSONArray("recommendations");
         assertEquals(99002, recs.getJSONObject(0).getInt("id"));
         assertEquals("Rec no Hito", recs.getJSONObject(0).getString("title"));
+        assertEquals("the MAL id must reach the client or tracking searches by name",
+                20, details.getInt("malId"));
         for (int i = 0; i < recs.length(); i++) {
             assertNotEquals("the watched title must never appear in its own recommendations",
                     details.getInt("id"), recs.getJSONObject(i).getInt("id"));
