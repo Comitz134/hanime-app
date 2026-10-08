@@ -34,6 +34,12 @@
   position: absolute; inset: 0; display: grid; place-items: center;
   font-size: .6875rem; color: hsl(var(--muted-foreground)); padding: .5rem; text-align: center;
 }
+/* The fallback is the *name over the frame*, shown only when the cover fails
+   to load (boot.js drops the hidden attribute on error). An author
+   `display` beats the UA's [hidden] rule, so without this line the name
+   sits on top of every healthy cover as well — twice, since card-body
+   already carries it underneath. */
+.card-fallback[hidden] { display: none; }
 .card-scrim {
   position: absolute; inset-inline: 0; bottom: 0; height: 55%;
   background: linear-gradient(to top, hsl(var(--background) / .92), transparent);

@@ -26,7 +26,6 @@ function animeCardHtml(m) {
       <img loading="lazy" decoding="async" src="${esc(m.cover ?? '')}" alt="">
       <div class="card-fallback" hidden>${esc(m.title)}</div>
       <div class="card-scrim"></div>
-      ${m.score ? `<span class="card-badge">${esc(String(m.score))}</span>` : ''}
       <div class="card-play"><span>
         <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
       </span></div>

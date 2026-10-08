@@ -158,17 +158,17 @@ sha256sum "$APK"
 Current build:
 
 ```
-package: name='app.hanime.shell' versionCode='12' versionName='1.0.11'
+package: name='app.hanime.shell' versionCode='13' versionName='1.0.12'
 sdkVersion:'26'   targetSdkVersion:'34'
 launchable-activity: name='app.hanime.shell.MainActivity'
 permissions: INTERNET, ACCESS_NETWORK_STATE, REQUEST_INSTALL_PACKAGES, POST_NOTIFICATIONS
 Verifies / v2 scheme: true / signer CN=hanime shell (unchanged)
-1,307,742 bytes / sha256 148ab8f35133a8d6e8d0c25bdcfc7d9bcea55bcdd2cfac0f28b383f828ccdddc
-  assets/index.html 123,793 bytes sha256 195dbff7b107177ca2f1195e0b0dd94c0162676e1ce8aef31f32287dc9bb4d6c
+1,307,914 bytes / sha256 ab5c6bc2853c246d21a6b50af9129d0d783000f7f1716b584deeea9b9dc42c0a
+  assets/index.html 124,082 bytes sha256 dc880c20145d6d2cf6f9f35a23ee665c452b2623e7b36e35d782746f26138565
   assets/hls.min.js 413,952 bytes sha256 484054e8cd03d3f6d1781fb7f402bdc318d8a4c527f933a95c624e27cc9a9470
 ```
 
-The bundled client's digest above is the one that shipped in the published v12
+The bundled client's digest above is the one that shipped in the published v13
 APK — read back out of the packaged file, not assumed — and it is byte-identical
 to `server/public/index.html` in this tree. The digest changes with every client
 edit; the freshness guard in the test suite is what keeps the server and APK
