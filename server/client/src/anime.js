@@ -293,10 +293,17 @@ document.addEventListener('keydown', (e) => {
 });
 
 // First landing on the view loads the shelf; revisits keep what was searched.
+// The shelf can also be the view the page opens on, which no click announces,
+// so the boot asks for it directly — one flag keeps either path to one load.
 let animeLoaded = false;
+function ensureAnime() {
+  if (animeLoaded) return;
+  animeLoaded = true;
+  loadAnime(1);
+}
 document.addEventListener('click', (e) => {
   const go = e.target.closest('[data-go]');
-  if (go && go.dataset.go === 'anime' && !animeLoaded) { animeLoaded = true; loadAnime(1); }
+  if (go && go.dataset.go === 'anime') ensureAnime();
 });
 
-export { loadAnime, searchAnime, openAnime };
+export { loadAnime, searchAnime, openAnime, ensureAnime };

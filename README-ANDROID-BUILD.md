@@ -158,17 +158,17 @@ sha256sum "$APK"
 Current build:
 
 ```
-package: name='app.hanime.shell' versionCode='15' versionName='1.0.14'
+package: name='app.hanime.shell' versionCode='16' versionName='1.0.15'
 sdkVersion:'26'   targetSdkVersion:'34'
 launchable-activity: name='app.hanime.shell.MainActivity'
 permissions: INTERNET, ACCESS_NETWORK_STATE, REQUEST_INSTALL_PACKAGES, POST_NOTIFICATIONS
 Verifies / v2 scheme: true / signer CN=hanime shell (unchanged)
-1,307,966 bytes / sha256 b5fe161e0bb7adb42ae2076dae5fb46a93ace3beeafb78064033f2db0206a40d
-  assets/index.html 124,082 bytes sha256 dc880c20145d6d2cf6f9f35a23ee665c452b2623e7b36e35d782746f26138565
+1,309,982 bytes / sha256 317bcc965c7325c52d1cf8ce5b4894df77666937ae9bc3ca5cdb4d71a4d2b589
+  assets/index.html 136,427 bytes sha256 57e1f52d23fc2f2f1e60d09ca315488cdc608a2f61b5f19376c23138ce176bc8
   assets/hls.min.js 413,952 bytes sha256 484054e8cd03d3f6d1781fb7f402bdc318d8a4c527f933a95c624e27cc9a9470
 ```
 
-The bundled client's digest above is the one that shipped in the published v14
+The bundled client's digest above is the one that shipped in the published v15
 APK — read back out of the packaged file, not assumed — and it is byte-identical
 to `server/public/index.html` in this tree. The digest changes with every client
 edit; the freshness guard in the test suite is what keeps the server and APK
@@ -258,7 +258,7 @@ Where it looks is configurable:
   to beta always asks a URL that exists, never a phantom. Build-time override:
   `-PbetaUrl=…` → `BuildConfig.BETA_URL`.
 - build time: `-PupdateUrl=…` → `BuildConfig.UPDATE_URL` (the stable default)
-- runtime: **⋮ menu → Update source** (stored in `SharedPreferences`, wins over
+- runtime: **Settings → Update source** (stored in `SharedPreferences`, wins over
   both —
   unless it cannot be reached, in which case §6.1 applies)
 
@@ -320,7 +320,7 @@ stated again in the dialog that leads to an install.
 
 7. **Every check leaves a record, and the screen shows it.** `Updater.check`
    writes the outcome through `UpdateLog` before anyone is told about it, so a
-   check from any path is recorded. **⋮ → Update source** now opens on three
+   check from any path is recorded. **Settings → Update source** now opens on three
    lines — installed build, the source actually in use, and when the last check
    ran and what it said — with **Check now** (which hands a found update back to
    the app to download, rather than duplicating that flow) and **Copy
@@ -449,8 +449,9 @@ the strip that preceded it scrolled sideways on a phone: Studios, Playlists and
 Library were only reachable by dragging the navbar, which nobody discovers.
 Choosing an item switches the view and shuts the menu; a tap anywhere else
 shuts it too; back closes it before it is allowed to leave the app, the same
-contract as the sheet and the search field. The menu also carries appearance
-settings (§7.2).
+contract as the sheet and the search field. Appearance (§7.2) and the update
+controls live in the Settings view the menu opens (v15 / 1.0.15), which also
+took over the floating ⋮ button that used to overlay the top-right of the page.
 
 **Playlists by name.** Catalog search still answers with titles, and now also
 asks the playlist indexes for a title match (`/api/public/playlists?q=`, plus

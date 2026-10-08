@@ -7,6 +7,7 @@
 // rebuilds.
 
 import { $, $$, esc } from './core.js';
+import { ensureAnime } from './anime.js';
 import { loadBrands, loadFeatured, loadGrid, loadTags } from './data.js';
 import { loadOwnIndex } from './pl-hits.js';
 import { loadSession } from './playlists.js';
@@ -36,7 +37,11 @@ $$('.rail').forEach(makeDraggable);
   // not something a slow catalog should hold up.
   fillSettings();
   try {
-    await Promise.all([loadTags(), loadBrands(), loadFeatured()]);
+    // The anime shelf is the opening view, so it is asked for here rather
+    // than waiting for a menu click that will never come. Its own loader
+    // answers a failure in place, so it can share the gate without taking
+    // the 18+ catalog down with it.
+    await Promise.all([loadTags(), loadBrands(), loadFeatured(), ensureAnime()]);
     await loadGrid();
   } catch (e) {
     $('#grid').innerHTML = `<p class="note">Could not reach the proxy — ${esc(e.message)}</p>`;
@@ -50,7 +55,7 @@ $$('.rail').forEach(makeDraggable);
   wirePublicPlaylists();
   loadSession().catch(() => {});
 
-  showView('browse');
+  showView('anime');
   renderLibrary();
 })();
 

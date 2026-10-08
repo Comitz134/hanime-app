@@ -28,8 +28,6 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
-import android.widget.ImageButton;
-import android.widget.PopupMenu;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -141,9 +139,6 @@ public class MainActivity extends Activity {
             errorView.setVisibility(View.GONE);
             loadServer();
         });
-
-        ImageButton overflow = findViewById(R.id.overflow);
-        overflow.setOnClickListener(this::showMenu);
 
         // 1x1 and off-screen: it exists only to run the signer's JS.
         root.addView(signerView(), new FrameLayout.LayoutParams(1, 1));
@@ -277,34 +272,12 @@ public class MainActivity extends Activity {
         errorView.setVisibility(View.VISIBLE);
     }
 
-    // ------------------------------------------------------------------ menu
+    // ------------------------------------------------------------------ settings
 
-    private void showMenu(View anchor) {
-        PopupMenu menu = new PopupMenu(this, anchor);
-        menu.getMenu().add(0, 1, 0, R.string.menu_reload);
-        menu.getMenu().add(0, 2, 1, R.string.menu_update);
-        menu.getMenu().add(0, 3, 2, R.string.menu_server);
-        menu.getMenu().add(0, 4, 3, R.string.menu_browser);
-        menu.setOnMenuItemClickListener(item -> {
-            switch (item.getItemId()) {
-                case 1:
-                    web.reload();
-                    return true;
-                case 2:
-                    checkForUpdates(true);
-                    return true;
-                case 3:
-                    openSettings(false);
-                    return true;
-                case 4:
-                    startNow(new Intent(Intent.ACTION_VIEW, Uri.parse(web.getUrl())));
-                    return true;
-                default:
-                    return false;
-            }
-        });
-        menu.show();
-    }
+    // The old floating ⋮ menu lived here. Its four items — reload, update
+    // check, update source, open in browser — belong with the rest of the
+    // app's controls, so they moved into the client's Settings view and call
+    // the bridge below instead of a native popup over the page.
 
     private void openSettings(boolean firstRun) {
         Intent intent = new Intent(this, SettingsActivity.class);
@@ -916,6 +889,20 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void openServerSettings() {
             MainThread.post(() -> openSettings(false));
+        }
+
+        /** Hands the current page to the real browser — the ⋮ menu's last item. */
+        @JavascriptInterface
+        public void openInBrowser() {
+            MainThread.post(() -> {
+                String url = web == null ? null : web.getUrl();
+                if (url == null) return;
+                try {
+                    startNow(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+                } catch (Exception ignored) {
+                    // Nothing can handle it; staying put is the least surprising.
+                }
+            });
         }
 
         /** True while the page has a sheet or the search field open. */

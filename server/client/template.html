@@ -73,11 +73,11 @@
     <div class="nav-menu" id="nav-menu" hidden>
       <nav class="nav-menu-group" aria-label="Sections">
         <div class="nav-menu-label">Anime</div>
-        <button class="nav-menu-item nav-link" type="button" data-go="anime">Anime
+        <button class="nav-menu-item nav-link" type="button" data-go="anime" aria-current="page">Anime
           <svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m5 13 4.5 4.5L19 7"/></svg>
         </button>
         <div class="nav-menu-label">18+ · hanime</div>
-        <button class="nav-menu-item nav-link" type="button" data-go="browse" aria-current="page">Browse
+        <button class="nav-menu-item nav-link" type="button" data-go="browse">Browse
           <svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m5 13 4.5 4.5L19 7"/></svg>
         </button>
         <button class="nav-menu-item nav-link" type="button" data-go="genres">Genres
@@ -109,8 +109,10 @@
 <div class="stack" style="padding-bottom:4rem">
   <main class="container stack">
 
-    <!-- anime: the normal (non-adult) area — AniList catalog, Lunar episodes -->
-    <div class="view" data-view="anime">
+    <!-- anime: the normal (non-adult) area — AniList catalog, Lunar episodes.
+         It opens first: the area most readers came for, and the one the app
+         must not make them navigate to. -->
+    <div class="view" data-view="anime" data-active="true">
       <section id="anime-browse">
         <div class="sec-head">
           <div class="sec-head-l">
@@ -170,7 +172,7 @@
     </div>
 
     <!-- browse: what the catalog search, filters and grid all belong to -->
-    <div class="view" data-view="browse" data-active="true">
+    <div class="view" data-view="browse">
 
       <!-- hero -->
       <section class="hero" id="hero" aria-label="Featured">
@@ -438,9 +440,15 @@
           <div class="settings-card-body">
             <div class="settings-row"><span>App version</span><span class="settings-val" id="set-version">…</span></div>
             <div class="settings-row"><span>Server</span><span class="settings-val" id="set-server">…</span></div>
+            <!-- These four used to live behind the floating ⋮ button that
+                 overlaid the top-right of the page. They are app controls, so
+                 they belong with the rest of them: the settings card, not a
+                 popup drawn over the content. -->
             <div class="settings-actions">
               <button class="chip" id="set-check" type="button">Check for updates</button>
-              <button class="chip" id="set-server-settings" type="button">Server settings</button>
+              <button class="chip" id="set-server-settings" type="button">Update source</button>
+              <button class="chip" id="set-reload" type="button">Reload page</button>
+              <button class="chip" id="set-browser" type="button">Open in browser</button>
             </div>
             <p class="note" id="set-note" hidden></p>
           </div>

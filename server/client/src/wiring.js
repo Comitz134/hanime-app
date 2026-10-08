@@ -169,7 +169,7 @@ $('#search-toggle').onclick = () => {
   setSearchOpen($('#search-toggle').getAttribute('aria-expanded') !== 'true');
 };
 
-$('#brand-btn').onclick = () => showView('browse');
+$('#brand-btn').onclick = () => showView('anime');   // home is the area the app opens on
 
 // Playlist search is its own box: title matches and content matches rank
 // differently, and folding them into the catalog search would blur both.

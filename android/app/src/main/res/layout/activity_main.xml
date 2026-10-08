@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   Full-bleed WebView: the product is a page, so the shell stays out of the way.
-  The only chrome is a two-pixel progress bar and a low-alpha overflow button,
-  both of which sit over the page rather than above it.
+  The only chrome is the progress bar, and it sits over the page rather than
+  above it. The overflow button that used to float here moved its items into
+  the client's Settings view, where they live with the rest of the app's
+  controls instead of over the page.
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/root"
@@ -69,20 +71,4 @@
             android:backgroundTint="@color/shell_primary" />
     </LinearLayout>
 
-    <!--
-      The overflow. A platform menu would need an ActionBar, which would take a
-      permanent strip of a page that is designed to be full-screen, so the menu
-      floats and fades back.
-    -->
-    <ImageButton
-        android:id="@+id/overflow"
-        android:layout_width="44dp"
-        android:layout_height="44dp"
-        android:layout_gravity="top|end"
-        android:layout_margin="8dp"
-        android:alpha="0.35"
-        android:background="?android:attr/selectableItemBackgroundBorderless"
-        android:contentDescription="@string/menu_server"
-        android:src="@drawable/ic_overflow"
-        android:tint="@color/shell_foreground" />
 </FrameLayout>

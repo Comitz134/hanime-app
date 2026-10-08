@@ -61,8 +61,6 @@
 
     <string name="menu_server">Update source</string>
     <string name="menu_update">Check for updates</string>
-    <string name="menu_browser">Open in browser</string>
-    <string name="menu_reload">Reload</string>
 
     <string name="update_checking">Checking for updates…</string>
 
@@ -85,6 +83,6 @@
     <string name="update_install_prompt">Handing the update to Android\'s installer. Android will ask you to allow installing from this app the first time.</string>
     <string name="update_notes">What changed:\n%1$s</string>
 
-    <string name="webview_unreachable">Cannot reach %1$s.\n\nCheck the address in ⋮ → Update source, then reload.</string>
+    <string name="webview_unreachable">Cannot reach %1$s.\n\nPress Reload to try again — the page is served from inside the app.</string>
     <string name="webview_error_title">Connection failed</string>
 </resources>

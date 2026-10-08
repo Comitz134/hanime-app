@@ -392,7 +392,7 @@ async function main() {
       console.log(`  apk      ${result.apk.url} (${result.apk.size} bytes)`);
       console.log(`  manifest ${result.manifest_url}`);
       console.log('');
-      console.log('Set this on devices once (⋮ menu → Update source):');
+      console.log('Set this on devices once (Settings → Update source):');
       console.log(`  ${result.stable_url}`);
       console.log('  (stable — always resolves to the newest release, never needs changing)');
       console.log('');
@@ -404,12 +404,12 @@ async function main() {
     console.log(`  apk      ${result.apk_url} (${result.bytes_uploaded} bytes)`);
     console.log(`  sha256   ${result.manifest.sha256}`);
     console.log('');
-    console.log('Set this on devices once (⋮ menu → Update source):');
+    console.log('Set this on devices once (Settings → Update source):');
     console.log(`  ${result.stable_url}`);
     console.log('  (stable — it always resolves to the newest release, so it never');
     console.log('   needs changing again)');
     console.log('');
-    console.log('  beta channel (⋮ menu → Update source → Beta):');
+    console.log('  beta channel (Settings → Update source → Beta):');
     console.log(`  ${result.beta_url}`);
     console.log('');
     console.log(`  per-release copy: ${result.manifest_url}`);

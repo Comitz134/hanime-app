@@ -107,8 +107,14 @@ test('the nav switches views, and every view it points at exists', () => {
   for (const t of targets) {
     assert.ok(views.includes(t), `the nav points at a view that does not exist: ${t}`);
   }
-  // Exactly one view is active on load, or the page opens blank.
-  assert.equal((html.match(/data-view="browse" data-active="true"/g) || []).length, 1);
+  // Exactly one view is active on load, or the page opens blank — and it is
+  // the anime area, which is what the reader asked to open on.
+  assert.equal((html.match(/data-view="anime" data-active="true"/g) || []).length, 1);
+  assert.equal((html.match(/data-view="[a-z]+" data-active="true"/g) || []).length, 1);
+  const script0 = inlineScripts(html)[0];
+  assert.ok(/showView\((['"])anime\1\)/.test(script0), 'the boot does not open on the anime area');
+  // The opening shelf cannot wait for a menu click that never comes.
+  assert.ok(script0.includes('ensureAnime()'), 'the opening anime shelf is never loaded');
   // And nothing may scroll to a section any more.
   assert.ok(!/href="#(browse|genres|studios)"/.test(html), 'the nav still anchors into the page');
 
@@ -482,14 +488,20 @@ test('settings is a view of its own: build facts, update checks, the shell', () 
   // Shell bridge. Both areas live behind one menu item rather than in the
   // popover, so a reader can find them without the menu closing on them.
   assert.ok(html.includes(' data-view="settings"'), 'no settings view');
-  for (const id of ['settings', 'set-version', 'set-server', 'set-check', 'set-server-settings', 'set-note']) {
+  for (const id of ['settings', 'set-version', 'set-server', 'set-check', 'set-server-settings',
+    'set-reload', 'set-browser', 'set-note']) {
     assert.ok(html.includes(` id="${id}"`), `missing #${id}`);
   }
   const script = inlineScripts(html)[0];
-  for (const call of ['versionName', 'versionCode', 'serverUrl', 'checkForUpdate', 'openServerSettings']) {
+  for (const call of ['versionName', 'versionCode', 'serverUrl', 'checkForUpdate',
+    'openServerSettings', 'openInBrowser']) {
     assert.ok(new RegExp(`['"]${call}['"]`).test(script),
       `the settings view never asks the shell for ${call}`);
   }
+  // The four actions that used to sit behind the floating ⋮ button are all
+  // here now, and the button itself is gone from both copies of the app.
+  assert.ok(script.includes('location.reload()'), 'nothing reloads the page from Settings');
+  assert.ok(html.includes('Update source'), 'the update source action lost its name');
   // Outside the app there is no Shell object: the view must fall back to
   // what the browser knows instead of showing buttons that do nothing.
   assert.ok(/shellApi\(\)/.test(script), 'nothing decides between app and browser');

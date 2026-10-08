@@ -70,6 +70,16 @@ img { display: block; }
 @media (min-width: 640px)  { .container { padding: 1.5rem 1rem; } }
 @media (min-width: 1024px) { .container { padding: 1.5rem 1.5rem; } }
 
+/* The nav pill floats over the page — half a rem of inset plus the pill
+   itself — so the page has to begin beneath it. Without this the first
+   heading of an area (its name) sits behind the navbar exactly where the
+   reader lands, and every view switch scrolls back to that spot.
+   `main.container` outranks the padding shorthand above, so the media
+   queries cannot take the space back. */
+main.container {
+  padding-top: calc(4.75rem + env(safe-area-inset-top));
+}
+
 .stack > * + * { margin-top: 1rem; }
 @media (min-width: 640px)  { .stack > * + * { margin-top: 1.5rem; } }
 @media (min-width: 1024px) { .stack > * + * { margin-top: 2rem; } }
