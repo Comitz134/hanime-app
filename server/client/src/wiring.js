@@ -8,7 +8,7 @@
 
 import { $, $$, api, state } from './core.js';
 import { searchAnime } from './anime.js';
-import { loadGrid } from './data.js';
+import { loadGrid, renderTags, setTagQuery } from './data.js';
 import { toggleFav, viewIs } from './library.js';
 import { setMenuOpen } from './menu.js';
 import { loadPlaylistHits } from './pl-hits.js';
@@ -82,17 +82,32 @@ $('#tag-rail').addEventListener('click', (e) => {
   const tag = chip.dataset.tag;
   const i = state.tags.indexOf(tag);
   if (i >= 0) state.tags.splice(i, 1); else state.tags.push(tag);
-  chip.setAttribute('aria-pressed', String(i < 0));
-  $('#clear-tags').hidden = state.tags.length === 0;
+  renderTags();   // pressed state, count and clear button all read from state.tags
   refresh();
   showView('browse');   // the filtered grid is the answer, so go there
 });
 $('#clear-tags').onclick = () => {
   state.tags = [];
-  $$('#tag-rail .chip').forEach((c) => c.setAttribute('aria-pressed', 'false'));
-  $('#clear-tags').hidden = true;
+  renderTags();
   refresh();
 };
+
+// The cloud narrows as you type. Selected tags stay in it whatever the filter
+// says, so a choice is never hidden away by the box that made it — renderTags
+// keeps them in the list even when they no longer match.
+let tagDebounce;
+$('#tag-q').addEventListener('input', (e) => {
+  const val = e.target.value;
+  $('#tag-search-shell').dataset.filled = String(!!val);
+  clearTimeout(tagDebounce);
+  tagDebounce = setTimeout(() => setTagQuery(val), 120);
+});
+$('#tag-q-clear').addEventListener('click', () => {
+  $('#tag-q').value = '';
+  $('#tag-search-shell').dataset.filled = 'false';
+  setTagQuery('');
+  $('#tag-q').focus({ preventScroll: true });
+});
 
 $('#brand-rail').addEventListener('click', (e) => {
   const chip = e.target.closest('.chip');
@@ -153,12 +168,6 @@ document.addEventListener('keydown', (e) => {
 $('#search-toggle').onclick = () => {
   setSearchOpen($('#search-toggle').getAttribute('aria-expanded') !== 'true');
 };
-$('#sort-toggle').onclick = () => {
-  const open = $('#sort-toggle').getAttribute('aria-expanded') !== 'true';
-  $('#sort-toggle').setAttribute('aria-expanded', String(open));
-  showView('browse');   // the order control is in the Browse toolbar
-  $('#sort').focus({ preventScroll: true });
-};
 
 $('#brand-btn').onclick = () => showView('browse');
 
@@ -192,4 +201,4 @@ document.addEventListener('keydown', (e) => {
   if (card) { e.preventDefault(); openPlaylist(card.dataset.playlist); }
 });
 
-export { debounce, refresh, applyQuery, setSearchOpen, plDebounce };
+export { debounce, refresh, applyQuery, setSearchOpen, plDebounce, tagDebounce };

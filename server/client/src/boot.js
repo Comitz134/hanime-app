@@ -13,6 +13,7 @@ import { loadSession } from './playlists.js';
 import { renderLibrary } from './positions.js';
 import { wirePublicPlaylists } from './public-playlists.js';
 import { makeDraggable } from './rails.js';
+import { fillSettings } from './settings.js';
 import { showView } from './views.js';
 
 
@@ -31,6 +32,9 @@ $$('.rail').forEach(makeDraggable);
 // syntax error kills the whole script, so the page came up blank. Everything
 // from Chromium 61 runs when it is wrapped like this.
 (async () => {
+  // Before any network: the settings rows are local facts about the build,
+  // not something a slow catalog should hold up.
+  fillSettings();
   try {
     await Promise.all([loadTags(), loadBrands(), loadFeatured()]);
     await loadGrid();

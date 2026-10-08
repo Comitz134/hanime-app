@@ -47,6 +47,12 @@ button { cursor: pointer; }
 img { display: block; }
 ::selection { background: hsl(var(--primary) / .28); }
 
+/* The hidden attribute has to mean hidden. An author `display` beats the UA's
+   [hidden] rule (the card fallback above hit the same trap), so any element
+   whose class sets display — chips, pagers, rails — would ignore it and stay
+   on screen: a Clear button with nothing to clear, a pager on the last page. */
+[hidden] { display: none !important; }
+
 /* thin scrollbars, matching the reference's restrained chrome */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }

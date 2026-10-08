@@ -103,7 +103,7 @@ test('the nav switches views, and every view it points at exists', () => {
   const targets = [...html.matchAll(/data-go="([a-z]+)"/g)].map((m) => m[1]);
   const views = [...html.matchAll(/data-view="([a-z]+)"/g)].map((m) => m[1]);
 
-  assert.deepEqual(targets, ['anime', 'browse', 'genres', 'studios', 'playlists', 'library']);
+  assert.deepEqual(targets, ['anime', 'browse', 'genres', 'studios', 'playlists', 'library', 'settings']);
   for (const t of targets) {
     assert.ok(views.includes(t), `the nav points at a view that does not exist: ${t}`);
   }
@@ -419,6 +419,12 @@ test('the navbar is a menu, not a strip you have to swipe', () => {
   assert.ok(html.includes(' id="menu-toggle"'), 'no three-line button on the pill');
   assert.ok(html.includes(' id="nav-menu"'), 'the button has nowhere to open');
   assert.ok(!html.includes('class="nav-links"'), 'the swipeable strip is still in the nav');
+  // The pill carries two buttons: the sort shortcut that sat between menu and
+  // search duplicated the Browse toolbar's own control, and the reader asked
+  // for the menu and the glass to trade places.
+  assert.ok(!html.includes('id="sort-toggle"'), 'the sort shortcut is still on the pill');
+  assert.ok(html.indexOf('id="search-toggle"') < html.indexOf('id="menu-toggle"'),
+    'search and menu have not traded places');
 
   const script = inlineScripts(html)[0];
   assert.ok(/function setMenuOpen\(/.test(script), 'nothing opens or closes the menu');
@@ -453,7 +459,15 @@ test("appearance is the reader's, and it survives a restart", () => {
 
   for (const id of ['theme-seg', 'accent-row', 'pref-motion']) {
     assert.ok(html.includes(` id="${id}"`), `missing #${id}`);
+    assert.equal((html.match(new RegExp(`id="${id}"`, 'g')) || []).length, 1,
+      `#${id} exists more than once — the control was copied, not moved`);
   }
+  // They moved out of the menu popover and into the settings view; a reader
+  // who opens the menu looking for Theme must find it in Settings instead.
+  const settingsAt = html.indexOf('data-view="settings"');
+  assert.ok(settingsAt > 0, 'no settings view to hold the appearance controls');
+  assert.ok(settingsAt < html.indexOf('id="theme-seg"'),
+    'the theme control is not inside the settings view');
   // The themes are token swaps on the body, not a second stylesheet.
   assert.ok(css.includes('body[data-theme="light"]'), 'no light palette');
   assert.ok(css.includes('body[data-accent="'), 'no accent palettes');
@@ -461,6 +475,59 @@ test("appearance is the reader's, and it survives a restart", () => {
   for (const name of ['amber', 'rose', 'violet', 'sky', 'mint']) {
     assert.ok(html.includes(`data-accent-pick="${name}"`), `missing accent ${name}`);
   }
+});
+
+test('settings is a view of its own: build facts, update checks, the shell', () => {
+  // Appearance moved here from the menu; the update controls come from the
+  // Shell bridge. Both areas live behind one menu item rather than in the
+  // popover, so a reader can find them without the menu closing on them.
+  assert.ok(html.includes(' data-view="settings"'), 'no settings view');
+  for (const id of ['settings', 'set-version', 'set-server', 'set-check', 'set-server-settings', 'set-note']) {
+    assert.ok(html.includes(` id="${id}"`), `missing #${id}`);
+  }
+  const script = inlineScripts(html)[0];
+  for (const call of ['versionName', 'versionCode', 'serverUrl', 'checkForUpdate', 'openServerSettings']) {
+    assert.ok(new RegExp(`['"]${call}['"]`).test(script),
+      `the settings view never asks the shell for ${call}`);
+  }
+  // Outside the app there is no Shell object: the view must fall back to
+  // what the browser knows instead of showing buttons that do nothing.
+  assert.ok(/shellApi\(\)/.test(script), 'nothing decides between app and browser');
+  assert.ok(/\[data-go\]/.test(script), 'the view never refills when it is opened');
+});
+
+test('the anime area filters the catalog upstream, not after the fact', () => {
+  // A page of 24 has to be a page of matches: the filters ride the query to
+  // AniList (both backends carry them) instead of sifting one page by hand.
+  for (const id of ['anime-genre', 'anime-format', 'anime-status', 'anime-filter-clear']) {
+    assert.ok(html.includes(` id="${id}"`), `missing #${id}`);
+  }
+  const script = inlineScripts(html)[0];
+  for (const key of ['genre', 'format', 'status']) {
+    assert.ok(new RegExp(`params\\.set\\(['"]${key}['"]`).test(script),
+      `the ${key} filter never reaches the query`);
+  }
+  // Option values are AniList's enums — anything else would fail upstream.
+  assert.ok(html.includes('value="NOT_YET_RELEASED"'), 'the status options are not upstream enums');
+  assert.ok(html.includes('value="TV_SHORT"'), 'the format options are not upstream enums');
+  assert.ok(html.includes('<option>Action</option>'), 'the genre options are not upstream genres');
+});
+
+test('the genre picker is a cloud you can search, and it says what is on', () => {
+  // The old picker was thirty chips in a strip you dragged sideways, with no
+  // way to find a tag that was not among them. It now wraps, narrows as you
+  // type, and keeps the selected chips in view whatever the filter says.
+  for (const id of ['tag-q', 'tag-q-clear', 'tag-count', 'tag-note', 'tag-search-shell']) {
+    assert.ok(html.includes(` id="${id}"`), `missing #${id}`);
+  }
+  assert.ok(html.includes('class="tag-cloud"'), 'the genre list is still a strip to drag sideways');
+  const script = inlineScripts(html)[0];
+  assert.ok(/function renderTags\(/.test(script), 'nothing repaints the genre cloud');
+  assert.ok(/function setTagQuery\(/.test(script), 'the filter box is not wired to the cloud');
+  // Selected chips survive the filter — hiding the reader's own choices would
+  // make them impossible to take back off.
+  assert.ok(/!\s*tagQuery\s*\|\|[^|]*\|\|\s*[A-Za-z_$][\w$]*\(t\.name\)/.test(script),
+    'a selected tag can be filtered out of the cloud');
 });
 
 test('picture in picture is offered only when the shell supports it', () => {

@@ -109,6 +109,36 @@ test('an empty query answers trending, a query answers search', async () => {
   assert.match(fetchLog[1].opts.body, /search:\s*\$search/, 'a query must search AniList');
 });
 
+test('filters ride the query as variables, and junk is dropped before it leaves', async () => {
+  stubFetch([['graphql.anilist.co', () => jsonResponse(200, anilistPage)]]);
+
+  const res = fakeRes();
+  await handleAnime(
+    new URL('http://x/api/anime/search?genre=Action&format=tv&status=RELEASING'),
+    res, '/api/anime/search');
+  assert.equal(res.status, 200);
+  const sent = JSON.parse(fetchLog[0].opts.body);
+  assert.match(sent.query, /genre: \$genre/, 'the genre filter never reaches the query');
+  assert.match(sent.query, /format: \$format/, 'the format filter never reaches the query');
+  assert.match(sent.query, /status: \$status/, 'the status filter never reaches the query');
+  // Values travel as variables — never spliced into the query text — and are
+  // canonicalized on the way, so upstream sees its own spelling.
+  assert.equal(sent.variables.genre, 'Action');
+  assert.equal(sent.variables.format, 'TV');
+  assert.equal(sent.variables.status, 'RELEASING');
+
+  // An unknown enum would fail the whole query upstream; it never gets there.
+  // (A page number of its own keeps this request off the trending cache entry
+  // the first test in this file already filled.)
+  const junk = fakeRes();
+  await handleAnime(new URL('http://x/api/anime/search?format=NOPE&genre=Nope&page=7'),
+    junk, '/api/anime/search');
+  assert.equal(junk.status, 200);
+  const sent2 = JSON.parse(fetchLog[1].opts.body);
+  assert.ok(!sent2.query.includes('$format'), 'an unknown format still reached the query');
+  assert.ok(!sent2.query.includes('$genre'), 'an unknown genre still reached the query');
+});
+
 test('details carry the description text and the recommendations', async () => {
   stubFetch([['graphql.anilist.co', () => jsonResponse(200, anilistDetails)]]);
 

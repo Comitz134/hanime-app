@@ -15,8 +15,13 @@ import { openSheet } from './sheet.js';
 
 /* ------------------------------------------------------------------ grid */
 
-const aState = { q: '', page: 1, hasNext: false };
+const aState = { q: '', page: 1, hasNext: false, genre: '', format: '', status: '' };
 let aDebounce;
+
+/** True when anything narrows the shelf — a search box or a filter select. */
+function aFiltered() {
+  return !!(aState.q || aState.genre || aState.format || aState.status);
+}
 
 function animeCardHtml(m) {
   const meta = [m.year, m.eps ? `${m.eps} eps` : null, m.format]
@@ -49,14 +54,22 @@ async function loadAnime(page) {
   const pager = $('#anime-pager');
   if (page > 1) grid.innerHTML = '<div class="center-spin"><div class="spinner"></div></div>';
   try {
-    const res = await fetch(`/api/anime/search?q=${encodeURIComponent(aState.q)}&page=${page}`);
+    // The filters ride the query as request parameters, so AniList answers
+    // with a page of matches — never a page for this client to sift itself.
+    const params = new URLSearchParams({ q: aState.q, page: String(page) });
+    if (aState.genre) params.set('genre', aState.genre);
+    if (aState.format) params.set('format', aState.format);
+    if (aState.status) params.set('status', aState.status);
+    const res = await fetch(`/api/anime/search?${params}`);
     if (!res.ok) throw new Error(`status ${res.status}`);
     const data = await res.json();
     aState.page = data.page;
     aState.hasNext = !!data.hasNext;
     grid.innerHTML = (data.items ?? []).map(animeCardHtml).join('');
-    $('#anime-count').textContent = `${data.items?.length ?? 0}${aState.q ? ' found' : ' trending now'}`;
-    animeNote((data.items ?? []).length ? '' : 'Nothing matched — try another title.');
+    $('#anime-count').textContent = `${data.items?.length ?? 0}${aFiltered() ? ' found' : ' trending now'}`;
+    animeNote((data.items ?? []).length ? '' : (aFiltered()
+      ? 'Nothing matched — try another title, or clear the filters.'
+      : 'Nothing matched — try another title.'));
     pager.hidden = !data.hasNext && aState.page <= 1;
     $('#anime-prev').disabled = aState.page <= 1;
     $('#anime-next').disabled = !aState.hasNext;
@@ -226,6 +239,37 @@ function bindAnimeView() {
     searchAnime('');
     $('#anime-q').focus({ preventScroll: true });
   });
+
+  // Filters change the catalog, not just the view: every change starts a new
+  // first page, and the clear button only exists while something is set.
+  const filters = [['#anime-genre', 'genre'], ['#anime-format', 'format'], ['#anime-status', 'status']];
+  const syncFilters = () => {
+    let any = false;
+    for (const [sel, key] of filters) {
+      const el = $(sel);
+      if (!el) continue;
+      el.dataset.set = String(!!aState[key]);
+      if (aState[key]) any = true;
+    }
+    $('#anime-filter-clear').hidden = !any;
+  };
+  for (const [sel, key] of filters) {
+    $(sel)?.addEventListener('change', (e) => {
+      aState[key] = e.target.value;
+      syncFilters();
+      loadAnime(1);
+    });
+  }
+  $('#anime-filter-clear')?.addEventListener('click', () => {
+    for (const [sel, key] of filters) {
+      aState[key] = '';
+      const el = $(sel);
+      if (el) el.value = '';
+    }
+    syncFilters();
+    loadAnime(1);
+  });
+
   $('#anime-prev')?.addEventListener('click', () => {
     if (aState.page > 1) loadAnime(aState.page - 1).then(() => scrollTo({ top: 0, behavior: 'smooth' }));
   });

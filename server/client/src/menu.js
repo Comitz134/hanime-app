@@ -9,9 +9,10 @@
 import { $ } from './core.js';
 import { menuIsOpen, updateBackState } from './shell.js';
 
-/* The three-line button: one popover holding every section and every
-   appearance choice, so the pill itself stays buttons and a phone never has
-   to swipe the navbar to find the rest of the app. */
+/* The three-line button: one popover holding every section, so the pill
+   itself stays buttons and a phone never has to swipe the navbar to find the
+   rest of the app. Appearance and update controls moved out to the Settings
+   view — a popover is a place you open, not a place to keep settings. */
 function setMenuOpen(open) {
   $('#nav-menu').hidden = !open;
   $('#menu-toggle').setAttribute('aria-expanded', String(open));

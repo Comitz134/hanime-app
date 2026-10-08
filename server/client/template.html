@@ -45,7 +45,15 @@
       <button class="nav-search-close" id="nav-q-close" type="button" aria-label="Close search">&times;</button>
     </div>
 
+    <!-- Two buttons, search first: the sort shortcut between them duplicated
+         the Browse toolbar's own control, and the reader asked for the menu
+         and the search glass to trade places. -->
     <div class="nav-actions">
+      <button class="icon-btn" id="search-toggle" aria-label="Search" aria-expanded="false" title="Search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/>
+        </svg>
+      </button>
       <button class="icon-btn" id="menu-toggle" type="button" aria-label="Menu"
               aria-expanded="false" aria-controls="nav-menu" title="Menu">
         <svg class="ico-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
@@ -55,22 +63,13 @@
           <path d="M6 6l12 12M18 6 6 18"/>
         </svg>
       </button>
-      <button class="icon-btn" id="sort-toggle" aria-label="Sort" aria-expanded="false" title="Sort">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-          <path d="M4 7h16M6 12h12M9 17h6"/>
-        </svg>
-      </button>
-      <button class="icon-btn" id="search-toggle" aria-label="Search" aria-expanded="false" title="Search">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-          <circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/>
-        </svg>
-      </button>
     </div>
 
-    <!-- One menu: where to go, and how the app looks while getting there.
-         Two areas: normal anime up top, and everything from hanime.tv behind
-         an explicit 18+ label — the reader picks one or the other, and the
-         label says which is which before anything opens. -->
+    <!-- One menu: where to go. Two areas: normal anime up top, and everything
+         from hanime.tv behind an explicit 18+ label — the reader picks one or
+         the other, and the label says which is which before anything opens.
+         How the app looks, and keeping it up to date, belong to the Settings
+         view at the bottom rather than to this popover. -->
     <div class="nav-menu" id="nav-menu" hidden>
       <nav class="nav-menu-group" aria-label="Sections">
         <div class="nav-menu-label">Anime</div>
@@ -98,26 +97,10 @@
       <div class="nav-menu-sep"></div>
 
       <div class="nav-menu-group">
-        <div class="nav-menu-label">Theme</div>
-        <div class="menu-seg" id="theme-seg" role="group" aria-label="Theme">
-          <button type="button" data-theme-pick="dark" aria-pressed="false">Dark</button>
-          <button type="button" data-theme-pick="light" aria-pressed="false">Light</button>
-          <button type="button" data-theme-pick="system" aria-pressed="false">System</button>
-        </div>
-
-        <div class="nav-menu-label">Accent</div>
-        <div class="menu-swatches" id="accent-row" role="group" aria-label="Accent">
-          <button class="swatch" type="button" data-accent-pick="amber" aria-label="Amber" aria-pressed="false" style="--sw: 29.5 100% 74%"></button>
-          <button class="swatch" type="button" data-accent-pick="rose" aria-label="Rose" aria-pressed="false" style="--sw: 350 90% 72%"></button>
-          <button class="swatch" type="button" data-accent-pick="violet" aria-label="Violet" aria-pressed="false" style="--sw: 268 85% 76%"></button>
-          <button class="swatch" type="button" data-accent-pick="sky" aria-label="Sky" aria-pressed="false" style="--sw: 195 90% 72%"></button>
-          <button class="swatch" type="button" data-accent-pick="mint" aria-label="Mint" aria-pressed="false" style="--sw: 152 65% 68%"></button>
-        </div>
-
-        <label class="menu-row" for="pref-motion">
-          <span>Reduce motion</span>
-          <input type="checkbox" id="pref-motion">
-        </label>
+        <div class="nav-menu-label">App</div>
+        <button class="nav-menu-item nav-link" type="button" data-go="settings">Settings
+          <svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m5 13 4.5 4.5L19 7"/></svg>
+        </button>
       </div>
     </div>
   </div>
@@ -144,6 +127,37 @@
                  placeholder="Search anime titles…" autocomplete="off" spellcheck="false">
           <button class="search-clear" id="anime-clear" type="button" aria-label="Clear search">&times;</button>
         </label>
+
+        <!-- Catalog filters, answered by AniList itself: the query carries
+             them upstream, so a page of 24 is a page of matches rather than a
+             page to be sifted by hand. -->
+        <div class="filter-row" id="anime-filters">
+          <select id="anime-genre" class="filter-select" aria-label="Genre">
+            <option value="">All genres</option>
+            <option>Action</option><option>Adventure</option><option>Comedy</option>
+            <option>Drama</option><option>Fantasy</option><option>Horror</option>
+            <option>Mahou Shoujo</option><option>Mecha</option><option>Music</option>
+            <option>Mystery</option><option>Psychological</option><option>Romance</option>
+            <option>Sci-Fi</option><option>Slice of Life</option><option>Sports</option>
+            <option>Supernatural</option><option>Thriller</option>
+          </select>
+          <select id="anime-format" class="filter-select" aria-label="Format">
+            <option value="">Any format</option>
+            <option value="TV">TV</option><option value="MOVIE">Movie</option>
+            <option value="OVA">OVA</option><option value="ONA">ONA</option>
+            <option value="SPECIAL">Special</option><option value="TV_SHORT">TV short</option>
+            <option value="MUSIC">Music</option>
+          </select>
+          <select id="anime-status" class="filter-select" aria-label="Status">
+            <option value="">Any status</option>
+            <option value="RELEASING">Airing now</option>
+            <option value="FINISHED">Finished</option>
+            <option value="NOT_YET_RELEASED">Not yet aired</option>
+            <option value="CANCELLED">Cancelled</option>
+            <option value="HIATUS">On hiatus</option>
+          </select>
+          <button class="chip" id="anime-filter-clear" type="button" hidden>Clear filters</button>
+        </div>
 
         <div class="grid" id="anime-grid"></div>
         <p class="note" id="anime-note" hidden></p>
@@ -219,13 +233,29 @@
     <!-- genres -->
     <div class="view" data-view="genres">
 
-      <!-- genres rail -->
+      <!-- genres: a wrapping cloud behind a filter box, not a strip to drag
+           sideways — the histogram has a long tail, and both ends of it have
+           to be reachable: the top tags by scrolling, the rest by typing. -->
       <section id="genres">
         <div class="sec-head">
-          <div class="sec-head-l"><h2>Browse Genres</h2></div>
+          <div class="sec-head-l">
+            <h2>Browse Genres</h2>
+            <span class="sec-count" id="tag-count" hidden></span>
+          </div>
           <button class="chip" id="clear-tags" type="button" hidden>Clear</button>
         </div>
-        <div class="rail" id="tag-rail" aria-label="Genres"></div>
+
+        <label class="search-shell" id="tag-search-shell" style="max-width:28rem">
+          <svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+            <circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/>
+          </svg>
+          <input id="tag-q" type="search" inputmode="search" enterkeyhint="search"
+                 placeholder="Find a genre…" autocomplete="off" spellcheck="false">
+          <button class="search-clear" id="tag-q-clear" type="button" aria-label="Clear">&times;</button>
+        </label>
+
+        <div class="tag-cloud" id="tag-rail" aria-label="Genres"></div>
+        <p class="note" id="tag-note" hidden></p>
       </section>
 
     </div>
@@ -354,6 +384,67 @@
         </div>
         <div class="grid" id="hist-grid"></div>
         <p class="note" id="hist-note" hidden></p>
+      </section>
+
+    </div>
+
+    <!-- settings: how the app looks, and how it keeps itself current. These
+         choices used to sit in the menu popover — a place you have to open —
+         so they moved into a view of their own, reachable from the menu's
+         bottom group. The theme, accent and motion controls are the same
+         elements as before, ids and all; only their home changed. -->
+    <div class="view" data-view="settings">
+      <section id="settings">
+        <div class="sec-head">
+          <div class="sec-head-l">
+            <h2>Settings</h2>
+          </div>
+        </div>
+
+        <div class="settings-card">
+          <div class="settings-card-head">
+            <h3>Appearance</h3>
+            <p class="settings-hint">Theme, accent and motion are remembered on this device.</p>
+          </div>
+          <div class="settings-card-body">
+            <div class="nav-menu-label">Theme</div>
+            <div class="menu-seg" id="theme-seg" role="group" aria-label="Theme">
+              <button type="button" data-theme-pick="dark" aria-pressed="false">Dark</button>
+              <button type="button" data-theme-pick="light" aria-pressed="false">Light</button>
+              <button type="button" data-theme-pick="system" aria-pressed="false">System</button>
+            </div>
+
+            <div class="nav-menu-label">Accent</div>
+            <div class="menu-swatches" id="accent-row" role="group" aria-label="Accent">
+              <button class="swatch" type="button" data-accent-pick="amber" aria-label="Amber" aria-pressed="false" style="--sw: 29.5 100% 74%"></button>
+              <button class="swatch" type="button" data-accent-pick="rose" aria-label="Rose" aria-pressed="false" style="--sw: 350 90% 72%"></button>
+              <button class="swatch" type="button" data-accent-pick="violet" aria-label="Violet" aria-pressed="false" style="--sw: 268 85% 76%"></button>
+              <button class="swatch" type="button" data-accent-pick="sky" aria-label="Sky" aria-pressed="false" style="--sw: 195 90% 72%"></button>
+              <button class="swatch" type="button" data-accent-pick="mint" aria-label="Mint" aria-pressed="false" style="--sw: 152 65% 68%"></button>
+            </div>
+
+            <label class="menu-row" for="pref-motion">
+              <span>Reduce motion</span>
+              <input type="checkbox" id="pref-motion">
+            </label>
+          </div>
+        </div>
+
+        <div class="settings-card">
+          <div class="settings-card-head">
+            <h3>Updates</h3>
+            <p class="settings-hint">The app already checks on launch and when the network returns — this asks for a check right now.</p>
+          </div>
+          <div class="settings-card-body">
+            <div class="settings-row"><span>App version</span><span class="settings-val" id="set-version">…</span></div>
+            <div class="settings-row"><span>Server</span><span class="settings-val" id="set-server">…</span></div>
+            <div class="settings-actions">
+              <button class="chip" id="set-check" type="button">Check for updates</button>
+              <button class="chip" id="set-server-settings" type="button">Server settings</button>
+            </div>
+            <p class="note" id="set-note" hidden></p>
+          </div>
+        </div>
       </section>
 
     </div>

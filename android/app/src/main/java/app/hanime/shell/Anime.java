@@ -64,30 +64,70 @@ final class Anime {
     private static final int TIMEOUT_MS = 12_000;
 
     // ------------------------------------------------------------- queries
-    // Verbatim from anime.mjs: the client consumes the shaped fields below,
-    // and the query text is what decides trending-vs-search upstream.
+    // Mirrors catalogQuery() in anime.mjs: the client consumes the shaped
+    // fields below, the filters travel as GraphQL variables, and only the
+    // variables used are declared — AniList rejects a query that declares one
+    // it never reads. The sort says which of search-vs-trending this is.
 
-    private static final String SEARCH_QUERY =
-            "\n  query ($search: String, $page: Int) {\n"
-            + "    Page(page: $page, perPage: 24) {\n"
-            + "      pageInfo { currentPage hasNextPage }\n"
-            + "      media(type: ANIME, search: $search, sort: [SEARCH_MATCH, POPULARITY_DESC]) {\n"
-            + "        id title { romaji } episodes averageScore startDate { year }\n"
-            + "        format status coverImage { large } bannerImage genres\n"
-            + "      }\n"
-            + "    }\n"
-            + "  }";
+    private static final String[] GENRES = {"Action", "Adventure", "Comedy", "Drama", "Ecchi",
+            "Fantasy", "Horror", "Mahou Shoujo", "Mecha", "Music", "Mystery", "Psychological",
+            "Romance", "Sci-Fi", "Slice of Life", "Sports", "Supernatural", "Thriller"};
+    private static final String[] FORMATS = {"TV", "TV_SHORT", "MOVIE", "SPECIAL", "OVA", "ONA", "MUSIC"};
+    private static final String[] STATUSES = {"FINISHED", "RELEASED", "RELEASING",
+            "NOT_YET_RELEASED", "CANCELLED", "HIATUS"};
 
-    private static final String TRENDING_QUERY =
-            "\n  query ($page: Int) {\n"
-            + "    Page(page: $page, perPage: 24) {\n"
-            + "      pageInfo { currentPage hasNextPage }\n"
-            + "      media(type: ANIME, sort: [TRENDING_DESC, POPULARITY_DESC]) {\n"
-            + "        id title { romaji } episodes averageScore startDate { year }\n"
-            + "        format status coverImage { large } bannerImage genres\n"
-            + "      }\n"
-            + "    }\n"
-            + "  }";
+    /** The canonical spelling of a known value, or "" when it is not known. */
+    private static String pick(String value, String[] allowed) {
+        String raw = value == null ? "" : value.trim();
+        for (String a : allowed) {
+            if (a.equalsIgnoreCase(raw)) return a;
+        }
+        return "";
+    }
+
+    /**
+     * The catalog query, assembled from the filters actually in play. Filters
+     * are also written into {@code variables} here, so the caller builds the
+     * payload in one place. An unknown filter is already "" by then and never
+     * reaches the query.
+     */
+    static String catalogQuery(String needle, String genre, String format, String status,
+                               JSONObject variables) throws JSONException {
+        String decls = "$page: Int";
+        String args = "type: ANIME";
+        if (!needle.isEmpty()) {
+            decls += ", $search: String";
+            args += ", search: $search";
+            variables.put("search", needle);
+        }
+        if (!genre.isEmpty()) {
+            decls += ", $genre: String";
+            args += ", genre: $genre";
+            variables.put("genre", genre);
+        }
+        if (!format.isEmpty()) {
+            decls += ", $format: MediaFormat";
+            args += ", format: $format";
+            variables.put("format", format);
+        }
+        if (!status.isEmpty()) {
+            decls += ", $status: MediaStatus";
+            args += ", status: $status";
+            variables.put("status", status);
+        }
+        args += ", sort: [" + (needle.isEmpty() ? "TRENDING_DESC" : "SEARCH_MATCH")
+                + ", POPULARITY_DESC]";
+
+        return "\n  query (" + decls + ") {\n"
+                + "    Page(page: $page, perPage: 24) {\n"
+                + "      pageInfo { currentPage hasNextPage }\n"
+                + "      media(" + args + ") {\n"
+                + "        id title { romaji } episodes averageScore startDate { year }\n"
+                + "        format status coverImage { large } bannerImage genres\n"
+                + "      }\n"
+                + "    }\n"
+                + "  }";
+    }
 
     private static final String DETAILS_QUERY =
             "\n  query ($id: Int) {\n"
@@ -380,19 +420,21 @@ final class Anime {
 
     // ------------------------------------------------------------- handlers
 
-    /** GET /api/anime/search?q=&page= — AniList search, or trending when empty. */
+    /**
+     * GET /api/anime/search?q=&page=&genre=&format=&status=
+     * AniList search, or trending when empty; the filters narrow either.
+     */
     private static Result search(Map<String, String> q) throws Exception {
         String needle = q.get("q") == null ? "" : q.get("q").trim();
         int page = Math.max(1, intPipeZero(q.get("page")));
+        String genre = pick(q.get("genre"), GENRES);
+        String format = pick(q.get("format"), FORMATS);
+        String status = pick(q.get("status"), STATUSES);
 
-        String key = "s:" + needle + ":" + page;
+        String key = "s:" + needle + ":" + page + ":" + genre + ":" + format + ":" + status;
         return cached(key, TTL_SEARCH, () -> {
-            String query = TRENDING_QUERY;
             JSONObject vars = new JSONObject().put("page", page);
-            if (!needle.isEmpty()) {
-                query = SEARCH_QUERY;
-                vars.put("search", needle);
-            }
+            String query = catalogQuery(needle, genre, format, status, vars);
             JSONObject data = anilist(query, vars);
             JSONObject pageObj = data.optJSONObject("Page");
             JSONObject pageInfo = pageObj == null ? null : pageObj.optJSONObject("pageInfo");

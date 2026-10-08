@@ -92,27 +92,49 @@ async function anilist(query, variables) {
 
 // ---------------------------------------------------------------- queries
 
-const SEARCH_QUERY = `
-  query ($search: String, $page: Int) {
-    Page(page: $page, perPage: 24) {
-      pageInfo { currentPage hasNextPage }
-      media(type: ANIME, search: $search, sort: [SEARCH_MATCH, POPULARITY_DESC]) {
-        id title { romaji } episodes averageScore startDate { year }
-        format status coverImage { large } bannerImage genres
-      }
-    }
-  }`;
+// Filter vocabularies, checked against AniList's enums before they are used
+// as variable values: an unknown enum would fail the whole query upstream.
+const GENRES = ['Action', 'Adventure', 'Comedy', 'Drama', 'Ecchi', 'Fantasy', 'Horror',
+  'Mahou Shoujo', 'Mecha', 'Music', 'Mystery', 'Psychological', 'Romance', 'Sci-Fi',
+  'Slice of Life', 'Sports', 'Supernatural', 'Thriller'];
+const FORMATS = ['TV', 'TV_SHORT', 'MOVIE', 'SPECIAL', 'OVA', 'ONA', 'MUSIC'];
+const STATUSES = ['FINISHED', 'RELEASED', 'RELEASING', 'NOT_YET_RELEASED', 'CANCELLED', 'HIATUS'];
 
-const TRENDING_QUERY = `
-  query ($page: Int) {
+/** The canonical spelling of a known value, or '' when it is not known. */
+function pick(value, allowed) {
+  const raw = (value ?? '').trim();
+  return allowed.find((a) => a.toLowerCase() === raw.toLowerCase()) ?? '';
+}
+
+/**
+ * The catalog query, assembled from the filters actually in play. Two rules:
+ * filters travel as GraphQL variables, never spliced into the text; and only
+ * the variables used are declared, because AniList rejects a query that
+ * declares one it never reads. With no query the shelf trends — the sort says
+ * which of the two this is, exactly as the old pair of queries did.
+ */
+function catalogQuery({ q, page, genre, format, status }) {
+  const decls = ['$page: Int'];
+  const args = ['type: ANIME'];
+  const variables = { page };
+  if (q) { decls.push('$search: String'); args.push('search: $search'); variables.search = q; }
+  if (genre) { decls.push('$genre: String'); args.push('genre: $genre'); variables.genre = genre; }
+  if (format) { decls.push('$format: MediaFormat'); args.push('format: $format'); variables.format = format; }
+  if (status) { decls.push('$status: MediaStatus'); args.push('status: $status'); variables.status = status; }
+  args.push(`sort: [${q ? 'SEARCH_MATCH' : 'TRENDING_DESC'}, POPULARITY_DESC]`);
+
+  const query = `
+  query (${decls.join(', ')}) {
     Page(page: $page, perPage: 24) {
       pageInfo { currentPage hasNextPage }
-      media(type: ANIME, sort: [TRENDING_DESC, POPULARITY_DESC]) {
+      media(${args.join(', ')}) {
         id title { romaji } episodes averageScore startDate { year }
         format status coverImage { large } bannerImage genres
       }
     }
   }`;
+  return { query, variables };
+}
 
 const DETAILS_QUERY = `
   query ($id: Int) {
@@ -190,15 +212,20 @@ function json(res, status, body) {
   res.end(text);
 }
 
-/** GET /api/anime/search?q=&page= — AniList search, or trending when empty. */
+/**
+ * GET /api/anime/search?q=&page=&genre=&format=&status=
+ * AniList search, or trending when empty; the filters narrow either.
+ */
 async function handleSearch(url, res) {
   const q = (url.searchParams.get('q') ?? '').trim();
   const page = Math.max(1, Number(url.searchParams.get('page') ?? 1) | 0);
+  const genre = pick(url.searchParams.get('genre'), GENRES);
+  const format = pick(url.searchParams.get('format'), FORMATS);
+  const status = pick(url.searchParams.get('status'), STATUSES);
 
-  const data = await cached('search', `s:${q}:${page}`, () =>
-    q
-      ? anilist(SEARCH_QUERY, { search: q, page })
-      : anilist(TRENDING_QUERY, { page }));
+  const { query, variables } = catalogQuery({ q, page, genre, format, status });
+  const data = await cached('search', `s:${q}:${page}:${genre}:${format}:${status}`,
+    () => anilist(query, variables));
 
   const page_ = data.Page;
   json(res, 200, {

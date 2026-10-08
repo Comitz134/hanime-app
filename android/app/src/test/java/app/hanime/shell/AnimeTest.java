@@ -152,6 +152,32 @@ public class AnimeTest {
     }
 
     @Test
+    public void filtersRideTheQueryAsVariablesAndJunkIsDroppedBeforeItLeaves() throws Exception {
+        fake.routes.put("graphql.anilist.co", ANILIST_PAGE);
+
+        Anime.Result res = Anime.handle("/api/anime/search",
+                q("genre", "Action", "format", "tv", "status", "RELEASING"));
+        assertEquals(200, res.status);
+        JSONObject sent = new JSONObject(fake.lastBody);
+        String query = sent.getString("query");
+        assertTrue("the genre filter never reaches the query", query.contains("genre: $genre"));
+        assertTrue("the format filter never reaches the query", query.contains("format: $format"));
+        assertTrue("the status filter never reaches the query", query.contains("status: $status"));
+        // Values travel as variables — never spliced into the query text — and
+        // are canonicalized on the way, so upstream sees its own spelling.
+        JSONObject vars = sent.getJSONObject("variables");
+        assertEquals("Action", vars.getString("genre"));
+        assertEquals("TV", vars.getString("format"));
+        assertEquals("RELEASING", vars.getString("status"));
+
+        // An unknown enum would fail the whole query upstream; it never gets there.
+        Anime.handle("/api/anime/search", q("format", "NOPE", "genre", "Nope"));
+        String junk = new JSONObject(fake.lastBody).getString("query");
+        assertFalse("an unknown format still reached the query", junk.contains("$format"));
+        assertFalse("an unknown genre still reached the query", junk.contains("$genre"));
+    }
+
+    @Test
     public void detailsCarryTheDescriptionTextAndTheRecommendations() throws Exception {
         fake.routes.put("graphql.anilist.co", ANILIST_DETAILS);
 

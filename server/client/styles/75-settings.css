@@ -1,0 +1,37 @@
+/* --------------------------------------------------------------------------
+   Settings view — appearance and updates, out of the menu popover and in a
+   place that can hold a heading, a hint and a row of actions.
+   -------------------------------------------------------------------------- */
+
+.settings-card {
+  border: 1px solid hsl(var(--border) / .6);
+  background: hsl(var(--card) / .5);
+  border-radius: calc(var(--radius) + .375rem);
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+@media (min-width: 640px) { .settings-card { padding: 1.25rem 1.5rem; } }
+
+.settings-card-head { margin-bottom: .75rem; }
+.settings-card-head h3 { font-size: .9375rem; letter-spacing: .02em; }
+.settings-hint { margin: .25rem 0 0; font-size: .75rem; color: hsl(var(--muted-foreground)); }
+
+/* The appearance controls are the menu's own elements; they only lose the
+   menu's inset padding here. */
+.settings-card-body .nav-menu-label { padding: .375rem 0 .25rem; }
+.settings-card-body .menu-seg { margin: 0 0 .875rem; max-width: 24rem; }
+.settings-card-body .menu-swatches { padding: 0 0 .875rem; }
+.settings-card-body .menu-row { padding: .5rem 0; }
+
+.settings-row {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: .75rem; padding: .5rem 0;
+  font-size: .8125rem; color: hsl(var(--muted-foreground));
+}
+.settings-row + .settings-row { border-top: 1px solid hsl(var(--border) / .5); }
+.settings-val {
+  color: hsl(var(--foreground)); font-weight: 500; text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.settings-actions { display: flex; flex-wrap: wrap; gap: .5rem; padding-top: .75rem; }

@@ -61,6 +61,12 @@ button { cursor: pointer; }
 img { display: block; }
 ::selection { background: hsl(var(--primary) / .28); }
 
+/* The hidden attribute has to mean hidden. An author `display` beats the UA's
+   [hidden] rule (the card fallback above hit the same trap), so any element
+   whose class sets display — chips, pagers, rails — would ignore it and stay
+   on screen: a Clear button with nothing to clear, a pager on the last page. */
+[hidden] { display: none !important; }
+
 /* thin scrollbars, matching the reference's restrained chrome */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -338,7 +344,7 @@ img { display: block; }
   position: absolute; left: .75rem; top: 50%; transform: translateY(-50%);
   width: 1rem; height: 1rem; color: hsl(var(--muted-foreground) / .6); pointer-events: none;
 }
-#q, #lib-q {
+#q, #lib-q, #anime-q, #tag-q {
   width: 100%; height: 2.75rem;
   border-radius: 1rem;
   background: hsl(var(--card) / .5);
@@ -346,8 +352,9 @@ img { display: block; }
   padding-left: 2.5rem; padding-right: 2.5rem;
   font-size: .8125rem; font-weight: 500;
 }
-#q::placeholder, #lib-q::placeholder { color: hsl(var(--muted-foreground) / .5); }
-#q:focus, #lib-q:focus { border-color: hsl(var(--primary) / .5); }
+#q::placeholder, #lib-q::placeholder,
+#anime-q::placeholder, #tag-q::placeholder { color: hsl(var(--muted-foreground) / .5); }
+#q:focus, #lib-q:focus, #anime-q:focus, #tag-q:focus { border-color: hsl(var(--primary) / .5); }
 .search-clear {
   position: absolute; right: .6rem; top: 50%; transform: translateY(-50%);
   width: 1.4rem; height: 1.4rem; display: none; place-items: center;
@@ -356,7 +363,7 @@ img { display: block; }
 .search-shell[data-filled="true"] .search-clear { display: grid; }
 .search-clear:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
 
-select#sort {
+select#sort, select.filter-select {
   height: 2.75rem; border-radius: 1rem; padding: 0 2rem 0 .875rem;
   background: hsl(var(--card) / .5);
   border: 1px solid hsl(var(--border) / .6);
@@ -364,8 +371,15 @@ select#sort {
   appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23b4b4b4' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   background-repeat: no-repeat; background-position: right .6rem center; background-size: .9rem;
+  color: hsl(var(--foreground)); cursor: pointer;
 }
-select#sort:focus { border-color: hsl(var(--primary) / .5); }
+select#sort:focus, select.filter-select:focus { border-color: hsl(var(--primary) / .5); }
+select.filter-select[data-set="true"] {
+  border-color: hsl(var(--primary) / .6);
+  color: hsl(var(--primary));
+}
+/* The anime area's filters sit between the search box and the grid. */
+.filter-row { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-bottom: 1.25rem; }
 
 /* --------------------------------------------------------------------------
    Section header
@@ -409,6 +423,11 @@ select#sort:focus { border-color: hsl(var(--primary) / .5); }
   color: hsl(var(--primary-foreground)); font-weight: 600;
 }
 .chip-n { font-size: .625rem; opacity: .6; }
+
+/* The genre picker wraps instead of scrolling sideways: a few hundred tags
+   in a line you can scan, narrowed by the filter box above it. */
+.tag-cloud { display: flex; flex-wrap: wrap; gap: .5rem; }
+.tag-cloud .chip { flex: 0 0 auto; }
 
 
 /* --------------------------------------------------------------------------
@@ -864,6 +883,44 @@ button.pp-tag em {
 
 
 /* --------------------------------------------------------------------------
+   Settings view — appearance and updates, out of the menu popover and in a
+   place that can hold a heading, a hint and a row of actions.
+   -------------------------------------------------------------------------- */
+
+.settings-card {
+  border: 1px solid hsl(var(--border) / .6);
+  background: hsl(var(--card) / .5);
+  border-radius: calc(var(--radius) + .375rem);
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+@media (min-width: 640px) { .settings-card { padding: 1.25rem 1.5rem; } }
+
+.settings-card-head { margin-bottom: .75rem; }
+.settings-card-head h3 { font-size: .9375rem; letter-spacing: .02em; }
+.settings-hint { margin: .25rem 0 0; font-size: .75rem; color: hsl(var(--muted-foreground)); }
+
+/* The appearance controls are the menu's own elements; they only lose the
+   menu's inset padding here. */
+.settings-card-body .nav-menu-label { padding: .375rem 0 .25rem; }
+.settings-card-body .menu-seg { margin: 0 0 .875rem; max-width: 24rem; }
+.settings-card-body .menu-swatches { padding: 0 0 .875rem; }
+.settings-card-body .menu-row { padding: .5rem 0; }
+
+.settings-row {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: .75rem; padding: .5rem 0;
+  font-size: .8125rem; color: hsl(var(--muted-foreground));
+}
+.settings-row + .settings-row { border-top: 1px solid hsl(var(--border) / .5); }
+.settings-val {
+  color: hsl(var(--foreground)); font-weight: 500; text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.settings-actions { display: flex; flex-wrap: wrap; gap: .5rem; padding-top: .75rem; }
+
+/* --------------------------------------------------------------------------
    Themes, accents and motion
 
    The palette at the top of this file stays the measured dark one — it is
@@ -1014,7 +1071,15 @@ h2 .area-chip { font-size: .5625rem; }
       <button class="nav-search-close" id="nav-q-close" type="button" aria-label="Close search">&times;</button>
     </div>
 
+    <!-- Two buttons, search first: the sort shortcut between them duplicated
+         the Browse toolbar's own control, and the reader asked for the menu
+         and the search glass to trade places. -->
     <div class="nav-actions">
+      <button class="icon-btn" id="search-toggle" aria-label="Search" aria-expanded="false" title="Search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/>
+        </svg>
+      </button>
       <button class="icon-btn" id="menu-toggle" type="button" aria-label="Menu"
               aria-expanded="false" aria-controls="nav-menu" title="Menu">
         <svg class="ico-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
@@ -1024,22 +1089,13 @@ h2 .area-chip { font-size: .5625rem; }
           <path d="M6 6l12 12M18 6 6 18"/>
         </svg>
       </button>
-      <button class="icon-btn" id="sort-toggle" aria-label="Sort" aria-expanded="false" title="Sort">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-          <path d="M4 7h16M6 12h12M9 17h6"/>
-        </svg>
-      </button>
-      <button class="icon-btn" id="search-toggle" aria-label="Search" aria-expanded="false" title="Search">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-          <circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/>
-        </svg>
-      </button>
     </div>
 
-    <!-- One menu: where to go, and how the app looks while getting there.
-         Two areas: normal anime up top, and everything from hanime.tv behind
-         an explicit 18+ label — the reader picks one or the other, and the
-         label says which is which before anything opens. -->
+    <!-- One menu: where to go. Two areas: normal anime up top, and everything
+         from hanime.tv behind an explicit 18+ label — the reader picks one or
+         the other, and the label says which is which before anything opens.
+         How the app looks, and keeping it up to date, belong to the Settings
+         view at the bottom rather than to this popover. -->
     <div class="nav-menu" id="nav-menu" hidden>
       <nav class="nav-menu-group" aria-label="Sections">
         <div class="nav-menu-label">Anime</div>
@@ -1067,26 +1123,10 @@ h2 .area-chip { font-size: .5625rem; }
       <div class="nav-menu-sep"></div>
 
       <div class="nav-menu-group">
-        <div class="nav-menu-label">Theme</div>
-        <div class="menu-seg" id="theme-seg" role="group" aria-label="Theme">
-          <button type="button" data-theme-pick="dark" aria-pressed="false">Dark</button>
-          <button type="button" data-theme-pick="light" aria-pressed="false">Light</button>
-          <button type="button" data-theme-pick="system" aria-pressed="false">System</button>
-        </div>
-
-        <div class="nav-menu-label">Accent</div>
-        <div class="menu-swatches" id="accent-row" role="group" aria-label="Accent">
-          <button class="swatch" type="button" data-accent-pick="amber" aria-label="Amber" aria-pressed="false" style="--sw: 29.5 100% 74%"></button>
-          <button class="swatch" type="button" data-accent-pick="rose" aria-label="Rose" aria-pressed="false" style="--sw: 350 90% 72%"></button>
-          <button class="swatch" type="button" data-accent-pick="violet" aria-label="Violet" aria-pressed="false" style="--sw: 268 85% 76%"></button>
-          <button class="swatch" type="button" data-accent-pick="sky" aria-label="Sky" aria-pressed="false" style="--sw: 195 90% 72%"></button>
-          <button class="swatch" type="button" data-accent-pick="mint" aria-label="Mint" aria-pressed="false" style="--sw: 152 65% 68%"></button>
-        </div>
-
-        <label class="menu-row" for="pref-motion">
-          <span>Reduce motion</span>
-          <input type="checkbox" id="pref-motion">
-        </label>
+        <div class="nav-menu-label">App</div>
+        <button class="nav-menu-item nav-link" type="button" data-go="settings">Settings
+          <svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m5 13 4.5 4.5L19 7"/></svg>
+        </button>
       </div>
     </div>
   </div>
@@ -1113,6 +1153,37 @@ h2 .area-chip { font-size: .5625rem; }
                  placeholder="Search anime titles…" autocomplete="off" spellcheck="false">
           <button class="search-clear" id="anime-clear" type="button" aria-label="Clear search">&times;</button>
         </label>
+
+        <!-- Catalog filters, answered by AniList itself: the query carries
+             them upstream, so a page of 24 is a page of matches rather than a
+             page to be sifted by hand. -->
+        <div class="filter-row" id="anime-filters">
+          <select id="anime-genre" class="filter-select" aria-label="Genre">
+            <option value="">All genres</option>
+            <option>Action</option><option>Adventure</option><option>Comedy</option>
+            <option>Drama</option><option>Fantasy</option><option>Horror</option>
+            <option>Mahou Shoujo</option><option>Mecha</option><option>Music</option>
+            <option>Mystery</option><option>Psychological</option><option>Romance</option>
+            <option>Sci-Fi</option><option>Slice of Life</option><option>Sports</option>
+            <option>Supernatural</option><option>Thriller</option>
+          </select>
+          <select id="anime-format" class="filter-select" aria-label="Format">
+            <option value="">Any format</option>
+            <option value="TV">TV</option><option value="MOVIE">Movie</option>
+            <option value="OVA">OVA</option><option value="ONA">ONA</option>
+            <option value="SPECIAL">Special</option><option value="TV_SHORT">TV short</option>
+            <option value="MUSIC">Music</option>
+          </select>
+          <select id="anime-status" class="filter-select" aria-label="Status">
+            <option value="">Any status</option>
+            <option value="RELEASING">Airing now</option>
+            <option value="FINISHED">Finished</option>
+            <option value="NOT_YET_RELEASED">Not yet aired</option>
+            <option value="CANCELLED">Cancelled</option>
+            <option value="HIATUS">On hiatus</option>
+          </select>
+          <button class="chip" id="anime-filter-clear" type="button" hidden>Clear filters</button>
+        </div>
 
         <div class="grid" id="anime-grid"></div>
         <p class="note" id="anime-note" hidden></p>
@@ -1188,13 +1259,29 @@ h2 .area-chip { font-size: .5625rem; }
     <!-- genres -->
     <div class="view" data-view="genres">
 
-      <!-- genres rail -->
+      <!-- genres: a wrapping cloud behind a filter box, not a strip to drag
+           sideways — the histogram has a long tail, and both ends of it have
+           to be reachable: the top tags by scrolling, the rest by typing. -->
       <section id="genres">
         <div class="sec-head">
-          <div class="sec-head-l"><h2>Browse Genres</h2></div>
+          <div class="sec-head-l">
+            <h2>Browse Genres</h2>
+            <span class="sec-count" id="tag-count" hidden></span>
+          </div>
           <button class="chip" id="clear-tags" type="button" hidden>Clear</button>
         </div>
-        <div class="rail" id="tag-rail" aria-label="Genres"></div>
+
+        <label class="search-shell" id="tag-search-shell" style="max-width:28rem">
+          <svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+            <circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/>
+          </svg>
+          <input id="tag-q" type="search" inputmode="search" enterkeyhint="search"
+                 placeholder="Find a genre…" autocomplete="off" spellcheck="false">
+          <button class="search-clear" id="tag-q-clear" type="button" aria-label="Clear">&times;</button>
+        </label>
+
+        <div class="tag-cloud" id="tag-rail" aria-label="Genres"></div>
+        <p class="note" id="tag-note" hidden></p>
       </section>
 
     </div>
@@ -1323,6 +1410,67 @@ h2 .area-chip { font-size: .5625rem; }
         </div>
         <div class="grid" id="hist-grid"></div>
         <p class="note" id="hist-note" hidden></p>
+      </section>
+
+    </div>
+
+    <!-- settings: how the app looks, and how it keeps itself current. These
+         choices used to sit in the menu popover — a place you have to open —
+         so they moved into a view of their own, reachable from the menu's
+         bottom group. The theme, accent and motion controls are the same
+         elements as before, ids and all; only their home changed. -->
+    <div class="view" data-view="settings">
+      <section id="settings">
+        <div class="sec-head">
+          <div class="sec-head-l">
+            <h2>Settings</h2>
+          </div>
+        </div>
+
+        <div class="settings-card">
+          <div class="settings-card-head">
+            <h3>Appearance</h3>
+            <p class="settings-hint">Theme, accent and motion are remembered on this device.</p>
+          </div>
+          <div class="settings-card-body">
+            <div class="nav-menu-label">Theme</div>
+            <div class="menu-seg" id="theme-seg" role="group" aria-label="Theme">
+              <button type="button" data-theme-pick="dark" aria-pressed="false">Dark</button>
+              <button type="button" data-theme-pick="light" aria-pressed="false">Light</button>
+              <button type="button" data-theme-pick="system" aria-pressed="false">System</button>
+            </div>
+
+            <div class="nav-menu-label">Accent</div>
+            <div class="menu-swatches" id="accent-row" role="group" aria-label="Accent">
+              <button class="swatch" type="button" data-accent-pick="amber" aria-label="Amber" aria-pressed="false" style="--sw: 29.5 100% 74%"></button>
+              <button class="swatch" type="button" data-accent-pick="rose" aria-label="Rose" aria-pressed="false" style="--sw: 350 90% 72%"></button>
+              <button class="swatch" type="button" data-accent-pick="violet" aria-label="Violet" aria-pressed="false" style="--sw: 268 85% 76%"></button>
+              <button class="swatch" type="button" data-accent-pick="sky" aria-label="Sky" aria-pressed="false" style="--sw: 195 90% 72%"></button>
+              <button class="swatch" type="button" data-accent-pick="mint" aria-label="Mint" aria-pressed="false" style="--sw: 152 65% 68%"></button>
+            </div>
+
+            <label class="menu-row" for="pref-motion">
+              <span>Reduce motion</span>
+              <input type="checkbox" id="pref-motion">
+            </label>
+          </div>
+        </div>
+
+        <div class="settings-card">
+          <div class="settings-card-head">
+            <h3>Updates</h3>
+            <p class="settings-hint">The app already checks on launch and when the network returns — this asks for a check right now.</p>
+          </div>
+          <div class="settings-card-body">
+            <div class="settings-row"><span>App version</span><span class="settings-val" id="set-version">…</span></div>
+            <div class="settings-row"><span>Server</span><span class="settings-val" id="set-server">…</span></div>
+            <div class="settings-actions">
+              <button class="chip" id="set-check" type="button">Check for updates</button>
+              <button class="chip" id="set-server-settings" type="button">Server settings</button>
+            </div>
+            <p class="note" id="set-note" hidden></p>
+          </div>
+        </div>
       </section>
 
     </div>
@@ -2180,8 +2328,11 @@ h2 .area-chip { font-size: .5625rem; }
   }
 
   // client/src/anime.js
-  var aState = { q: "", page: 1, hasNext: false };
+  var aState = { q: "", page: 1, hasNext: false, genre: "", format: "", status: "" };
   var aDebounce;
+  function aFiltered() {
+    return !!(aState.q || aState.genre || aState.format || aState.status);
+  }
   function animeCardHtml(m) {
     const meta = [m.year, m.eps ? `${m.eps} eps` : null, m.format].filter(Boolean).map(esc).join(" \xB7 ");
     return `<article class="card" data-anime="${Number(m.id)}" tabindex="0" role="button" aria-label="${esc(m.title)}">
@@ -2211,14 +2362,18 @@ h2 .area-chip { font-size: .5625rem; }
     const pager = $("#anime-pager");
     if (page > 1) grid.innerHTML = '<div class="center-spin"><div class="spinner"></div></div>';
     try {
-      const res = await fetch(`/api/anime/search?q=${encodeURIComponent(aState.q)}&page=${page}`);
+      const params = new URLSearchParams({ q: aState.q, page: String(page) });
+      if (aState.genre) params.set("genre", aState.genre);
+      if (aState.format) params.set("format", aState.format);
+      if (aState.status) params.set("status", aState.status);
+      const res = await fetch(`/api/anime/search?${params}`);
       if (!res.ok) throw new Error(`status ${res.status}`);
       const data = await res.json();
       aState.page = data.page;
       aState.hasNext = !!data.hasNext;
       grid.innerHTML = (data.items ?? []).map(animeCardHtml).join("");
-      $("#anime-count").textContent = `${((_a10 = data.items) == null ? void 0 : _a10.length) ?? 0}${aState.q ? " found" : " trending now"}`;
-      animeNote((data.items ?? []).length ? "" : "Nothing matched \u2014 try another title.");
+      $("#anime-count").textContent = `${((_a10 = data.items) == null ? void 0 : _a10.length) ?? 0}${aFiltered() ? " found" : " trending now"}`;
+      animeNote((data.items ?? []).length ? "" : aFiltered() ? "Nothing matched \u2014 try another title, or clear the filters." : "Nothing matched \u2014 try another title.");
       pager.hidden = !data.hasNext && aState.page <= 1;
       $("#anime-prev").disabled = aState.page <= 1;
       $("#anime-next").disabled = !aState.hasNext;
@@ -2368,7 +2523,7 @@ h2 .area-chip { font-size: .5625rem; }
     await loadPlayer(dState.ep);
   }
   function bindAnimeView() {
-    var _a10, _b, _c, _d;
+    var _a10, _b, _c, _d, _e, _f;
     (_a10 = $("#anime-q")) == null ? void 0 : _a10.addEventListener("input", (e) => {
       const val = e.target.value;
       $("#anime-search-shell").dataset.filled = String(!!val);
@@ -2381,10 +2536,37 @@ h2 .area-chip { font-size: .5625rem; }
       searchAnime("");
       $("#anime-q").focus({ preventScroll: true });
     });
-    (_c = $("#anime-prev")) == null ? void 0 : _c.addEventListener("click", () => {
+    const filters = [["#anime-genre", "genre"], ["#anime-format", "format"], ["#anime-status", "status"]];
+    const syncFilters = () => {
+      let any = false;
+      for (const [sel, key] of filters) {
+        const el = $(sel);
+        if (!el) continue;
+        el.dataset.set = String(!!aState[key]);
+        if (aState[key]) any = true;
+      }
+      $("#anime-filter-clear").hidden = !any;
+    };
+    for (const [sel, key] of filters) {
+      (_c = $(sel)) == null ? void 0 : _c.addEventListener("change", (e) => {
+        aState[key] = e.target.value;
+        syncFilters();
+        loadAnime(1);
+      });
+    }
+    (_d = $("#anime-filter-clear")) == null ? void 0 : _d.addEventListener("click", () => {
+      for (const [sel, key] of filters) {
+        aState[key] = "";
+        const el = $(sel);
+        if (el) el.value = "";
+      }
+      syncFilters();
+      loadAnime(1);
+    });
+    (_e = $("#anime-prev")) == null ? void 0 : _e.addEventListener("click", () => {
       if (aState.page > 1) loadAnime(aState.page - 1).then(() => scrollTo({ top: 0, behavior: "smooth" }));
     });
-    (_d = $("#anime-next")) == null ? void 0 : _d.addEventListener("click", () => {
+    (_f = $("#anime-next")) == null ? void 0 : _f.addEventListener("click", () => {
       if (aState.hasNext) loadAnime(aState.page + 1).then(() => scrollTo({ top: 0, behavior: "smooth" }));
     });
   }
@@ -2473,10 +2655,36 @@ h2 .area-chip { font-size: .5625rem; }
   }
 
   // client/src/data.js
+  var tagList = [];
+  var tagQuery = "";
   async function loadTags() {
     const { data } = await api("/api/tags");
-    const top = data.filter((t) => t.count >= 25).slice(0, 30);
-    $("#tag-rail").innerHTML = top.map((t) => `<button class="chip" data-tag="${esc(t.name)}" aria-pressed="false">${esc(t.name)} <span class="chip-n">${t.count}</span></button>`).join("");
+    tagList = (data ?? []).filter((t) => t.count >= 5).slice(0, 200);
+    renderTags();
+  }
+  function setTagQuery(val) {
+    tagQuery = (val ?? "").trim().toLowerCase();
+    renderTags();
+  }
+  function renderTags() {
+    const rail = $("#tag-rail");
+    if (!rail) return;
+    const on = (name) => state.tags.includes(name);
+    const shown = tagList.filter((t) => !tagQuery || t.name.toLowerCase().includes(tagQuery) || on(t.name));
+    rail.innerHTML = shown.map((t) => `<button class="chip" data-tag="${esc(t.name)}" aria-pressed="${on(t.name)}">${esc(t.name)} <span class="chip-n">${t.count}</span></button>`).join("");
+    $("#clear-tags").hidden = state.tags.length === 0;
+    const count = $("#tag-count");
+    if (count) {
+      const bits = [`${state.tags.length} selected`, `${tagList.length} genres`];
+      if (tagQuery) bits.push(`${shown.length} shown`);
+      count.textContent = bits.join(" \xB7 ");
+      count.hidden = false;
+    }
+    const note = $("#tag-note");
+    if (note) {
+      note.hidden = shown.length > 0;
+      note.textContent = shown.length ? "" : "No genre matches that \u2014 try a shorter word.";
+    }
   }
   async function loadBrands() {
     const { data } = await api("/api/brands");
@@ -2792,17 +3000,28 @@ h2 .area-chip { font-size: .5625rem; }
     const i = state.tags.indexOf(tag);
     if (i >= 0) state.tags.splice(i, 1);
     else state.tags.push(tag);
-    chip.setAttribute("aria-pressed", String(i < 0));
-    $("#clear-tags").hidden = state.tags.length === 0;
+    renderTags();
     refresh();
     showView("browse");
   });
   $("#clear-tags").onclick = () => {
     state.tags = [];
-    $$("#tag-rail .chip").forEach((c) => c.setAttribute("aria-pressed", "false"));
-    $("#clear-tags").hidden = true;
+    renderTags();
     refresh();
   };
+  var tagDebounce;
+  $("#tag-q").addEventListener("input", (e) => {
+    const val = e.target.value;
+    $("#tag-search-shell").dataset.filled = String(!!val);
+    clearTimeout(tagDebounce);
+    tagDebounce = setTimeout(() => setTagQuery(val), 120);
+  });
+  $("#tag-q-clear").addEventListener("click", () => {
+    $("#tag-q").value = "";
+    $("#tag-search-shell").dataset.filled = "false";
+    setTagQuery("");
+    $("#tag-q").focus({ preventScroll: true });
+  });
   $("#brand-rail").addEventListener("click", (e) => {
     const chip = e.target.closest(".chip");
     if (!chip) return;
@@ -2871,12 +3090,6 @@ h2 .area-chip { font-size: .5625rem; }
   });
   $("#search-toggle").onclick = () => {
     setSearchOpen($("#search-toggle").getAttribute("aria-expanded") !== "true");
-  };
-  $("#sort-toggle").onclick = () => {
-    const open = $("#sort-toggle").getAttribute("aria-expanded") !== "true";
-    $("#sort-toggle").setAttribute("aria-expanded", String(open));
-    showView("browse");
-    $("#sort").focus({ preventScroll: true });
   };
   $("#brand-btn").onclick = () => showView("browse");
   var plDebounce;
@@ -2992,6 +3205,29 @@ h2 .area-chip { font-size: .5625rem; }
     }, true);
   }
 
+  // client/src/settings.js
+  function fillSettings() {
+    const inApp = !!shellApi();
+    const version = shellCall("versionName");
+    const code = shellCall("versionCode");
+    const server = shellCall("serverUrl");
+    $("#set-version").textContent = inApp ? `${version} (${code})` : "web copy";
+    $("#set-server").textContent = inApp ? server || "" : location.origin;
+    $("#set-check").hidden = !inApp;
+    $("#set-server-settings").hidden = !inApp;
+    const note = $("#set-note");
+    note.hidden = inApp;
+    if (!inApp) {
+      note.textContent = "This is the browser copy \u2014 update checks and server settings live in the Android app.";
+    }
+  }
+  $("#set-check").addEventListener("click", () => shellCall("checkForUpdate"));
+  $("#set-server-settings").addEventListener("click", () => shellCall("openServerSettings"));
+  document.addEventListener("click", (e) => {
+    const go = e.target.closest("[data-go]");
+    if (go && go.dataset.go === "settings") fillSettings();
+  });
+
   // client/src/boot.js
   document.addEventListener("error", (e) => {
     var _a10;
@@ -3006,6 +3242,7 @@ h2 .area-chip { font-size: .5625rem; }
   }, true);
   $$(".rail").forEach(makeDraggable);
   (async () => {
+    fillSettings();
     try {
       await Promise.all([loadTags(), loadBrands(), loadFeatured()]);
       await loadGrid();
