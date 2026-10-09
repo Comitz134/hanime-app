@@ -1,0 +1,64 @@
+/* --------------------------------------------------------------------------
+   Organizing: the order controls, and the device's own rails
+   --------------------------------------------------------------------------
+
+   Every shelf in the Library answers "in what order?" the same way, and this
+   is the dressing for that answer. The control is the catalog's own
+   `select.filter-select` — one vocabulary for "narrow this down" and "put this
+   in order" — only smaller, because it rides a section header rather than a
+   toolbar of its own.
+
+   The × on a device rail is the other half of organizing: a memory you did not
+   ask for is noise, and a rail with no way to drop an entry is a list that
+   decides for you. It sits on the corner opposite the badge, stays quiet until
+   the card is pointed at, and is never invisible: there is no hover on a phone.
+   -------------------------------------------------------------------------- */
+
+/* The right-hand end of a section header: the order, and whatever chip the
+   section already had (Refresh, Clear history). */
+.sec-tools { display: flex; align-items: center; gap: .5rem; flex: none; }
+
+select.filter-select.sort-select {
+  height: 2.25rem; border-radius: .75rem; font-size: .75rem;
+  padding: 0 1.7rem 0 .625rem;
+  background-size: .8rem; background-position: right .45rem center;
+  max-width: 12rem;
+}
+
+/* On a phone the left side ("Continue reading" plus its count) and the tools
+   do not fit on one line; the tools drop to their own line rather than
+   squashing the heading. */
+@media (max-width: 480px) {
+  .sec-head { flex-wrap: wrap; }
+  .sec-tools { width: 100%; }
+}
+
+.card-drop {
+  position: absolute; top: .4rem; left: .4rem; z-index: 2;
+  width: 1.5rem; height: 1.5rem; display: grid; place-items: center;
+  border-radius: 999px; border: 1px solid rgb(255 255 255 / .18);
+  background: rgb(0 0 0 / .45); color: #fff;
+  opacity: .65;
+  transition: opacity .2s, border-color .2s, color .2s, transform .2s;
+  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+}
+.card-drop svg { width: .7rem; height: .7rem; }
+.card:hover .card-drop { opacity: 1; }
+.card-drop:hover {
+  border-color: hsl(var(--primary)); color: hsl(var(--primary));
+  transform: scale(1.08);
+}
+
+/* An episode or chapter number, printed in the badge the grid already uses for
+   view counts — one shape for "the small fact on a poster". */
+.act-card .card-badge { font-weight: 600; }
+
+/* A poster card inside a rail carries the same width the grid's smallest
+   column does. A flex row has no column template to impose one, and a card
+   left to size itself is as wide as its own title — so a shelf of them comes
+   out ragged, each poster a different size depending on how long its name is.
+   That was true of every rail in the app (Continue watching, Recommended);
+   the two new ones made it visible. */
+.rail .card { flex: 0 0 auto; width: 6.875rem; }
+@media (min-width: 480px) { .rail .card { width: 8.25rem; } }
+@media (min-width: 640px) { .rail .card { width: 9.375rem; } }

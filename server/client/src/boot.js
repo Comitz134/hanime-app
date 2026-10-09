@@ -7,15 +7,21 @@
 // rebuilds.
 
 import { $, $$, esc } from './core.js';
-import { ensureAnime } from './anime.js';
+import { ensureAnime, openAnime } from './anime.js';
 import { handleMalCallback } from './mal.js';
 import { loadBrands, loadFeatured, loadGrid, loadTags } from './data.js';
+import { openManga } from './manga.js';
+import { openShow } from './movies.js';
+import { restoreLibTab } from './mal-library.js';
+import { renderRails, setOpener } from './activity.js';
 import { loadOwnIndex } from './pl-hits.js';
 import { loadSession } from './playlists.js';
 import { renderLibrary } from './positions.js';
 import { wirePublicPlaylists } from './public-playlists.js';
 import { makeDraggable } from './rails.js';
 import { fillSettings } from './settings.js';
+import { fillSorts } from './sorts.js';
+import { restoreBrowseSort } from './wiring.js';
 import { showView } from './views.js';
 
 
@@ -45,6 +51,21 @@ $$('.rail').forEach(makeDraggable);
   // Before any network: the settings rows are local facts about the build,
   // not something a slow catalog should hold up.
   fillSettings();
+
+  // Everything that is a remembered choice or a local record is settled here,
+  // before the first request: the sort controls get the words and the pick
+  // they were left with, the Library restores the shelf it was left on, the
+  // catalog's order is put back (which loadGrid below must see), the two
+  // device rails draw from what is on this phone, and they are handed their
+  // openers — activity.js deliberately knows nothing about the sheets.
+  fillSorts();
+  restoreLibTab();
+  restoreBrowseSort();
+  setOpener('anime', openAnime);
+  setOpener('manga', openManga);
+  setOpener('show', openShow);
+  renderRails();
+
   try {
     // The anime shelf is the opening view, so it is asked for here rather
     // than waiting for a menu click that will never come. Its own loader

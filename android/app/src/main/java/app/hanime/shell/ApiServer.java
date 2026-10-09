@@ -138,6 +138,14 @@ final class ApiServer {
             return json(r.status, r.body);
         }
 
+        // The films & series family: f-movies.org (TMDB catalog + static
+        // episode pages), answered here so the app needs no proxy —
+        // Fmovies.handle answers every /api/fmovies/* path itself.
+        if (path.startsWith("/api/fmovies/")) {
+            Fmovies.Result r = Fmovies.handle(path, firsts(q));
+            return json(r.status, r.body);
+        }
+
         // Manga reader pages, proxied with the Referer their image CDN
         // demands — the one thing about mangafire that cannot be fetched
         // straight from the page (their JSON API answers any origin).

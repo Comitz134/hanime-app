@@ -6,7 +6,7 @@
 // mechanically once — they are ordinary code now, not something a tool
 // rebuilds.
 
-import { $, esc, fmtCount } from './core.js';
+import { $, ago, esc, fmtCount } from './core.js';
 import { isFav, remember } from './library.js';
 import { progressOf } from './positions.js';
 import { shellCall } from './shell.js';
@@ -35,6 +35,14 @@ function cardHtml(v, opts) {
   // opts is an object here and the array index when this is used as a map
   // callback, so every read off it is checked for the shape it expects.
   const pct = opts && opts.progress ? progressOf(v.slug) : 0;
+  // On the device's own shelves the record carries when it happened, and that
+  // is the one fact a reader scanning History is looking for.
+  const when = opts && opts.local && Number(v.at) ? ago(v.at) : '';
+  const metaLine = [
+    v.brand ?? '',
+    v.released_at ? v.released_at.slice(0, 4) : '',
+    when,
+  ].filter(Boolean).join(' · ');
 
   return `<article class="card" data-slug="${esc(v.slug)}" tabindex="0" role="button" aria-label="${esc(name)}">
     <div class="card-frame">
@@ -52,7 +60,7 @@ function cardHtml(v, opts) {
     </div>
     <div class="card-body">
       <h3 class="card-title">${esc(name)}</h3>
-      <p class="card-meta">${esc(v.brand ?? '')}${v.released_at ? ' · ' + esc(v.released_at.slice(0, 4)) : ''}</p>
+      <p class="card-meta">${esc(metaLine)}</p>
     </div>
   </article>`;
 }

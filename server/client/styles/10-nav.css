@@ -133,6 +133,21 @@
   border-radius: 999px; color: hsl(var(--muted-foreground));
   transition: color .2s, background .2s;
 }
+
+/* The three areas, one button each. They carry `.nav-link` so showView marks
+   the one you are on exactly as it marks the menu's own items — one source of
+   truth for "where am I", whatever door you came in by. */
+.nav-areas { display: flex; align-items: center; gap: .125rem; }
+.icon-btn.nav-link[aria-current="page"] {
+  color: hsl(var(--primary)); background: hsl(var(--primary) / .16);
+}
+.icon-btn.nav-link[aria-current="page"]:hover { background: hsl(var(--primary) / .26); }
+/* Searching gives the pill to the field: the areas step aside the way the
+   menu button does, or there is no room left to type in. */
+.nav[data-searching="true"] .nav-areas { display: none; }
+/* The 18+ glyph is text rather than strokes, so it needs the body's font to
+   read like the rest of the bar. */
+.nav-areas .icon-btn svg text { font-family: inherit; }
 /* three lines while shut, a cross while open */
 #menu-toggle .ico-close { display: none; }
 #menu-toggle[aria-expanded="true"] { color: hsl(var(--primary-foreground)); background: hsl(var(--primary)); }

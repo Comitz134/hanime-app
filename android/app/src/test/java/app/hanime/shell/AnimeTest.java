@@ -1,5 +1,6 @@
 package app.hanime.shell;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
@@ -51,6 +52,17 @@ public class AnimeTest {
         Map<String, String> lastHeaders = new HashMap<>();
         final Map<String, String> routes = new HashMap<>();
         Exception failOnPost;
+        /**
+         * An optional body-based answer: every AniList hop shares one URL, so
+         * a walk that varies by the `id` in its variables can only be
+         * answered by reading the payload. It may throw, which is how a single
+         * unreachable hop is simulated.
+         */
+        BodyReply byBody;
+
+        interface BodyReply {
+            String reply(String body) throws Exception;
+        }
 
         private String route(String url) {
             for (Map.Entry<String, String> e : routes.entrySet()) {
@@ -66,6 +78,7 @@ public class AnimeTest {
             lastBody = body;
             lastHeaders = headers;
             if (failOnPost != null) throw failOnPost;
+            if (byBody != null) return byBody.reply(body);
             return route(url);
         }
 
@@ -286,5 +299,127 @@ public class AnimeTest {
         // A different query is a different key.
         Anime.handle("/api/anime/search", q("q", "other"));
         assertEquals(2, fake.calls);
+    }
+
+    // ------------------------------------------------------------- seasons
+    //
+    // Every season of a series is its own AniList record, linked to the last
+    // by SEQUEL/PREQUEL — the JVM twin of the walk in anime.mjs, and the only
+    // part of "these are the same show" the app can say on its own.
+
+    private static String edge(String type, int id, String mediaType) {
+        return "{\"relationType\":\"" + type + "\",\"node\":{\"id\":" + id
+                + ",\"type\":\"" + mediaType
+                + "\",\"title\":{\"romaji\":\"Node " + id + "\"}}}";
+    }
+
+    private static String seasonMedia(int id, String title, int year, String relations) {
+        return "{\"id\":" + id + ",\"title\":{\"romaji\":\"" + title + "\"},"
+                + "\"episodes\":12,\"startDate\":{\"year\":" + year + "},"
+                + "\"format\":\"TV\","
+                + "\"coverImage\":{\"large\":\"https://s4.anilist.co/" + id + ".jpg\"},"
+                + "\"relations\":{\"edges\":[" + relations + "]}}";
+    }
+
+    /** Answer /graphql by the `id` in the payload — the walk's whole world. */
+    private void stubAnilistByVariable(Map<Integer, String> byId, final int[] brokenId) {
+        fake.byBody = (body) -> {
+            int id = new JSONObject(body).getJSONObject("variables").getInt("id");
+            if (brokenId[0] == id) throw new Anime.UpstreamException(503, "");
+            String media = byId.get(id);
+            return "{\"data\":{\"Media\":" + (media == null ? "null" : media) + "}}";
+        };
+    }
+
+    private static Map<Integer, String> fourSeasons() {
+        Map<Integer, String> show = new HashMap<>();
+        // The adaptation (a manga) and the source (a novel) are relations of a
+        // different kind: following them would stitch a show to its source as
+        // if it were the next season.
+        show.put(101, seasonMedia(101, "Show", 2016,
+                edge("SEQUEL", 102, "ANIME") + "," + edge("ADAPTATION", 991, "MANGA")));
+        show.put(102, seasonMedia(102, "Show 2nd Season", 2018,
+                edge("PREQUEL", 101, "ANIME") + "," + edge("SEQUEL", 103, "ANIME")
+                        + "," + edge("SOURCE", 992, "NOVEL")));
+        show.put(103, seasonMedia(103, "Show 3rd Season", 2020,
+                edge("PREQUEL", 102, "ANIME") + "," + edge("SEQUEL", 104, "ANIME")));
+        show.put(104, seasonMedia(104, "Show 4th Season", 2022, edge("PREQUEL", 103, "ANIME")));
+        return show;
+    }
+
+    private static int[] idsIn(JSONObject response) throws Exception {
+        JSONArray data = response.getJSONArray("data");
+        int[] out = new int[data.length()];
+        for (int i = 0; i < data.length(); i++) out[i] = data.getJSONObject(i).getInt("id");
+        return out;
+    }
+
+    @Test
+    public void aSeriesAnswersAsOneRunOfSeasonsInAirOrder() throws Exception {
+        stubAnilistByVariable(fourSeasons(), new int[] { -1 });
+
+        // Asked from the *middle* of the run: backwards to the first season,
+        // forwards to the last — the only order an S1 · S2 · S3 strip can be
+        // drawn in.
+        Anime.Result res = Anime.handle("/api/anime/102/seasons", q());
+        assertEquals(200, res.status);
+        JSONObject body = new JSONObject(res.body);
+        assertArrayEquals(new int[] { 101, 102, 103, 104 }, idsIn(body));
+
+        JSONArray data = body.getJSONArray("data");
+        for (int i = 0; i < data.length(); i++) {
+            JSONObject season = data.getJSONObject(i);
+            assertEquals("the title asked for is the one marked on screen",
+                    i == 1, season.getBoolean("current"));
+            assertNotEquals("a non-season relation was stitched into the run",
+                    991, season.getInt("id"));
+            assertNotEquals("a non-season relation was stitched into the run",
+                    992, season.getInt("id"));
+        }
+        assertEquals(2016, data.getJSONObject(0).getInt("year"));
+
+        // Bounded: one AniList query per hop, so a broken graph stops rather
+        // than circles, and no request can run away.
+        assertTrue("the walk did not visit every season", fake.calls >= 4);
+        assertTrue("the chain walked " + fake.calls + " times", fake.calls <= 10);
+    }
+
+    @Test
+    public void aLoneTitleAnswersOneEntrySoNothingDrawsAStrip() throws Exception {
+        Map<Integer, String> lone = new HashMap<>();
+        lone.put(501, seasonMedia(501, "Lone", 2020, ""));
+        stubAnilistByVariable(lone, new int[] { -1 });
+
+        Anime.Result res = Anime.handle("/api/anime/501/seasons", q());
+        assertEquals(200, res.status);
+        JSONObject body = new JSONObject(res.body);
+        assertEquals(1, body.getJSONArray("data").length());
+        assertTrue(body.getJSONArray("data").getJSONObject(0).getBoolean("current"));
+    }
+
+    @Test
+    public void aFailedHopKeepsWhatWasGatheredAndIsNotCachedAsTheAnswer() throws Exception {
+        Map<Integer, String> show = new HashMap<>();
+        show.put(201, seasonMedia(201, "Cut", 2021, edge("SEQUEL", 202, "ANIME")));
+        show.put(202, seasonMedia(202, "Cut 2nd Season", 2023,
+                edge("PREQUEL", 201, "ANIME") + "," + edge("SEQUEL", 203, "ANIME")));
+        show.put(203, seasonMedia(203, "Cut 3rd Season", 2025, edge("PREQUEL", 202, "ANIME")));
+        int[] broken = { 203 };
+        stubAnilistByVariable(show, broken);
+
+        // First call: the third season is unreachable, so the run stops at
+        // two — half a chain is worth more than none, and the strip is
+        // decorative anyway.
+        Anime.Result first = Anime.handle("/api/anime/201/seasons", q());
+        assertEquals(200, first.status);
+        assertArrayEquals(new int[] { 201, 202 }, idsIn(new JSONObject(first.body)));
+
+        // Second call, upstream recovered: the same request must NOT be
+        // answered the half-run again. A failed walk left in the cache would
+        // make the failure the answer — that is the bug this asserts.
+        broken[0] = -1;
+        Anime.Result second = Anime.handle("/api/anime/201/seasons", q());
+        assertArrayEquals("the failed hop became the cached answer",
+                new int[] { 201, 202, 203 }, idsIn(new JSONObject(second.body)));
     }
 }

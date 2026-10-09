@@ -167,11 +167,11 @@ test('PUT parameters become the form body MAL writes list status with', async ()
   stubFetch([['api.myanimelist.net', { status: 200, body: { status: 'watching' } }]]);
   const res = fakeRes();
   await handleMalApi(
-    new URL('http://localhost/api/mal/v2/anime/21/mylist_status'
+    new URL('http://localhost/api/mal/v2/anime/21/my_list_status'
       + '?status=watching&score=8&num_watched_episodes=5&blank='),
     fakeReq('PUT', { authorization: 'Bearer t' }),
     res,
-    '/api/mal/v2/anime/21/mylist_status',
+    '/api/mal/v2/anime/21/my_list_status',
   );
 
   assert.equal(res.status, 200);

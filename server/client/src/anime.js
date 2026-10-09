@@ -11,6 +11,8 @@
 // plays, so what works there works here.
 
 import { $, esc } from './core.js';
+import { autoAdvance } from './mal.js';
+import { noteOpen, renderActivity } from './activity.js';
 import { openSheet } from './sheet.js';
 
 /* ------------------------------------------------------------------ grid */
@@ -143,6 +145,21 @@ async function loadPlayer(ep) {
       frame = document.getElementById('lx-frame');
     }
     frame.src = src;
+    // An episode that resolves a player is an episode being watched, so the
+    // account's own list is told — once, and never backwards. The write is
+    // fire-and-forget: nothing about playback waits on MyAnimeList.
+    autoAdvance('anime', dState.details?.malId, ep, dState.details?.title);
+    // And the device remembers it, which is the half MyAnimeList cannot do:
+    // this is what puts the title on the Library's Continue watching rail
+    // with the episode that was actually on screen.
+    noteOpen('anime', {
+      id: dState.id,
+      title: dState.details?.title,
+      cover: dState.details?.cover,
+      number: ep,
+      total: Number(dState.details?.eps) || dState.episodes.length,
+    });
+    renderActivity('anime');
   } catch (e) {
     slot.innerHTML = `<p class="note">Could not resolve a player for episode ${ep} — ${esc(e.message)}</p>`;
   }
@@ -196,6 +213,13 @@ async function openAnime(id, ep = 1) {
           <button class="page-btn" id="ep-prev" type="button">← Previous</button>
           <button class="page-btn" id="ep-next" type="button">Next →</button>
         </div>
+        <!-- Filled only when this title belongs to a longer run of seasons,
+             which is the case AniList cannot show in a catalog: every season
+             is its own entry there, so "2nd Season" reads as another show. -->
+        <div class="seasons" id="seasons" hidden>
+          <div class="detail-label">Seasons</div>
+          <div class="season-rail" id="season-rail"></div>
+        </div>
         <section id="detail-recs" hidden>
           <div class="sec-head"><div class="sec-head-l"><h2>Recommended</h2></div></div>
           <div class="rail" id="rec-rail" aria-label="Recommended"></div>
@@ -219,10 +243,58 @@ async function openAnime(id, ep = 1) {
     $('#detail-recs').hidden = false;
   }
 
+  // Behind the page rather than in front of it: the strip lands when the
+  // server has walked the chain, and never delays the player.
+  loadSeasons(dState.id).catch(() => {});
+
   $('#ep-prev').onclick = () => { if (dState.ep > 1) loadPlayer(dState.ep - 1); };
   $('#ep-next').onclick = () => loadPlayer(dState.ep + 1);
 
   await loadPlayer(dState.ep);
+}
+
+/* ----------------------------------------------------------------- seasons */
+
+/**
+ * One series, every season of it, in air order.
+ *
+ * The catalog upstream files each season as its own title — the same story,
+ * split into entries whose names differ only by "2nd Season" — so the grid
+ * cannot tell the reader that these are one show. This is where the app puts
+ * them back together: `/api/anime/{id}/seasons` walks SEQUEL/PREQUEL relations
+ * server-side and answers with the chain, and the row below the player draws
+ * it as S1 · S2 · … with the current one pressed. Tapping one opens it, which
+ * is the same path the catalog card takes.
+ *
+ * Two guards matter more than the painting: a chain of one is not a strip
+ * (the row stays hidden), and the answer belongs to the title still on screen
+ * — a slow walk that lands after the reader opened another show must not
+ * repaint that show's page.
+ */
+async function loadSeasons(id) {
+  const box = document.getElementById('seasons');
+  const rail = document.getElementById('season-rail');
+  if (!box || !rail) return;
+
+  const res = await fetch(`/api/anime/${encodeURIComponent(id)}/seasons`);
+  if (!res.ok) throw new Error(`status ${res.status}`);
+  const body = await res.json();
+  const chain = Array.isArray(body?.data) ? body.data : [];
+
+  if (chain.length < 2) return;
+  if (String(dState.id) !== String(id)) return;   // the reader moved on
+  const still = document.getElementById('seasons');
+  if (!still) return;
+
+  let at = chain.findIndex((s) => Number(s.id) === Number(id));
+  if (at < 0) at = 0;
+  rail.innerHTML = chain.map((s, i) => `
+    <button class="chip season-chip" type="button" data-season="${Number(s.id)}"
+      aria-pressed="${i === at}" title="${esc(s.title)}"
+      aria-label="${esc(`Season ${i + 1} of ${s.title}`)}">
+      S${i + 1}${s.year ? ` · ${s.year}` : ''}
+    </button>`).join('');
+  still.hidden = false;
 }
 
 /* ------------------------------------------------------------------ wiring */
@@ -282,6 +354,15 @@ bindAnimeView();
 
 // Cards in the anime grid, the recommended rail, and anywhere else they land.
 document.addEventListener('click', (e) => {
+  // A season is another title of the same series: opening it is the same act
+  // as opening a card, so it takes the same path — the sheet, the player, the
+  // stack the back button walks.
+  const season = e.target.closest('[data-season]');
+  if (season && dState.id) {
+    e.preventDefault();
+    openAnime(Number(season.dataset.season));
+    return;
+  }
   const card = e.target.closest('[data-anime]');
   if (card) { e.preventDefault(); openAnime(card.dataset.anime); return; }
   const ep = e.target.closest('[data-ep]');

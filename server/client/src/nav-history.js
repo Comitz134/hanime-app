@@ -15,6 +15,7 @@
 
 import { openAnime } from './anime.js';
 import { openManga } from './manga.js';
+import { openShow } from './movies.js';
 import { openPlaylist } from './playlists.js';
 import { openPublicPlaylist } from './public-playlists.js';
 import { closeSheet, openVideo, sheetState } from './sheet.js';
@@ -61,6 +62,7 @@ function openFor(s) {
   if (s.kind === 'video') openVideo(s.ref);
   else if (s.kind === 'anime') openAnime(s.ref, s.chapter ? Number(s.chapter) : 1);
   else if (s.kind === 'manga') openManga(s.ref, s.chapter ?? null);
+  else if (s.kind === 'show') openShow(s.ref, s.chapter ?? null);
   else if (s.kind === 'playlist') openPlaylist(s.ref);
   else if (s.kind === 'public') openPublicPlaylist(s.ref);
 }

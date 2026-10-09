@@ -27,6 +27,7 @@ import { buildIndex, searchPlaylists, allItems } from './playlists.mjs';
 import { crawl, crawlLock, loadIndex as loadCrawlIndex, indexStats as crawlStats } from './playlist-crawl.mjs';
 import { versionPayload, streamApk } from './app-release.mjs';
 import { handleAnime } from './anime.mjs';
+import { handleFmovies } from './fmovies.mjs';
 import { handleMalApi, handleMalToken } from './mal.mjs';
 import {
   searchPlaylists as searchPublicPlaylists,
@@ -727,6 +728,9 @@ const server = http.createServer(async (req, res) => {
 
     // Normal (non-adult) anime: AniList catalog + LunarX episodes/player.
     if (pathname.startsWith('/api/anime/')) return await handleAnime(url, res, pathname);
+
+    // Films & series: f-movies.org (TMDB catalog + static episode pages).
+    if (pathname.startsWith('/api/fmovies/')) return await handleFmovies(url, res, pathname);
     if (pathname === '/api/videos') return await handleVideos(url, res);
     if (pathname === '/api/tags') return await handleTags(res);
     if (pathname === '/api/brands') return await handleBrands(res);

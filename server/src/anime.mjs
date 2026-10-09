@@ -149,6 +149,30 @@ const DETAILS_QUERY = `
     }
   }`;
 
+// A series is not one entry in AniList — every season is its own media
+// record, linked to the last by SEQUEL/PREQUEL relations, which is why a grid
+// of "anime" reads like a list of unrelated titles. These two relation types
+// are the only ones that mean "the same story, next part": AniList also links
+// ADAPTATION (the manga), SOURCE, SPIN_OFF, SUMMARY, ALTERNATIVE and the rest,
+// and following those would stitch a show to its light novel as if it were the
+// next season. The node's own `type` has to be ANIME for the same reason.
+const SEASON_REL = { SEQUEL: 'sequel', PREQUEL: 'prequel' };
+
+const SEASONS_QUERY = `
+  query ($id: Int) {
+    Media(id: $id, type: ANIME) {
+      id title { romaji } episodes startDate { year } format coverImage { large }
+      relations { edges { relationType node {
+        id type title { romaji } episodes startDate { year } format coverImage { large }
+      } } }
+    }
+  }`;
+
+// The walk's budget: one AniList fetch per hop, forwards and backwards from
+// the title asked for. Ten round trips reach any real run of seasons, and a
+// broken or absurd chain stops instead of circling.
+const MAX_SEASON_FETCHES = 10;
+
 // ---------------------------------------------------------------- shaping
 
 function shapeCard(m) {
@@ -246,6 +270,108 @@ async function handleDetails(id, res) {
   json(res, 200, { details: shapeDetails(data.Media) });
 }
 
+/**
+ * One series, every season of it, in air order — the answer to "these are the
+ * same show, why does the app treat them as different titles?".
+ *
+ * The walk starts at the title asked for: backwards until a season has no
+ * prequel left (that is the first one), then forwards from there, following
+ * only SEQUEL links. Each hop is one AniList query under the same cache the
+ * detail page uses, so returning to a series costs nothing.
+ *
+ * A hop that fails stops the walk rather than failing the call: this is a
+ * strip of buttons beside a page that already loaded, and half a chain is
+ * worth more than nothing. Only a first fetch with nothing behind it is an
+ * error, and it answers like the details route does.
+ */
+async function seasonChain(startId) {
+  const nodes = new Map();   // id -> the media record
+  const links = new Map();   // id -> { prequel, sequel } of other ids
+  let fetches = 0;
+  let failed = false;        // a hop that threw: the chain is incomplete
+
+  const load = async (id) => {
+    if (fetches >= MAX_SEASON_FETCHES) return null;
+    try {
+      const data = await cached('details', `s:${id}`, () => anilist(SEASONS_QUERY, { id }));
+      const m = data?.Media;
+      if (!m?.id) return null;
+      fetches += 1;
+      nodes.set(Number(m.id), m);
+      const link = { prequel: null, sequel: null };
+      for (const edge of m.relations?.edges ?? []) {
+        const kind = SEASON_REL[edge.relationType];
+        const node = edge.node;
+        if (!kind || !node?.id || node.type !== 'ANIME') continue;
+        link[kind] = Number(node.id);
+      }
+      links.set(Number(m.id), link);
+      return m;
+    } catch (e) {
+      // A rejected promise would sit in the cache for the whole TTL and be
+      // re-thrown at every later visit, so a rate-limit or a blip would cost
+      // this series its strip for six hours. The failure is not an answer.
+      cache.delete(`s:${id}`);
+      failed = true;
+      if (!nodes.size) throw e;   // nothing fetched yet: the caller's error
+      return null;                // mid-chain: keep what was already gathered
+    }
+  };
+
+  const first = await load(Number(startId));
+  if (!first) return { data: [], partial: failed };
+
+  // Backwards to the first season…
+  let head = Number(first.id);
+  for (;;) {
+    const prev = links.get(head)?.prequel;
+    if (!prev || nodes.has(prev)) break;
+    const m = await load(prev);
+    if (!m) break;
+    head = Number(m.id);
+  }
+
+  // …forwards from it, which is the order the seasons air in. A title in the
+  // middle of the run lands here too: its own seasons are already fetched, so
+  // the order keeps going through them instead of stopping at itself.
+  const order = [head];
+  let cursor = head;
+  for (;;) {
+    const next = links.get(cursor)?.sequel;
+    if (!next || order.includes(next)) break;   // no link, or a cycle
+    const m = nodes.has(next) ? nodes.get(next) : await load(next);
+    if (!m) break;
+    order.push(Number(m.id));
+    cursor = Number(m.id);
+  }
+
+  return {
+    partial: failed,
+    data: order.map((id) => ({
+      ...shapeCard(nodes.get(id)),
+      current: id === Number(startId),
+    })),
+  };
+}
+
+/** GET /api/anime/:id/seasons — the series this title belongs to. */
+async function handleSeasons(id, res) {
+  const key = `chain:${id}`;
+  let out;
+  try {
+    out = await cached('details', key, () => seasonChain(Number(id)));
+  } catch (e) {
+    cache.delete(key);   // a rejection is not an answer either: see load()
+    throw e;
+  }
+  // A chain cut short by a failed hop is not an answer worth keeping: the
+  // strip would stay half-grown for the whole TTL over one blip, and the next
+  // visit would show the same half. Only a chain that ended normally is
+  // cached — which is why `partial` travels with the data.
+  if (out?.partial) cache.delete(key);
+  json(res, 200, { id: Number(id), data: out?.data ?? [] });
+}
+
 /** GET /api/anime/:id/episodes — LunarX's episode list for the season. */
 async function handleEpisodes(id, res) {
   const data = await cached('episodes', `e:${id}`, async () => {
@@ -284,6 +410,9 @@ export async function handleAnime(url, res, pathname) {
 
   const playerMatch = /^\/api\/anime\/(\d+)\/player$/.exec(pathname);
   if (playerMatch) return handlePlayer(playerMatch[1], url.searchParams.get('ep') ?? '1', res);
+
+  const seasonsMatch = /^\/api\/anime\/(\d+)\/seasons$/.exec(pathname);
+  if (seasonsMatch) return handleSeasons(seasonsMatch[1], res);
 
   const detailsMatch = /^\/api\/anime\/(\d+)$/.exec(pathname);
   if (detailsMatch) return handleDetails(detailsMatch[1], res);

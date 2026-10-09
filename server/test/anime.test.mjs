@@ -201,3 +201,113 @@ test('an id that is not a number never reaches an upstream', async () => {
   assert.equal(res.status, 404);
   assert.equal(fetchLog.length, 0, 'the route must not ask anything of the network');
 });
+
+// ---------------------------------------------------------------- seasons
+//
+// Every season of a series is its own AniList record, linked to the last by
+// SEQUEL/PREQUEL — which is why a catalog of anime reads like a list of
+// unrelated shows whose names differ only by "2nd Season". This route is the
+// app putting them back together: one run, in air order, with the title being
+// viewed marked as the one on screen.
+
+function media(id, title, extra = {}) {
+  return {
+    id, title: { romaji: title }, episodes: 12, startDate: { year: 2016 },
+    format: 'TV', coverImage: { large: `https://s4.anilist.co/${id}.jpg` },
+    relations: { edges: [] },
+    ...extra,
+  };
+}
+const rel = (relationType, id, type = 'ANIME') => ({
+  relationType, node: { id, type, title: { romaji: `Node ${id}` } },
+});
+
+/** Answer /graphql from a table of media by id — the walk's whole world. */
+function stubAniList(byId, isBroken = () => false) {
+  stubFetch([['graphql.anilist.co', (_u, opts) => {
+    const { variables } = JSON.parse(opts.body);
+    if (isBroken(variables.id)) return jsonResponse(503, { errors: [{ message: 'blip' }] });
+    return jsonResponse(200, { data: { Media: byId[variables.id] ?? null } });
+  }]]);
+}
+
+const FOUR_SEASONS = {
+  101: media(101, 'Show', {
+    relations: { edges: [rel('SEQUEL', 102), rel('ADAPTATION', 991, 'MANGA')] },
+  }),
+  102: media(102, 'Show 2nd Season', {
+    startDate: { year: 2018 },
+    relations: { edges: [rel('PREQUEL', 101), rel('SEQUEL', 103), rel('SOURCE', 992, 'NOVEL')] },
+  }),
+  103: media(103, 'Show 3rd Season', {
+    startDate: { year: 2020 },
+    relations: { edges: [rel('PREQUEL', 102), rel('SEQUEL', 104)] },
+  }),
+  104: media(104, 'Show 4th Season', {
+    startDate: { year: 2022 },
+    relations: { edges: [rel('PREQUEL', 103)] },
+  }),
+};
+
+test('a series answers as one run of seasons, in air order', async () => {
+  stubAniList(FOUR_SEASONS);
+
+  // Asked from the *middle* of the run: backwards to the first season,
+  // forwards to the last, which is the only order a "S1 · S2 · S3" strip can
+  // be drawn in.
+  const res = fakeRes();
+  await handleAnime(new URL('http://x/api/anime/102/seasons'), res, '/api/anime/102/seasons');
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.json.data.map((s) => s.id), [101, 102, 103, 104]);
+  assert.deepEqual(res.json.data.map((s) => s.current), [false, true, false, false]);
+  assert.equal(res.json.data[0].year, 2016);
+
+  // The manga it adapts and the novel it came from are relations of a
+  // different kind: following them would stitch a show to its source as if it
+  // were the next season.
+  assert.ok(!res.json.data.some((s) => s.id === 991 || s.id === 992),
+    'a non-season relation was stitched into the run');
+
+  // Bounded: one AniList query per hop, so a broken graph stops rather than
+  // circles, and no request can run away.
+  assert.ok(fetchLog.length >= 4, 'the walk did not visit every season');
+  assert.ok(fetchLog.length <= 10, `the chain walked ${fetchLog.length} times`);
+});
+
+test('a title on its own answers one entry, so nothing draws a strip', async () => {
+  stubAniList({ 501: media(501, 'Lone') });
+
+  const res = fakeRes();
+  await handleAnime(new URL('http://x/api/anime/501/seasons'), res, '/api/anime/501/seasons');
+  assert.equal(res.status, 200);
+  assert.equal(res.json.data.length, 1);
+  assert.equal(res.json.data[0].current, true);
+});
+
+test('a hop that fails keeps what was gathered, and is not cached as the answer', async () => {
+  const SHOW = {
+    201: media(201, 'Cut', { relations: { edges: [rel('SEQUEL', 202)] } }),
+    202: media(202, 'Cut 2nd Season', {
+      relations: { edges: [rel('PREQUEL', 201), rel('SEQUEL', 203)] },
+    }),
+    203: media(203, 'Cut 3rd Season', { relations: { edges: [rel('PREQUEL', 202)] } }),
+  };
+  let broken = true;
+  stubAniList(SHOW, (id) => broken && id === 203);
+
+  // First call: the third season is unreachable, so the run stops at two —
+  // half a chain is worth more than none, and the strip is decorative anyway.
+  const first = fakeRes();
+  await handleAnime(new URL('http://x/api/anime/201/seasons'), first, '/api/anime/201/seasons');
+  assert.equal(first.status, 200);
+  assert.deepEqual(first.json.data.map((s) => s.id), [201, 202]);
+
+  // Second call, upstream recovered: the same request must NOT be answered
+  // the half-run again. A rejected promise sitting in the cache would make
+  // the failure the answer for the whole TTL — that is the bug this asserts.
+  broken = false;
+  const second = fakeRes();
+  await handleAnime(new URL('http://x/api/anime/201/seasons'), second, '/api/anime/201/seasons');
+  assert.deepEqual(second.json.data.map((s) => s.id), [201, 202, 203],
+    'the failed hop became the cached answer');
+});

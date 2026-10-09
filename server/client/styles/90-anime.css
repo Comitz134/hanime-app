@@ -18,3 +18,12 @@ h2 .area-chip { font-size: .5625rem; }
 /* The anime shelf reuses the browse grid and cards as they are; only the
    search shell needs to sit above it, exactly like Browse's does. */
 #anime-search-shell { margin-bottom: 1.25rem; max-width: 32rem; }
+
+/* Seasons of one series, below the player: AniList files every season as its
+   own title, so this row is where the app puts them back together. The current
+   season is pressed exactly as a filter chip is — one vocabulary for "this is
+   the one" — and the row only appears once the chain is more than one season,
+   because a strip of one chip answers a question nobody asked. */
+.seasons { margin-top: .875rem; }
+.season-rail { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .375rem; }
+.season-chip { font-variant-numeric: tabular-nums; }

@@ -10,7 +10,10 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -141,6 +144,38 @@ final class Anime {
             + "      }\n"
             + "    }\n"
             + "  }";
+
+    // A series is not one entry in AniList — every season is its own media
+    // record, linked to the last by SEQUEL/PREQUEL relations, which is why a
+    // grid of "anime" reads like a list of unrelated titles. The node's own
+    // `type` has to be ANIME for the same reason: AniList also links the
+    // adaptation (the manga) and the source (the novel), and following those
+    // would stitch a show to its light novel as if it were the next season.
+    // JVM twin of SEASON_REL / SEASONS_QUERY in anime.mjs.
+    private static final String SEASONS_QUERY =
+            "\n  query ($id: Int) {\n"
+            + "    Media(id: $id, type: ANIME) {\n"
+            + "      id title { romaji } episodes startDate { year } format coverImage { large }\n"
+            + "      relations { edges { relationType node {\n"
+            + "        id type title { romaji } episodes startDate { year } format coverImage { large }\n"
+            + "      } } }\n"
+            + "    }\n"
+            + "  }";
+
+    /** relationType -> the side of the run it points at. */
+    private static final Map<String, String> SEASON_REL = seasonRel();
+
+    private static Map<String, String> seasonRel() {
+        Map<String, String> rel = new HashMap<>();
+        rel.put("SEQUEL", "sequel");
+        rel.put("PREQUEL", "prequel");
+        return rel;
+    }
+
+    // The walk's budget: one AniList query per hop, forwards and backwards
+    // from the title asked for. Ten round trips reach any real run of seasons,
+    // and a broken or absurd chain stops instead of circling.
+    private static final int MAX_SEASON_FETCHES = 10;
 
     // ---------------------------------------------------------------- cache
 
@@ -490,6 +525,123 @@ final class Anime {
         });
     }
 
+    /** GET /api/anime/:id/seasons — the series this title belongs to. */
+    private static Result seasons(String id) throws Exception {
+        final String key = "chain:" + id;
+        final boolean[] partial = { false };
+        Result out = cached(key, TTL_DETAILS, () -> {
+            JSONArray data = seasonChain(Integer.parseInt(id), partial);
+            return new Result(200, new JSONObject()
+                    .put("id", Integer.parseInt(id))
+                    .put("data", data).toString());
+        });
+        // A chain cut short by a failed hop is not an answer worth keeping: the
+        // strip would stay half-grown for the whole TTL over one blip, and the
+        // next visit would show the same half. Only a chain that ended normally
+        // is cached — which is why `partial` travels with the walk. (A hop that
+        // throws never reaches the cache at all: `cached` writes after the
+        // producer returns, which is the Java answer to the promise-in-cache
+        // problem the Node twin deletes its key over.)
+        if (partial[0]) CACHE.remove(key);
+        return out;
+    }
+
+    /**
+     * One series, every season of it, in air order: backwards from the title
+     * asked for until a season has no prequel left (that is the first one),
+     * then forwards from there following SEQUEL links only. JVM twin of
+     * seasonChain() in anime.mjs — same bounds, same order, same shapes.
+     */
+    private static JSONArray seasonChain(int startId, boolean[] partial) throws Exception {
+        Map<Integer, JSONObject> nodes = new LinkedHashMap<>();   // id -> media
+        Map<Integer, String[]> links = new LinkedHashMap<>();     // id -> [prequel, sequel]
+        int[] fetches = { 0 };
+
+        JSONObject first = loadSeasonNode(startId, nodes, links, fetches, partial);
+        if (first == null) return new JSONArray();
+
+        int head = startId;
+        for (;;) {
+            String[] link = links.get(head);
+            String prev = link == null ? null : link[0];
+            if (prev == null || nodes.containsKey(Integer.parseInt(prev))) break;
+            int pid = Integer.parseInt(prev);
+            if (loadSeasonNode(pid, nodes, links, fetches, partial) == null) break;
+            head = pid;
+        }
+
+        List<Integer> order = new ArrayList<>();
+        order.add(head);
+        int cursor = head;
+        for (;;) {
+            String[] link = links.get(cursor);
+            String next = link == null ? null : link[1];
+            if (next == null) break;
+            int nid = Integer.parseInt(next);
+            if (order.contains(nid)) break;   // a cycle, not a run
+            JSONObject known = nodes.get(nid);
+            JSONObject m = known != null ? known
+                    : loadSeasonNode(nid, nodes, links, fetches, partial);
+            if (m == null) break;
+            order.add(nid);
+            cursor = nid;
+        }
+
+        JSONArray data = new JSONArray();
+        for (int id : order) {
+            JSONObject node = nodes.get(id);
+            if (node == null) continue;
+            data.put(shapeCard(node).put("current", id == startId));
+        }
+        return data;
+    }
+
+    /**
+     * One hop: fetch a media record with its relations, remember the record
+     * and the two season links it points at. Null when there is nothing to
+     * follow — no such id, or the budget is spent.
+     */
+    private static JSONObject loadSeasonNode(int id, Map<Integer, JSONObject> nodes,
+            Map<Integer, String[]> links, int[] fetches, boolean[] partial) throws Exception {
+        if (fetches[0] >= MAX_SEASON_FETCHES) return null;
+        try {
+            Result hit = cached("s:" + id, TTL_DETAILS, () -> {
+                JSONObject data = anilist(SEASONS_QUERY, new JSONObject().put("id", id));
+                return new Result(200, data == null ? "{}" : data.toString());
+            });
+            JSONObject media = new JSONObject(hit.body).optJSONObject("Media");
+            if (media == null || !media.has("id")) return null;
+            fetches[0]++;
+            int mid = media.getInt("id");
+            nodes.put(mid, media);
+
+            String[] link = new String[]{ null, null };   // [prequel, sequel]
+            JSONObject relations = media.optJSONObject("relations");
+            JSONArray edges = relations == null ? null : relations.optJSONArray("edges");
+            if (edges != null) {
+                for (int i = 0; i < edges.length(); i++) {
+                    JSONObject edge = edges.optJSONObject(i);
+                    if (edge == null) continue;
+                    String kind = SEASON_REL.get(edge.optString("relationType", ""));
+                    JSONObject node = edge.optJSONObject("node");
+                    if (kind == null || node == null || !node.has("id")) continue;
+                    if (!"ANIME".equals(node.optString("type", ""))) continue;
+                    if ("prequel".equals(kind)) link[0] = String.valueOf(node.getInt("id"));
+                    else link[1] = String.valueOf(node.getInt("id"));
+                }
+            }
+            links.put(mid, link);
+            return media;
+        } catch (Exception e) {
+            // The failure is not an answer: dropping the key stops a blip from
+            // becoming this hop's cached result for the whole TTL.
+            CACHE.remove("s:" + id);
+            partial[0] = true;
+            if (nodes.isEmpty()) throw e;   // nothing fetched yet: the caller's error
+            return null;                    // mid-chain: keep what was gathered
+        }
+    }
+
     /** GET /api/anime/:id/player?ep=N — the embed URL LunarX itself would use. */
     private static Result player(String id, String epParam) throws Exception {
         int n = Math.max(1, intPipeZero(epParam == null ? "1" : epParam));
@@ -530,7 +682,10 @@ final class Anime {
             if (path.equals("/api/anime/search")) return search(query);
             if (path.startsWith("/api/anime/")) {
                 String rest = path.substring("/api/anime/".length());
-                if (rest.endsWith("/episodes")) {
+                if (rest.endsWith("/seasons")) {
+                    String id = rest.substring(0, rest.length() - "/seasons".length());
+                    if (isDigits(id)) return seasons(id);
+                } else if (rest.endsWith("/episodes")) {
                     String id = rest.substring(0, rest.length() - "/episodes".length());
                     if (isDigits(id)) return episodes(id);
                 } else if (rest.endsWith("/player")) {

@@ -12,6 +12,8 @@
 // line on the history stack the back button walks.
 
 import { $, esc, fmtCount } from './core.js';
+import { noteOpen, renderActivity } from './activity.js';
+import { autoAdvance } from './mal.js';
 import { goBack, pushNav } from './nav-history.js';
 import { mangaChapters, mangaDetail, mangaFilterOptions, mangaPages, mangaSearch, mangaTrending, posterFor, proxied } from './manga-api.js';
 import { openSheet, setSheetOrigin } from './sheet.js';
@@ -208,7 +210,8 @@ function renderChapterList() {
   if (count) count.textContent = `${dState.chapters.length} chapters`;
 }
 
-/** Open a title in the sheet, or — when restoring history — straight into a chapter. */
+/** Open a title in the sheet, or — when restoring history — straight into a
+ *  chapter. */
 async function openManga(hid, chapter) {
   hid = String(hid);
   openSheet('manga', hid, chapter ? String(chapter) : null);
@@ -217,9 +220,15 @@ async function openManga(hid, chapter) {
     const { detail, chapters } = await loadTitle(hid);
     dState.detail = detail;
     dState.chapters = chapters;
-    if (chapter != null && chapter !== '') {
-      await openChapter(Number(chapter));
-      return;
+    if (chapter !== undefined && chapter !== null && chapter !== '') {
+      const idx = chapters.findIndex((c) => Number(c.id) === Number(chapter));
+      if (idx >= 0) { await openChapter(Number(chapter)); return; }
+      // The remembered chapter is gone from upstream (a re-upload, a removed
+      // scanlation). Falling back to the title page beats the spinner this
+      // used to leave behind. A chapter *number* still finds its chapter, so
+      // a rail that only kept the number is not stranded either.
+      const byNumber = chapters.findIndex((c) => Number(c.number) === Number(chapter));
+      if (byNumber >= 0) { await openChapter(Number(chapters[byNumber].id)); return; }
     }
     renderDetail();
   } catch (e) {
@@ -238,6 +247,23 @@ async function openChapter(chId) {
   setSheetOrigin({ kind: 'manga', ref: dState.hid, chapter: String(chId) });
   rState.idx = idx;
   await renderReader();
+  // A chapter that opened is a chapter being read, so the account's own list is
+  // told — once, never backwards, and never in the reader's way: the write is
+  // fire-and-forget.
+  const ch = dState.chapters[idx];
+  autoAdvance('manga', dState.detail?.malId, ch?.number, dState.detail?.title);
+  // The device keeps its own note of it as well: which chapter, on which
+  // title, and — the part that makes the rail a resume rather than a reminder
+  // — the chapter's own id, so opening it later lands in this chapter.
+  noteOpen('manga', {
+    id: dState.hid,
+    title: dState.detail?.title,
+    cover: posterFor(dState.detail, 'medium'),
+    number: Number(ch?.number),
+    total: dState.chapters.length,
+    ref: ch?.id,
+  });
+  renderActivity('manga');
 }
 
 async function renderReader() {

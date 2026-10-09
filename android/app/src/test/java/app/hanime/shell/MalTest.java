@@ -142,14 +142,14 @@ public class MalTest {
     public void putParametersBecomeTheFormBodyMalWritesStatusWith() throws Exception {
         fake.routes.put("api.myanimelist.net", "");
 
-        Mal.Result r = Mal.api("v2/anime/21/mylist_status",
+        Mal.Result r = Mal.api("v2/anime/21/my_list_status",
                 "status=watching&score=8&num_watched_episodes=5&blank=",
                 "PUT", "Bearer t");
 
         assertEquals(200, r.status);
         assertEquals("PUT", fake.lastMethod);
         assertEquals("the fields must reach MAL as the body, not twice as the query",
-                "https://api.myanimelist.net/v2/anime/21/mylist_status", fake.lastUrl);
+                "https://api.myanimelist.net/v2/anime/21/my_list_status", fake.lastUrl);
         assertTrue(fake.lastBody.contains("status=watching"));
         assertTrue(fake.lastBody.contains("score=8"));
         assertTrue(fake.lastBody.contains("num_watched_episodes=5"));

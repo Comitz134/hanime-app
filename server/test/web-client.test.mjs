@@ -103,10 +103,33 @@ test('the nav switches views, and every view it points at exists', () => {
   const targets = [...html.matchAll(/data-go="([a-z]+)"/g)].map((m) => m[1]);
   const views = [...html.matchAll(/data-view="([a-z]+)"/g)].map((m) => m[1]);
 
-  assert.deepEqual(targets, ['anime', 'manga', 'browse', 'genres', 'studios', 'playlists', 'library', 'settings']);
+  // Twice on purpose: the three areas appear once as buttons on the bar —
+  // the reader's everyday switch, one tap instead of open-read-tap — and once
+  // in the menu, which keeps every section for the places you go to rather
+  // than the places you switch between.
+  assert.deepEqual(targets, [
+    'anime', 'manga', 'movies', 'browse',
+    'anime', 'manga', 'movies', 'browse', 'genres', 'studios', 'playlists', 'library', 'settings',
+  ]);
   for (const t of targets) {
     assert.ok(views.includes(t), `the nav points at a view that does not exist: ${t}`);
   }
+
+  // The bar's copies are the icon ones, and they carry `.nav-link` so showView
+  // marks the current area exactly as it marks the menu's own item — one
+  // source of truth for where you are, whichever door you came in by.
+  const areas = html.match(/<div class="nav-areas"[\s\S]*?\n\s*<\/div>/)?.[0] ?? '';
+  assert.ok(areas, 'the areas are not on the bar at all');
+  assert.ok(areas.includes('icon-btn nav-link'),
+    'the area buttons are not marked, so nothing would show which area is open');
+  assert.match(areas, /data-go="anime"[\s\S]*?data-go="manga"[\s\S]*?data-go="movies"[\s\S]*?data-go="browse"/,
+    'the areas are not on the bar in order');
+  assert.ok(!areas.includes('nav-menu-item'), 'the area buttons are menu items');
+  // The search field takes the whole pill when it opens, so the areas have to
+  // know to step aside — without this rule they sit under the input.
+  assert.ok(html.includes('.nav[data-searching="true"] .nav-areas'),
+    'the area buttons have no room rule while searching');
+  assert.ok(html.includes('.nav-areas'), 'no stylesheet draws the area buttons');
   // Exactly one view is active on load, or the page opens blank — and it is
   // the anime area, which is what the reader asked to open on.
   assert.equal((html.match(/data-view="anime" data-active="true"/g) || []).length, 1);
@@ -712,4 +735,408 @@ test('MyAnimeList tracking reaches every area without leaving the app', () => {
   // chapters read for manga.
   assert.ok(script.includes('num_watched_episodes'), 'anime progress has no field');
   assert.ok(script.includes('num_chapters_read'), 'manga progress has no field');
+
+  // The list-status route is spelled with underscores, and reading one's own
+  // status is a *media* route (the status route takes writes only — a GET is
+  // `405 method_not_allowed`). Both were wrong in the shipped client: every
+  // write and every read answered `404 not_found`, so a title could be added
+  // and nothing landed, silently.
+  assert.ok(!script.includes('/mylist_status'),
+    'the list-status route is missing its underscores — MAL does not serve it');
+  assert.ok(/\/\$\{kind\}\/\$\{id\}\/my_list_status/.test(script),
+    'nothing writes list status on MAL\'s own path');
+  assert.ok(/fields=my_list_status/.test(script),
+    'the reader\'s own status is never read back (the status route has no GET)');
+});
+
+// ---------------------------------------------------------------------------
+// The Library is three shelves, and each answers a different question: what
+// the account watches, what it reads, and the adult titles it tracks next to
+// what this device saved. All three read the account's real list — statuses,
+// progress and all — and every tap lands in one of the app's own areas, never
+// in a browser.
+// ---------------------------------------------------------------------------
+
+test('the library has a shelf per area, one of them open at a time', () => {
+  // The markup only: the script and the stylesheet both name the same
+  // attributes, so a count over the whole file would count the client's own
+  // selectors and the tab's own style rule.
+  const markup = html
+    .replace(/<script(?![^>]*\bsrc=)[^>]*>[\s\S]*?<\/script>/g, '')
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/g, '');
+  for (const tab of ['anime', 'manga', 'adult']) {
+    assert.ok(html.includes(`data-lib-tab="${tab}"`), `missing the ${tab} tab`);
+    assert.ok(html.includes(`data-lib-panel="${tab}"`), `missing the ${tab} panel`);
+    for (const id of [`mal-${tab}-grid`, `mal-${tab}-note`, `mal-${tab}-count`]) {
+      assert.ok(html.includes(` id="${id}"`), `missing #${id}`);
+    }
+  }
+  assert.equal((markup.match(/data-lib-tab=/g) || []).length, 3, 'more tabs than shelves');
+  assert.equal((markup.match(/data-lib-panel=/g) || []).length, 3, 'more panels than tabs');
+  assert.equal((markup.match(/aria-selected="true"/g) || []).length, 1,
+    'exactly one shelf is open on load');
+  assert.equal((markup.match(/data-lib-panel="[a-z]+" role="tabpanel"[^>]*hidden/g) || []).length, 2,
+    'the two shelves that are not open must start hidden');
+
+  // The device's own records were not moved out of the Library — they are the
+  // 18+ shelf's floor: continue watching, favorites, history, and the tools
+  // that move them on and off the device.
+  const adultAt = markup.indexOf('data-lib-panel="adult"');
+  const settingsAt = markup.indexOf('data-view="settings"');
+  assert.ok(adultAt > 0, 'no adult panel');
+  for (const id of ['lib-q', 'lib-export', 'lib-import', 'lib-msg', 'lib-warn',
+    'cont-rail', 'fav-grid', 'hist-grid']) {
+    const at = markup.indexOf(` id="${id}"`);
+    assert.ok(at > adultAt && at < settingsAt, `#${id} is not inside the 18+ shelf`);
+  }
+});
+
+test('the shelves read the account\'s own list, adult entries included', () => {
+  const script = inlineScripts(html)[0];
+
+  // Both lists, one call each — and under `/users/@me/`, which is the part
+  // that shipped wrong once: `/v2/animelist` is not an endpoint at all, MAL
+  // answered `404 {"error":"not_found"}` and the shelves said ``could not
+  // read''. The path is asserted, not just the word.
+  assert.ok(/\/users\/@me\/\$\{kind === ["']manga["'] \? ["']mangalist["'] : ["']animelist["']\}/.test(script),
+    'the list is read from a path MAL does not serve');
+  assert.ok(script.includes('animelist'), 'the anime list is never read');
+  assert.ok(script.includes('mangalist'), 'the manga list is never read');
+  // MAL hides black-flagged entries from list answers unless it is asked for
+  // them — without this the 18+ shelf would always be empty.
+  assert.ok(script.includes('nsfw=true'), 'adult entries would be withheld');
+  for (const field of ['list_status{', 'node{', 'num_episodes_watched', 'num_chapters_read',
+    'main_picture', 'num_episodes', 'nsfw', 'genres']) {
+    assert.ok(script.includes(field), `the list call never asks for ${field}`);
+  }
+  // A list entry is { node, list_status }, so the fields are named both as
+  // those sub-sections and as the keys inside them: MAL answers unknown field
+  // names with a 200 and no key (verified against the live API), so a miss
+  // here would silently empty every shelf instead of failing loudly.
+  assert.ok(/list_status\{status,score,num_episodes_watched,updated_at\}/.test(script),
+    'the anime list status is not asked for');
+  assert.ok(/list_status\{status,score,num_chapters_read,updated_at\}/.test(script),
+    'the manga list status is not asked for (chapters, not episodes)');
+
+  // Long lists are a list of pages, and MAL answers the next one as a full
+  // URL: it must be reduced to the path the pipe carries its token on, never
+  // requested as an absolute URL of its own.
+  assert.ok(script.includes('paging'), 'the list never pages');
+  assert.ok(script.includes('api\\.myanimelist\\.net\\/v2'),
+    'a next-page URL would be requested as an absolute URL, bypassing the pipe');
+
+  // Two answers to "is this adult": MAL's own black flag, and the genre.
+  assert.ok(/nsfw === ["']black["']/.test(script), 'the black flag is ignored');
+  assert.ok(/toLowerCase\(\) === ["']hentai["']/.test(script), 'the Hentai genre is ignored');
+
+  // Cached on the device with an expiry, and forgotten when the account is
+  // unlinked — a shared phone must not keep the previous account's list.
+  assert.ok(script.includes('mal.lists'), 'the list is not kept on the device');
+  assert.ok(/LIST_TTL_MS/.test(script), 'the copy on the device never goes stale');
+  assert.ok(/drop\(LISTS_KEY\)/.test(script), 'unlinking leaves the list behind');
+});
+
+test('a shelf card opens in the area it belongs to, not in a browser', () => {
+  const script = inlineScripts(html)[0];
+
+  // A MAL entry is not one of our ids, so each shelf resolves the title
+  // against its own catalog first — AniList for anime, mangafire for manga,
+  // the 18+ catalog for the adult shelf.
+  assert.ok(/\/api\/anime\/search\?q=\$\{encodeURIComponent\(title\)\}/.test(script),
+    'an anime shelf entry is never matched against the catalog');
+  assert.ok(/mangaSearch\(\{ q: title/.test(script), 'a manga shelf entry is never matched');
+  assert.ok(/\/api\/videos\?per_page=8&q=\$\{encodeURIComponent\(title\)\}/.test(script),
+    'an adult shelf entry is never matched');
+
+  // And the sheet that opens is the area's own — the same opener a tap on the
+  // catalog's card uses, so back, the reader and the player all still apply.
+  assert.ok(/openTarget\(kind, id\)/.test(script), 'no single place opens a shelf entry');
+  assert.ok(script.includes('data-mal-open'), 'a shelf card carries no target');
+
+  // A title is matched once: the answer is kept by title, and a shelf with no
+  // account asks MAL for nothing at all.
+  assert.ok(script.includes('mal.open'), 'every tap re-searches the same title');
+  assert.ok(/if \(!configured\(\) \|\| !linked\(\)\) \{\s*sayUnlinked\(\);\s*return;/.test(script),
+    'an unlinked shelf still calls MyAnimeList');
+  assert.ok(/Link MyAnimeList in Settings/.test(script),
+    'an empty shelf does not say how to fill it');
+
+  // The 18+ shelf is everything adult on the account, both kinds: a list that
+  // tracks adult manga is exactly the list this shelf exists for. A card
+  // therefore carries the shelf (where its messages belong) *and* the kind
+  // (which catalog a tap resolves against) — mixing them sent an 18+ match
+  // failure to the Anime panel's note, where nobody would see it.
+  assert.ok(/\[\]\.concat\(anime\.filter\(\(e\) => e\.adult\), manga\.filter\(\(e\) => e\.adult\)\)/.test(script)
+    || /anime\.filter\(\(e\) => e\.adult\), \.\.\.manga\.filter\(\(e\) => e\.adult\)/.test(script),
+    'the 18+ shelf no longer holds both kinds');
+  assert.ok(script.includes('data-mal-kind'), 'a shelf card does not say which area it belongs to');
+  assert.ok(/data-mal-open|openMalEntry/.test(script), 'a shelf card carries no target');
+
+  // The shelves refill on the way into the view, like the device's records.
+  assert.ok(/renderMalShelves\(\)/.test(script), 'the shelves are never rendered');
+  assert.ok(/showView[\s\S]{0,80}?library[\s\S]{0,200}?renderMalShelves/.test(script) ||
+    /renderLibrary\(\);\s*renderMalShelves\(\);/.test(script),
+    'opening the Library does not fill its shelves');
+  assert.ok(html.includes('.lib-tab'), 'no stylesheet rule draws the shelf tabs');
+});
+
+// Watching and reading is what the app already knows; this is that knowledge
+// going back the other way, so the account's list stays current without the
+// reader opening MyAnimeList at all.
+test('opening an episode or a chapter advances the list it belongs to', () => {
+  const script = inlineScripts(html)[0];
+
+  // Both openers write, at the moment the thing actually opens — a resolved
+  // player for an episode, a rendered reader for a chapter. Read as the claim
+  // rather than as the source's own spelling: the bundler downlevels `?.` and
+  // renames one area's `dState` to keep the two apart, so what is asserted is
+  // that the write carries the episode, and that it carries the chapter's own
+  // number — the chapter is read into a local before the call, which is what
+  // the device's own record of it needs too.
+  // The call is read up to its own semicolon: downleveling puts parentheses
+  // inside the argument list, so a naive `[^)]*` would stop mid-call.
+  const episodeWrite = script.match(/autoAdvance\(["']anime["'][\s\S]{0,240}?;/);
+  assert.ok(episodeWrite, 'opening an episode never reaches the list');
+  assert.ok(/,\s*ep\s*,/.test(episodeWrite[0]),
+    'the episode that opened is not the number written to the list');
+  const chapterWrite = script.match(/autoAdvance\(["']manga["'][\s\S]{0,240}?;/);
+  assert.ok(chapterWrite, 'opening a chapter never reaches the list');
+  assert.ok(/\.number/.test(chapterWrite[0]),
+    'the chapter that opened is not the number written to the list');
+
+  // Forward only, and once per number: re-opening the same episode is not
+  // another request, and a list that is further along is never walked back.
+  assert.ok(/autoWritten\[key\] >= n/.test(script), 'the progress can go backwards');
+  assert.ok(/have >= n/.test(script), 'a list already ahead would be rewritten');
+
+  // A title that is not on the list is added as watching/reading; reaching the
+  // last episode or chapter marks it completed — the same rule MAL's own
+  // clients apply.
+  assert.ok(/kind === ["']manga["'] \? ["']reading["'] : ["']watching["']/.test(script),
+    'an untracked title is not filed as watching/reading');
+  assert.ok(/n >= total \? ["']completed["']/.test(script),
+    'reaching the last episode or chapter does not finish the entry');
+
+  // A write must never be able to break playback — the awaited write sits in a
+  // try whose catch is empty, so nothing from MAL reaches the player — and it
+  // only ever rides the account's own token: an unlinked build writes nothing.
+  assert.ok(/await setEntry\(kind, malId, \{ status, progress: n \}\);[\s\S]{0,60}?catch \(e\) \{\s*\}/.test(script),
+    'a failed write would surface as a playback error');
+  assert.ok(/if \(!configured\(\) \|\| !linked\(\) \|\| !PROGRESS\[kind\]/.test(script),
+    'an unlinked account is still written to');
+});
+
+// Organizing: every shelf can be put in an order the reader picks, and the
+// words of those orders are the point — "last read" on the manga shelf means
+// the same kind of fact as "last updated" on the account's list.
+test('every Library shelf offers orders, and the pick is remembered', () => {
+  const script = inlineScripts(html)[0];
+
+  // The orders live in one table; every shelf names the ones it can honour.
+  // The bundler prints non-ASCII as \u escapes (charset ascii), so a label is
+  // looked for in both spellings — the escape is the same string at runtime.
+  const has = (text) => script.includes(text) || script.includes(text.replace(
+    /[^\x00-\x7F]/g,
+    (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`,
+  ));
+  for (const label of ['Last read', 'Last watched', 'Last updated', 'Recently added',
+    'Title A–Z', 'Progress', 'Score', 'Status']) {
+    assert.ok(has(label), `the order “${label}” is not offered anywhere`);
+  }
+
+  // Every control in the markup has a shelf behind it: a control with no
+  // section is a dropdown that would never fill, and a shelf with no control
+  // is an order nobody can pick.
+  const controls = [...html.matchAll(/data-sort-for="([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(controls.slice().sort(),
+    ['cont', 'fav', 'hist', 'mal-adult', 'mal-anime', 'mal-manga', 'read-manga',
+      'show-watch', 'watch-anime'],
+    'the Library does not offer an order on every shelf');
+  for (const name of controls) {
+    // A key is quoted when it cannot be a bare identifier (`mal-anime`), and
+    // printed as-is when it can (`cont`) — both spellings are the same table.
+    assert.ok(new RegExp(`["']${name}["']\\s*:|\\b${name}\\s*:`).test(script),
+      `no orders are declared for the ${name} shelf`);
+  }
+
+  // Filled once at boot, remembered on change, and the shelves redraw from the
+  // copy on the device — re-reading a list of titles to sort it is a request
+  // nobody asked for.
+  assert.ok(/fillSorts\(\)/.test(script), 'the order controls are never filled');
+  assert.ok(/htv:sorts:v1/.test(script), 'the picked orders are not remembered');
+  assert.ok(/new CustomEvent\(["']htv:sort["']/.test(script), 'an order change is never announced');
+  assert.ok(/htv:sort[\s\S]{0,200}?paint\(malCache\(\)\)/.test(script),
+    'sorting the account\u2019s shelves re-reads the network instead of the device');
+  // And the catalog's own order survives a restart, as a value the select
+  // actually offers rather than whatever string was in storage.
+  assert.ok(/option.*?includes\(pick\)|includes\(pick\)/.test(script),
+    'a remembered catalog order is trusted without checking the options');
+});
+
+// The device's own memory of what was watched and read: MyAnimeList knows
+// where a list stands, not which chapter was on screen last night.
+// AniList files every season of a series as its own title — the same story,
+// split into entries whose names differ only by "2nd Season" — which is why a
+// catalog of anime reads like a list of unrelated shows. The app says
+// otherwise: the server walks the SEQUEL/PREQUEL chain, and the title page
+// draws it under the player.
+test('a season page links the rest of its series', () => {
+  const script = inlineScripts(html)[0];
+
+  // The row is there, hidden, and only a chain longer than one season fills
+  // it: a strip of one chip answers a question nobody asked.
+  assert.ok(/class="seasons" id="seasons" hidden/.test(html),
+    'the seasons row is not in the markup, or shows before it has anything');
+  assert.ok(/id="season-rail"/.test(html), 'the seasons row has nowhere to draw');
+  assert.ok(html.includes('.season-rail'), 'no stylesheet draws the seasons row');
+  assert.ok(/chain\.length < 2/.test(script), 'a single season would become a strip of one');
+
+  // Asked for, drawn from the chain, and opening one takes the same path a
+  // card does — the sheet, the player, the stack back walks.
+  assert.ok(/\/seasons/.test(script), 'the season chain is never asked for');
+  assert.ok(/data-season=/.test(script), 'a season chip carries no id to open');
+  assert.ok(/openAnime\(Number\(season\.dataset\.season\)\)/.test(script),
+    'tapping a season does not open that title the way a card does');
+  // And the answer belongs to the title still on screen: a slow walk must not
+  // repaint a page the reader has already moved on from. The binding is
+  // matched loosely because the bundler renames one area's `dState` to keep
+  // the two apart (as the auto-advance test above already notes).
+  assert.ok(/String\(dState\d*\.id\) !== String\(id\)/.test(script),
+    'a slow chain would repaint a page that moved on');
+});
+
+test('the device keeps its own last-read and last-watched record', () => {
+  const script = inlineScripts(html)[0];
+
+  assert.ok(/htv:activity:v1/.test(script), 'nothing is kept about what was opened');
+
+  // The write guard and the read filter have to agree on what counts as a
+  // record. A prologue is chapter 0 on mangafire: written with `n < 0`
+  // allowed and then filtered out with `> 0`, it is stored and never seen,
+  // and the rail just looks broken — which is what the phone showed.
+  assert.ok(/if \(!theId \|\| !Number\.isFinite\(n\) \|\| n < 0\) return/.test(script),
+    'a chapter numbered 0 is refused when it is written');
+  assert.ok(/Number\(e\.number\) >= 0/.test(script),
+    'the read filter disagrees with the write guard — a chapter 0 record is invisible');
+
+  const chapterRecord = script.match(/noteOpen\(["']manga["'][\s\S]{0,400}?\}\)/);
+  assert.ok(chapterRecord, 'opening a chapter is not recorded');
+  assert.ok(/number:\s*Number\(/.test(chapterRecord[0]) && /ch[\s\S]{0,20}?\.number/.test(chapterRecord[0]),
+    'the chapter number is not kept');
+  assert.ok(/ref:[\s\S]{0,30}?ch[\s\S]{0,20}?\.id/.test(chapterRecord[0]),
+    'the chapter id is not kept — the rail could not resume the chapter it names');
+
+  const episodeRecord = script.match(/noteOpen\(["']anime["'][\s\S]{0,400}?\}\)/);
+  assert.ok(episodeRecord, 'playing an episode is not recorded');
+  assert.ok(/number:\s*ep\b/.test(episodeRecord[0]), 'the episode number is not kept');
+  assert.ok(/total:/.test(episodeRecord[0]),
+    'an episode count is not kept — the card has no progress to draw');
+
+  // Two rails, one per area, each with an order of its own and a way to drop
+  // an entry; both open through the area's own sheet rather than a second copy
+  // of that logic.
+  assert.ok(html.includes('id="read-rail"') && html.includes('id="watch-rail"'),
+    'the device rails are not in the markup');
+  assert.ok(/data-rail-clear=/.test(html), 'a rail cannot be emptied');
+  assert.ok(/setOpener\(["']anime["'], openAnime\)/.test(script)
+    && /setOpener\(["']manga["'], openManga\)/.test(script),
+    'the rails do not open what they list through the areas themselves');
+
+  // A remembered chapter that upstream no longer carries falls back to the
+  // title page instead of the spinner it used to leave behind — and a chapter
+  // number still finds its chapter when the id cannot.
+  assert.ok(/findIndex\(\(?c\)?\s*=>\s*Number\(c\.id\) === Number\(chapter\)\)/.test(script),
+    'a remembered chapter id is never checked against the chapter list');
+  assert.ok(/findIndex\(\(?c\)?\s*=>\s*Number\(c\.number\) === Number\(chapter\)\)/.test(script),
+    'a remembered chapter number has no fallback');
+});
+
+// The films & series area: f-movies.org through this server's own routes.
+// Its detail page shares one surface with the anime area, and its player is
+// the site's three embeds built from the title's own id — the client must
+// never hold a stored URL, because there is not one to go stale.
+test('the movies area searches, opens and plays through its own routes', () => {
+  const script = inlineScripts(html)[0];
+
+  // The view exists exactly once and is not the one the app boots on; the
+  // shelf asks the catalog route, and every id the module queries is in the
+  // markup (the missing-ids test above guards the rest).
+  assert.equal((html.match(/data-view="movies"/g) || []).length, 1,
+    'the movies view is missing or duplicated');
+  assert.ok(/api\/fmovies\/search\?/.test(script), 'the movies shelf never asks for the catalog');
+  for (const id of ['movies-grid', 'movies-q', 'movies-note', 'movies-pager',
+    'movies-type', 'movies-count', 'movies-search-shell', 'movies-clear',
+    'movies-prev', 'movies-next', 'movies-pageinfo', 'movies-filter-clear']) {
+    assert.ok(html.includes(` id="${id}"`), `missing #${id}`);
+  }
+
+  // A card opens its title through the same sheet the other areas use, and
+  // the back stack can return to exactly this page — kind, ref, chapter.
+  assert.ok(/data-show=/.test(script), 'a show card carries no id to open');
+  assert.ok(/openShow\(card\.dataset\.show\)/.test(script),
+    'tapping a card does not open the title');
+  assert.ok(/kind === (["'])show\1/.test(script) && /openShow\(s\.ref/.test(script),
+    'the back stack cannot reopen a show page');
+
+  // A series draws its seasons as a strip; season chips and episode rows
+  // each act on the title currently open, not on a remembered one.
+  assert.ok(/data-show-season=/.test(script), 'a season chip carries no number');
+  assert.ok(/data-show-ep=/.test(script), 'an episode row carries no number');
+  assert.ok(/episodes\?season=/.test(script), 'episodes are never asked for by season');
+
+  // The player is the route's answer, asked with the season and episode it
+  // needs; the frame keeps the id the sheet's close already knows how to
+  // stop — one player, one way to end it — and the three servers are pickable.
+  assert.ok(/\/player\?\$\{params\}/.test(script), 'the player route is never asked for');
+  assert.ok(/season: String\(/.test(script) && /episode: String\(/.test(script),
+    'the player is asked without the season and episode it needs');
+  assert.ok(/id="lx-frame"/.test(script), 'the embed frame lost the id closing depends on');
+  assert.ok(/data-fx-src=/.test(script), 'the three servers cannot be picked');
+
+  // A slow answer that lands after the reader moved on must not repaint.
+  assert.ok(/seq !== openSeq/.test(script),
+    'a late answer would repaint a page that moved on');
+
+  // The pill searches whatever area is on screen — this one included.
+  assert.ok(/viewIs\((["'])movies\1\)/.test(script) && /searchShows\(state\.q\)/.test(script),
+    'the pill does not search the movies area');
+});
+
+// The movies area keeps what the other two areas keep: the device's own rail
+// answering "where was I?", written the moment a player resolves, and a
+// library of favorites and opened titles that no account and no server ever
+// sees. The rail lives in the area's own view, and opens through the area's
+// own sheet.
+test('the movies area keeps a library and a continue-watching rail', () => {
+  const script = inlineScripts(html)[0];
+
+  // The rail's four elements are in the movies view, with the order control
+  // every other shelf has, and the kind is registered so it paints, sorts
+  // and empties like the anime and manga rails.
+  for (const id of ['show-watch-rail', 'show-watch-head', 'show-watch-count', 'show-watch-note']) {
+    assert.ok(html.includes(` id="${id}"`), `missing #${id}`);
+  }
+  assert.ok(/data-sort-for="show-watch"/.test(html), 'the rail has no order control');
+  assert.ok(/(["'])show-watch\1: \{ orders:/.test(script),
+    'no orders are declared for the show rail');
+  assert.ok(/data-rail-clear="show"/.test(html), 'the rail cannot be emptied');
+  assert.ok(/noteOpen\((["'])show\1/.test(script),
+    'playing an episode is not recorded for the movies area');
+  assert.ok(/setOpener\((["'])show\1, openShow\)/.test(script),
+    'the rail does not open what it lists through the area itself');
+  // A movie travels with total 0 — no fake progress bar on a film.
+  assert.ok(/total: dState\d*\.type === (["'])tv\1 \? dState\d*\.episodes\.length : 0/.test(script),
+    'a movie would draw a progress bar it has no progress for');
+
+  // The library is device-local under its own key: favorites with a heart on
+  // the page, history of every title opened, and both grids drawn from the
+  // same cards as the shelf.
+  assert.ok(/htv:shows:v1/.test(script), 'the shows library keeps nothing on the device');
+  assert.ok(/data-show-fav/.test(script), 'a show page carries no favorite control');
+  for (const id of ['movies-library', 'show-fav-grid', 'show-fav-count', 'show-fav-note',
+    'show-hist-grid', 'show-hist-count', 'show-hist-note', 'show-hist-clear']) {
+    assert.ok(html.includes(` id="${id}"`), `missing #${id}`);
+  }
+  // And the record of what was opened is written where the opening is.
+  assert.ok(/function noteShowOpen\(\)/.test(script), 'opening a title is never remembered');
 });

@@ -1,0 +1,51 @@
+/* --------------------------------------------------------------------------
+   The Library's shelves
+   --------------------------------------------------------------------------
+
+   Three shelves, one row of tabs: the labels are the three areas of the app,
+   and picking one swaps the panel under it. The row is dressed like the
+   segmented controls in Settings — the app has one vocabulary for "pick one
+   of a few" and this is it — while keeping tab roles, because these buttons
+   swap panels rather than toggle a setting.
+
+   The cards under them are the catalog's own `.card`, so a shelf of tracked
+   titles looks like a shelf of anything else; only two things are added: the
+   18+ flag, which rides the badge the grid already uses for view counts, and
+   a busy state for the moment a tap is being matched against an area.
+   -------------------------------------------------------------------------- */
+
+.lib-tabs {
+  display: flex; gap: .25rem; padding: .25rem; margin: 0 0 1.25rem;
+  max-width: 28rem;
+  background: hsl(var(--background) / .6);
+  border: 1px solid hsl(var(--border));
+  border-radius: 999px;
+}
+.lib-tab {
+  flex: 1;
+  font: inherit; font-size: .8125rem; padding: .45rem .25rem;
+  border-radius: 999px;
+  color: hsl(var(--muted-foreground));
+  transition: color .15s, background .15s;
+}
+.lib-tab:hover { color: hsl(var(--foreground)); }
+.lib-tab[aria-selected="true"] {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  font-weight: 600;
+}
+
+/* A panel that is not the picked shelf is out of the flow entirely: its own
+   markup stays put — the device library keeps its ids and its listeners. */
+.lib-panel[hidden] { display: none; }
+
+/* A card whose title is being looked up in an area's catalog: the tap is
+   spent for a moment, so the card says so rather than looking inert. */
+.mal-card[data-busy="true"] { opacity: .55; pointer-events: none; }
+
+/* An adult title, on a shelf that is not the 18+ one. */
+.mal-card .card-badge {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  font-weight: 600;
+}

@@ -12,11 +12,13 @@ import { loadGrid, renderTags, setTagQuery } from './data.js';
 import { toggleFav, viewIs } from './library.js';
 import { setMenuOpen } from './menu.js';
 import { searchManga } from './manga.js';
+import { searchShows } from './movies.js';
 import { goBack } from './nav-history.js';
 import { loadPlaylistHits } from './pl-hits.js';
 import { loadPlaylists, loadSession, openPlaylist } from './playlists.js';
 import { closeSheet, openVideo } from './sheet.js';
 import { menuIsOpen, updateBackState } from './shell.js';
+import { remember, remembered } from './sorts.js';
 import { showView } from './views.js';
 
 let debounce;
@@ -43,6 +45,7 @@ function applyQuery(val, from) {
     // typing must not yank the reader into the 18+ catalog.
     if (viewIs('anime')) { searchAnime(state.q); return; }
     if (viewIs('manga')) { searchManga(state.q); return; }
+    if (viewIs('movies')) { searchShows(state.q); return; }
     // The answer is the grid, and the grid is in Browse. Searching from the
     // pill therefore goes there — as a view change, never as a scroll to a
     // search box.
@@ -77,7 +80,27 @@ $('#nav-q-close').onclick = () => {
   if ($('#nav-q').value) { applyQuery('', null); $('#nav-q').focus({ preventScroll: true }); }
   else setSearchOpen(false);
 };
-$('#sort').addEventListener('change', (e) => { state.sort = e.target.value; refresh(); });
+/**
+ * The catalog's own order is remembered between launches the same way the
+ * shelves' orders are: someone who browses by "Most viewed" should not be
+ * handed "Newest" again every time the app starts. A stored value that is no
+ * longer one of the options falls back to the markup's default rather than
+ * being sent to the server as an unknown column.
+ */
+function restoreBrowseSort() {
+  const sel = $('#sort');
+  const options = sel ? [...sel.options].map((o) => o.value) : [];
+  const pick = remembered('browse', state.sort);
+  if (options.includes(pick)) state.sort = pick;
+  if (sel) sel.value = state.sort;
+  return state.sort;
+}
+
+$('#sort').addEventListener('change', (e) => {
+  state.sort = e.target.value;
+  remember('browse', state.sort);
+  refresh();
+});
 
 $('#tag-rail').addEventListener('click', (e) => {
   const chip = e.target.closest('.chip');
@@ -210,4 +233,4 @@ document.addEventListener('keydown', (e) => {
   if (card) { e.preventDefault(); openPlaylist(card.dataset.playlist); }
 });
 
-export { debounce, refresh, applyQuery, setSearchOpen, plDebounce, tagDebounce };
+export { debounce, refresh, applyQuery, setSearchOpen, plDebounce, tagDebounce, restoreBrowseSort };

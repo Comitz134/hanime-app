@@ -286,12 +286,22 @@ async function resolveMalId(kind, id, title) {
   return hit.id;
 }
 
-function getEntry(kind, id) {
-  // 404 is the honest "not on the list yet", not a failure of the pipe.
-  return mal(`/${kind}/${id}/mylist_status`).catch((e) => {
-    if (e.status === 404) return null;
-    throw e;
-  });
+/**
+ * A title's own entry: the reader's status on it, plus how many episodes or
+ * chapters it has — the total is what decides "finished" when progress is
+ * written for them.
+ *
+ * Read through the media route, not a status route: `/anime/{id}/my_list_status`
+ * takes writes only (a GET is `405 method_not_allowed`), and its spellings are
+ * load-bearing — `mylist_status` without the underscores is not a route at all
+ * and answers `404 {"error":"not_found"}`, which is what this client used to
+ * ask for. An entry that is not on the list is simply absent from the answer.
+ */
+async function getEntry(kind, id) {
+  const total = kind === 'manga' ? 'num_chapters' : 'num_episodes';
+  const body = await mal(`/${kind}/${id}?fields=my_list_status,${total}`);
+  const status = body?.my_list_status ?? null;
+  return status ? { ...status, [total]: Number(body?.[total]) || 0 } : null;
 }
 
 function setEntry(kind, id, { status, score, progress }) {
@@ -301,12 +311,190 @@ function setEntry(kind, id, { status, score, progress }) {
     params.set(PROGRESS[kind].put, String(Number(progress)));
   }
   // The fields ride the query: the pipe turns them into the form body MAL
-  // writes list status with (see mal.mjs / Mal.java).
-  return mal(`/${kind}/${id}/mylist_status?${params.toString()}`, { method: 'PUT' });
+  // writes list status with (see mal.mjs / Mal.java). The path is MAL's own —
+  // `/my_list_status`, underscores and all (verified against the live API:
+  // the write answers 200 with the status echoed back).
+  return mal(`/${kind}/${id}/my_list_status?${params.toString()}`, { method: 'PUT' });
 }
 
 function removeEntry(kind, id) {
-  return mal(`/${kind}/${id}/mylist_status`, { method: 'DELETE' });
+  return mal(`/${kind}/${id}/my_list_status`, { method: 'DELETE' });
+}
+
+/* ------------------------------------------------------------ auto-advance */
+
+/**
+ * The reader is already telling this app what they are watching, so the app
+ * tells MyAnimeList: opening an episode writes episodes watched, opening a
+ * chapter writes chapters read. The number only ever moves forward, and the
+ * furthest one written this session is remembered, so re-opening the same
+ * episode costs no request.
+ *
+ * Two rules worth stating out loud, because this writes to the reader's own
+ * list:
+ *
+ *   * a title that is not on the list yet is added as watching/reading — that
+ *     is what "the list keeps itself current without touching MAL" means;
+ *   * reaching the last episode or chapter marks it completed, which is what
+ *     MAL's own clients do when progress reaches the total.
+ *
+ * A failure here is swallowed on purpose: playback must never depend on MAL.
+ * The detail sheet's own row is where a reader sees exactly what happened.
+ */
+const autoWritten = {};   // `${kind}:${id}` -> the furthest number written this session
+
+async function autoAdvance(kind, id, number, title) {
+  const n = Number(number);
+  if (!configured() || !linked() || !PROGRESS[kind] || !Number.isFinite(n) || n < 1) return;
+  try {
+    const malId = await resolveMalId(kind, id, title);
+    if (!malId) return;
+    const key = `${kind}:${malId}`;
+    if (autoWritten[key] >= n) return;
+
+    const entry = await getEntry(kind, malId);   // null when it is not on the list
+    const have = Number(kind === 'manga' ? entry?.num_chapters_read : entry?.num_episodes_watched) || 0;
+    if (have >= n) { autoWritten[key] = have; return; }
+
+    const total = Number(kind === 'manga' ? entry?.num_chapters : entry?.num_episodes) || 0;
+    // Their own status is kept unless it was a plan — moving a plan to watching
+    // is the one case where opening something plainly says more than the list.
+    const kept = entry?.status && !/^plan_to_/.test(entry.status) ? entry.status : null;
+    const status = total && n >= total ? 'completed'
+      : kept ?? (kind === 'manga' ? 'reading' : 'watching');
+    await setEntry(kind, malId, { status, progress: n });
+    autoWritten[key] = n;
+  } catch (e) { /* a failed write must not interrupt an episode */ }
+}
+
+/* ------------------------------------------------------- the whole list */
+
+/**
+ * The account's own lists, read once and kept on the device.
+ *
+ * This is the other half of tracking: the slots above write one title at a
+ * time from a detail page, while this pulls everything the account already
+ * watches and reads, so the Library can show it without anyone retyping a
+ * list into the app.
+ *
+ * `nsfw=true` is not decoration. MAL hides black-flagged entries from list
+ * answers unless it is asked for them, and those are exactly the ones the
+ * 18+ shelf exists to show. `fields` asks for the few things the shelves
+ * draw — status, progress, cover, titles — because an unqualified list
+ * answer is heavy and the WAN on a phone is the slow part.
+ */
+const LISTS_KEY = 'mal.lists';    // { at, anime: [...], manga: [...] }
+const LIST_TTL_MS = 10 * 60_000;  // switching tabs must not re-fetch what was just read
+const LIST_PAGES = 20;            // 100 a page, so 2000 entries a kind — beyond any real list
+
+/**
+ * What the shelves need, asked for twice, because MAL's field parser takes
+ * unknown names quietly (verified against the live API: a made-up field, and
+ * even a made-up sub-section, come back 200 with the valid keys and no
+ * error). A list answer is `{ node, list_status }` per entry, so the fields
+ * are named both as the sub-sections they are and as the keys inside them —
+ * whichever way MAL matches them, the answer carries the same handful of
+ * keys, and a silent miss would empty the shelves rather than fail loudly.
+ *
+ * The two kinds differ in exactly one field, and asking for the other kind's
+ * name would be asking for something the media does not have.
+ */
+const LIST_FIELDS = {
+  anime: [
+    'list_status{status,score,num_episodes_watched,updated_at}',
+    'node{id,title,main_picture,num_episodes,media_type,nsfw,genres}',
+    'list_status,node',
+    'id,title,main_picture,num_episodes,media_type,nsfw,genres',
+    'status,score,num_episodes_watched,updated_at',
+  ].join(','),
+  manga: [
+    'list_status{status,score,num_chapters_read,updated_at}',
+    'node{id,title,main_picture,num_chapters,media_type,nsfw,genres}',
+    'list_status,node',
+    'id,title,main_picture,num_chapters,media_type,nsfw,genres',
+    'status,score,num_chapters_read,updated_at',
+  ].join(','),
+};
+
+/**
+ * One entry, normalised once: both kinds answer in the same envelope, and the
+ * shelves differ only in which fields they read off it.
+ */
+function malEntry(kind, item) {
+  const node = item?.node ?? {};
+  const status = item?.list_status ?? {};
+  const genres = (node.genres ?? []).map((g) => String(g?.name ?? ''));
+  const total = Number(kind === 'manga' ? node.num_chapters : node.num_episodes);
+  const read = Number(kind === 'manga' ? status.num_chapters_read : status.num_episodes_watched);
+  return {
+    kind,
+    malId: Number(node.id) || 0,
+    title: String(node.title ?? ''),
+    cover: node.main_picture?.medium ?? node.main_picture?.large ?? '',
+    status: String(status.status ?? ''),
+    score: Number(status.score) || 0,
+    progress: Number.isFinite(read) ? read : 0,
+    total: Number.isFinite(total) ? total : 0,
+    updatedAt: Date.parse(status.updated_at ?? '') || 0,
+    // MAL answers "is this adult" twice: the black NSFW flag, and the Hentai
+    // genre. Either one files the entry on the 18+ shelf.
+    adult: node.nsfw === 'black' || genres.some((g) => g.toLowerCase() === 'hentai'),
+  };
+}
+
+/**
+ * One kind, every page. MAL pages at 100 and hands the next one back as a
+ * full URL; it is reduced to the path this pipe already understands, because
+ * the path is the part that carries the caller's own token.
+ */
+async function fetchList(kind) {
+  const out = [];
+  // `/users/@me/<kind>list` — the account's own list. The bare `animelist`
+  // path is not an endpoint at all: MAL answers it 404 `not_found`, which is
+  // exactly the silence this comment exists to prevent happening twice.
+  let path = `/users/@me/${kind === 'manga' ? 'mangalist' : 'animelist'}`
+    + `?limit=100&nsfw=true&fields=${encodeURIComponent(LIST_FIELDS[kind])}`;
+  for (let page = 0; page < LIST_PAGES && path; page += 1) {
+    const body = await mal(path);
+    for (const item of body?.data ?? []) out.push(malEntry(kind, item));
+    const next = String(body?.paging?.next ?? '');
+    path = next ? next.replace(/^https?:\/\/api\.myanimelist\.net\/v2/, '') : '';
+  }
+  return out.filter((e) => e.malId && e.title);
+}
+
+/** The device's copy, as it stands — for painting before the network answers. */
+function malCache() {
+  return load(LISTS_KEY, null);
+}
+
+let listPull = null;   // single-flight: three shelves, one load
+
+/**
+ * Both lists, refreshed when stale. A pull that fails over a usable copy
+ * answers with the copy — a phone with no signal still shows the list it
+ * read this morning, which is the point of keeping one.
+ */
+async function malLists({ force = false } = {}) {
+  const cached = malCache();
+  const fresh = cached && Date.now() - (Number(cached.at) || 0) < LIST_TTL_MS;
+  if (!force && fresh) return cached;
+  if (!linked()) return cached;
+  if (!listPull) {
+    listPull = Promise.all([fetchList('anime'), fetchList('manga')])
+      .then(([anime, manga]) => {
+        const next = { at: Date.now(), anime, manga };
+        save(LISTS_KEY, next);
+        return next;
+      })
+      .finally(() => { listPull = null; });
+  }
+  try {
+    return await listPull;
+  } catch (e) {
+    if (cached) return cached;
+    throw e;
+  }
 }
 
 /* --------------------------------------------------------- detail slots */
@@ -531,6 +719,7 @@ document.addEventListener('click', (e) => {
     unlink.addEventListener('click', () => {
       drop(AUTH_KEY);
       drop(IDS_KEY);
+      drop(LISTS_KEY);
       notice = 'MyAnimeList unlinked from this device.';
       fillMalSettings();
     });
@@ -539,4 +728,7 @@ document.addEventListener('click', (e) => {
 
 watchSlots();
 
-export { handleMalCallback, fillMalSettings, startLogin, configured, linked };
+export {
+  handleMalCallback, fillMalSettings, startLogin, configured, linked,
+  malLists, malCache, malEntry, LISTS_KEY, LIST_TTL_MS, autoAdvance,
+};

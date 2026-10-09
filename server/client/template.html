@@ -30,8 +30,47 @@
       <span class="brand-word" id="brand-word">hanime</span>
     </div>
 
-    <!-- The pill carries buttons only. Every section sits behind the three-line
-         button, so nothing on the bar has to be reached by swiping it. -->
+    <!-- The pill carries buttons only, and the three areas are three of them:
+         the reader switches between normal anime, manga and 18+ constantly,
+         and making that a menu (open, read, tap) turned the most ordinary
+         move in the app into two. Every *section* — Genres, Studios,
+         Playlists, Library, Settings — stays behind the three-line button,
+         because those are places you go to, not places you switch between. -->
+    <div class="nav-areas" role="group" aria-label="Areas">
+      <button class="icon-btn nav-link" type="button" data-go="anime" aria-current="page"
+              aria-label="Anime" title="Anime">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+             stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="5" width="18" height="14" rx="3.5"/>
+          <path d="M10.4 9.3v5.4l4.6-2.7z" fill="currentColor" stroke="none"/>
+        </svg>
+      </button>
+      <button class="icon-btn nav-link" type="button" data-go="manga"
+              aria-label="Manga" title="Manga">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+             stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 7.2C10.4 5.8 8.3 5.2 5.6 5.2c-1 0-1.9.1-2.6.3v11.6c.7-.2 1.6-.3 2.6-.3 2.7 0 4.8.6 6.4 2 1.6-1.4 3.7-2 6.4-2 1 0 1.9.1 2.6.3V5.5c-.7-.2-1.6-.3-2.6-.3-2.7 0-4.8.6-6.4 2z"/>
+          <path d="M12 7.2v11.6"/>
+        </svg>
+      </button>
+      <button class="icon-btn nav-link" type="button" data-go="movies"
+              aria-label="Movies &amp; series" title="Movies &amp; series">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+             stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="4.5" width="18" height="15" rx="3"/>
+          <path d="M7.5 4.5v15M16.5 4.5v15"/>
+          <path d="M3 9.5h4.5M3 14.5h4.5M16.5 9.5H21M16.5 14.5H21"/>
+        </svg>
+      </button>
+      <button class="icon-btn nav-link" type="button" data-go="browse"
+              aria-label="18+ · hanime" title="18+ · hanime">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="2.5" y="5.5" width="19" height="13" rx="4"/>
+          <text x="12" y="15.2" text-anchor="middle" font-size="8.2" font-weight="700"
+                fill="currentColor" stroke="none">18+</text>
+        </svg>
+      </button>
+    </div>
 
     <!-- The pill turns into the search field, in place: the buttons step aside
          and the query is typed where the finger already is. Nothing here moves
@@ -78,6 +117,10 @@
         </button>
         <div class="nav-menu-label">Manga</div>
         <button class="nav-menu-item nav-link" type="button" data-go="manga">Manga
+          <svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m5 13 4.5 4.5L19 7"/></svg>
+        </button>
+        <div class="nav-menu-label">Movies &amp; Series</div>
+        <button class="nav-menu-item nav-link" type="button" data-go="movies">Movies &amp; Series
           <svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m5 13 4.5 4.5L19 7"/></svg>
         </button>
         <div class="nav-menu-label">18+ · hanime</div>
@@ -229,6 +272,92 @@
           <span class="pager-info" id="manga-pageinfo"></span>
           <button class="page-btn" id="manga-next">Next</button>
         </div>
+      </section>
+    </div>
+
+    <!-- movies: films and series from f-movies.org — the TMDB-backed catalog
+         answers searches, static pages answer details and episodes, and the
+         player is the site's own three embeds built from the title's id. -->
+    <div class="view" data-view="movies">
+      <section id="movies-browse">
+        <div class="sec-head">
+          <div class="sec-head-l">
+            <h2>Movies &amp; Series <span class="area-chip">f-movies</span></h2>
+            <span class="sec-count" id="movies-count">…</span>
+          </div>
+        </div>
+
+        <!-- What this device was watching, above the search: an episode left
+             half-way is the one thing on this page waiting to be picked up.
+             The record is written the moment a player resolves, and the rail
+             opens the title through this area's own sheet. -->
+        <div class="sec-head" id="show-watch-head" hidden>
+          <div class="sec-head-l">
+            <h2>Continue watching</h2>
+            <span class="sec-count" id="show-watch-count">0</span>
+          </div>
+          <div class="sec-tools">
+            <select class="filter-select sort-select" data-sort-for="show-watch"
+                    aria-label="Order of continue watching"></select>
+            <button class="chip" type="button" data-rail-clear="show">Clear</button>
+          </div>
+        </div>
+        <div class="rail" id="show-watch-rail" hidden></div>
+        <p class="note" id="show-watch-note" hidden></p>
+
+        <label class="search-shell" id="movies-search-shell">
+          <svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+            <circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/>
+          </svg>
+          <input id="movies-q" type="search" inputmode="search" enterkeyhint="search"
+                 placeholder="Search movies and series…" autocomplete="off" spellcheck="false">
+          <button class="search-clear" id="movies-clear" type="button" aria-label="Clear search">&times;</button>
+        </label>
+
+        <div class="filter-row" id="movies-filters">
+          <select id="movies-type" class="filter-select" aria-label="Kind">
+            <option value="">Movies &amp; series</option>
+            <option value="movie">Movies only</option>
+            <option value="tv">Series only</option>
+          </select>
+          <button class="chip" id="movies-filter-clear" type="button" hidden>Clear filters</button>
+        </div>
+
+        <div class="grid" id="movies-grid"></div>
+        <p class="note" id="movies-note" hidden></p>
+        <div class="pager" id="movies-pager" hidden>
+          <button class="page-btn" id="movies-prev">Prev</button>
+          <span class="pager-info" id="movies-pageinfo"></span>
+          <button class="page-btn" id="movies-next">Next</button>
+        </div>
+      </section>
+
+      <div class="divider"></div>
+
+      <!-- The device's own library for this area: favorites and everything
+           opened, kept on the phone the way the 18+ shelf's records are —
+           no account and no server anywhere near them. -->
+      <section id="movies-library">
+        <div class="sec-head">
+          <div class="sec-head-l">
+            <h2>Library</h2>
+            <span class="sec-count" id="show-fav-count">0</span>
+          </div>
+        </div>
+        <div class="grid" id="show-fav-grid"></div>
+        <p class="note" id="show-fav-note" hidden></p>
+
+        <div class="sec-head" style="margin-top:1.75rem">
+          <div class="sec-head-l">
+            <h2>Recently opened</h2>
+            <span class="sec-count" id="show-hist-count">0</span>
+          </div>
+          <div class="sec-tools">
+            <button class="chip" id="show-hist-clear" type="button" hidden>Clear history</button>
+          </div>
+        </div>
+        <div class="grid" id="show-hist-grid"></div>
+        <p class="note" id="show-hist-note" hidden></p>
       </section>
     </div>
 
@@ -390,14 +519,95 @@
 
     </div>
 
-    <!-- library: favorites and watch history, kept on the device -->
+    <!-- library: three shelves, one per area, split the way the app is.
+         Anime and Manga are the account's own MyAnimeList lists; 18+ is
+         where the device's records live — continue watching, favorites,
+         history — alongside the adult titles the account tracks. Kept on the
+         device: favorites and watch history in one view. -->
     <div class="view" data-view="library">
 
       <!-- library -->
       <section id="library">
+
+        <!-- The shelves are tabs, not a longer page: the three lists come
+             from different places and answering one question with all three
+             buries it. -->
+        <div class="lib-tabs" role="tablist" aria-label="Library shelves">
+          <button class="lib-tab" type="button" role="tab" data-lib-tab="anime" aria-selected="true">Anime</button>
+          <button class="lib-tab" type="button" role="tab" data-lib-tab="manga" aria-selected="false">Manga</button>
+          <button class="lib-tab" type="button" role="tab" data-lib-tab="adult" aria-selected="false">18+</button>
+        </div>
+
+        <div class="lib-panel" data-lib-panel="anime" role="tabpanel" aria-label="Anime">
+          <!-- What this device was playing, above the account's list: an
+               episode left half-way is the one thing on this tab that is
+               waiting to be picked up again. -->
+          <div class="sec-head" id="watch-head" hidden>
+            <div class="sec-head-l">
+              <h2>Continue watching</h2>
+              <span class="sec-count" id="watch-count">0</span>
+            </div>
+            <div class="sec-tools">
+              <select class="filter-select sort-select" data-sort-for="watch-anime"
+                      aria-label="Order of continue watching"></select>
+              <button class="chip" type="button" data-rail-clear="anime">Clear</button>
+            </div>
+          </div>
+          <div class="rail" id="watch-rail" hidden></div>
+          <p class="note" id="watch-note" hidden></p>
+
+          <div class="sec-head" style="margin-top:1.75rem">
+            <div class="sec-head-l">
+              <h2>Anime</h2>
+              <span class="sec-count" id="mal-anime-count">…</span>
+            </div>
+            <div class="sec-tools">
+              <select class="filter-select sort-select" data-sort-for="mal-anime"
+                      aria-label="Order of the anime shelf"></select>
+              <button class="chip" type="button" data-mal-refresh hidden>Refresh</button>
+            </div>
+          </div>
+          <p class="note" id="mal-anime-note" hidden></p>
+          <div class="grid" id="mal-anime-grid"></div>
+        </div>
+
+        <div class="lib-panel" data-lib-panel="manga" role="tabpanel" aria-label="Manga" hidden>
+          <!-- The chapters actually opened on this device, which the account's
+               own list cannot say: MAL knows the number reached, not which
+               chapter was on screen last night. -->
+          <div class="sec-head" id="read-head" hidden>
+            <div class="sec-head-l">
+              <h2>Continue reading</h2>
+              <span class="sec-count" id="read-count">0</span>
+            </div>
+            <div class="sec-tools">
+              <select class="filter-select sort-select" data-sort-for="read-manga"
+                      aria-label="Order of continue reading"></select>
+              <button class="chip" type="button" data-rail-clear="manga">Clear</button>
+            </div>
+          </div>
+          <div class="rail" id="read-rail" hidden></div>
+          <p class="note" id="read-note" hidden></p>
+
+          <div class="sec-head" style="margin-top:1.75rem">
+            <div class="sec-head-l">
+              <h2>Manga</h2>
+              <span class="sec-count" id="mal-manga-count">…</span>
+            </div>
+            <div class="sec-tools">
+              <select class="filter-select sort-select" data-sort-for="mal-manga"
+                      aria-label="Order of the manga shelf"></select>
+              <button class="chip" type="button" data-mal-refresh hidden>Refresh</button>
+            </div>
+          </div>
+          <p class="note" id="mal-manga-note" hidden></p>
+          <div class="grid" id="mal-manga-grid"></div>
+        </div>
+
+        <div class="lib-panel" data-lib-panel="adult" role="tabpanel" aria-label="18+" hidden>
         <div class="sec-head">
           <div class="sec-head-l">
-            <h2>Library</h2>
+            <h2>18+</h2>
             <span class="sec-count" id="lib-count">…</span>
           </div>
         </div>
@@ -418,10 +628,28 @@
         <p class="note" id="lib-msg" hidden></p>
         <p class="note" id="lib-warn" hidden></p>
 
+        <div class="sec-head">
+          <div class="sec-head-l">
+            <h2>Hentai</h2>
+            <span class="sec-count" id="mal-adult-count">…</span>
+          </div>
+          <div class="sec-tools">
+            <select class="filter-select sort-select" data-sort-for="mal-adult"
+                    aria-label="Order of the 18+ shelf"></select>
+            <button class="chip" type="button" data-mal-refresh hidden>Refresh</button>
+          </div>
+        </div>
+        <p class="note" id="mal-adult-note" hidden></p>
+        <div class="grid" id="mal-adult-grid"></div>
+
         <div class="sec-head" id="cont-head" style="margin-top:1.75rem">
           <div class="sec-head-l">
             <h2>Continue watching</h2>
             <span class="sec-count" id="cont-count">0</span>
+          </div>
+          <div class="sec-tools">
+            <select class="filter-select sort-select" data-sort-for="cont"
+                    aria-label="Order of continue watching"></select>
           </div>
         </div>
         <div class="rail" id="cont-rail"></div>
@@ -431,6 +659,10 @@
           <div class="sec-head-l">
             <h2>Favorites</h2>
             <span class="sec-count" id="fav-count">0</span>
+          </div>
+          <div class="sec-tools">
+            <select class="filter-select sort-select" data-sort-for="fav"
+                    aria-label="Order of favorites"></select>
           </div>
         </div>
         <div class="grid" id="fav-grid"></div>
@@ -443,10 +675,15 @@
             <h2>History</h2>
             <span class="sec-count" id="hist-count">0</span>
           </div>
-          <button class="chip" id="hist-clear" type="button" hidden>Clear history</button>
+          <div class="sec-tools">
+            <select class="filter-select sort-select" data-sort-for="hist"
+                    aria-label="Order of history"></select>
+            <button class="chip" id="hist-clear" type="button" hidden>Clear history</button>
+          </div>
         </div>
         <div class="grid" id="hist-grid"></div>
         <p class="note" id="hist-note" hidden></p>
+        </div>
       </section>
 
     </div>

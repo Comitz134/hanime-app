@@ -7,6 +7,7 @@
 // rebuilds.
 
 import { $$ } from './core.js';
+import { renderMalShelves } from './mal-library.js';
 import { pushNav } from './nav-history.js';
 import { renderLibrary } from './positions.js';
 
@@ -42,7 +43,13 @@ function showView(name) {
     else b.removeAttribute('aria-current');
   });
 
-  if (target.dataset.view === 'library') renderLibrary();
+  // Both halves of the Library refill on the way in: the device's own
+  // records, and the account's shelves — which paint from the copy on the
+  // device first, so opening the view is never a wait.
+  if (target.dataset.view === 'library') {
+    renderLibrary();
+    renderMalShelves();
+  }
   // Opening a different view starts at its top; pressing the tab you are
   // already on must not throw away your place in it.
   if (changed) scrollTo({ top: 0 });

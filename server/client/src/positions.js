@@ -9,6 +9,7 @@
 import { cardHtml } from './cards.js';
 import { $, esc } from './core.js';
 import { isFav, lib, libQuery, libSaved, libWrite } from './library.js';
+import { sorted } from './sorts.js';
 
 /* ---- where each title was left ------------------------------------------ */
 //
@@ -51,8 +52,10 @@ function libMatches(e) {
 
 function renderLibrary() {
   const needle = libQuery.trim();
-  const favs = lib.favorites.filter(libMatches);
-  const hist = lib.history.filter(libMatches);
+  // Each list is filtered and then put in the order its own control asks for:
+  // a favorite filed last year and one filed tonight are not the same thing.
+  const favs = sorted('fav', lib.favorites.filter(libMatches));
+  const hist = sorted('hist', lib.history.filter(libMatches));
 
   $('#lib-count').textContent = `${lib.favorites.length} favorite${lib.favorites.length === 1 ? '' : 's'} · ${lib.history.length} watched`;
   $('#fav-count').textContent = needle ? `${favs.length} of ${lib.favorites.length}` : String(lib.favorites.length);
@@ -90,8 +93,11 @@ function renderContinue(needle) {
   const head = $('#cont-head');
   if (!rail || !head) return;
 
-  const part = lib.history
+  // The order it is in is the order of *watching*, not of first opening: the
+  // position is what was written last, so it is what "last watched" means.
+  const part = sorted('cont', lib.history
     .filter((e) => (!needle || libMatches(e)) && progressOf(e.slug) > 0)
+    .map((e) => ({ ...e, at: lib.positions[e.slug]?.at ?? e.at })))
     .slice(0, 12);
 
   head.hidden = part.length === 0;
@@ -111,5 +117,12 @@ function favPill(slug) {
       <span class="fav-label">${on ? 'In library' : 'Favorite'}</span>
     </button>`;
 }
+
+// The two 18+ lists and the rail above them are redrawn in place when their
+// own order changes — local data, so no request is involved.
+const LOCAL_SORTS = new Set(['fav', 'hist', 'cont']);
+document.addEventListener('htv:sort', (e) => {
+  if (LOCAL_SORTS.has(e.detail?.name)) renderLibrary();
+});
 
 export { savePosition, clearPosition, progressOf, libMatches, renderLibrary, renderContinue, favPill };

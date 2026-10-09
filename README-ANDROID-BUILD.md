@@ -98,13 +98,13 @@ vendored signer. Guards in `server/test/web-client.test.mjs` fail if you
 forget: the committed bundle must match a fresh build of the sources (both
 copies of it), the signer must stay parseable by
 WebView 83, the nav's five targets must match five views, and the library's
-storage calls must stay wrapped in `try`. (112 tests. The updater's
-source/channel selection has 11 more as JVM tests:
-`gradle :app:testReleaseUnitTest`.)
+storage calls must stay wrapped in `try`. (154 tests. The updater's
+source/channel selection and the rest of the JVM side have 29 more as JVM
+tests: `gradle :app:testReleaseUnitTest`.)
 
 The client no longer ships as one hand-edited file. Its sources live in
-`server/client/` — `template.html` (markup), `styles/*.css` (9 sections),
-`src/*.js` (17 modules) — and esbuild bundles them into the single inline
+`server/client/` — `template.html` (markup), `styles/*.css` (15 sections),
+`src/*.js` (29 modules) — and esbuild bundles them into the single inline
 script in `index.html`:
 
 ```bash
@@ -158,21 +158,26 @@ sha256sum "$APK"
 Current build:
 
 ```
-package: name='app.hanime.shell' versionCode='16' versionName='1.0.15'
+package: name='app.hanime.shell' versionCode='24' versionName='1.0.23'
 sdkVersion:'26'   targetSdkVersion:'34'
 launchable-activity: name='app.hanime.shell.MainActivity'
 permissions: INTERNET, ACCESS_NETWORK_STATE, REQUEST_INSTALL_PACKAGES, POST_NOTIFICATIONS
-Verifies / v2 scheme: true / signer CN=hanime shell (unchanged)
-1,309,982 bytes / sha256 317bcc965c7325c52d1cf8ce5b4894df77666937ae9bc3ca5cdb4d71a4d2b589
-  assets/index.html 136,427 bytes sha256 57e1f52d23fc2f2f1e60d09ca315488cdc608a2f61b5f19376c23138ce176bc8
+Verifies / v2 scheme: true / signer CN=hanime shell (unchanged)  [cert sha256 13c01040…]
+1,432,842 bytes / sha256 635d97255ebbc96cdbbca36c9d3658d59f7829af670905cc66636b66cf64b0e9
+  assets/index.html 458,701 bytes sha256 66a9f9ea087f8f9f752994e2aaf13114b2037e6deb613f5086af70e5a2095dcf
   assets/hls.min.js 413,952 bytes sha256 484054e8cd03d3f6d1781fb7f402bdc318d8a4c527f933a95c624e27cc9a9470
 ```
 
-The bundled client's digest above is the one that shipped in the published v15
-APK — read back out of the packaged file, not assumed — and it is byte-identical
-to `server/public/index.html` in this tree. The digest changes with every client
-edit; the freshness guard in the test suite is what keeps the server and APK
-copies in step, rather than any recorded hash.
+The bundled client's digest above is the one read back out of the APK built
+from this tree — not assumed — and it is byte-identical to
+`server/public/index.html` in this tree. 1.0.23 carries the films & series
+area (f-movies.org routes, new navbar icon) plus that area's own device
+library and continue-watching rail; it is signed with the same key as
+1.0.22, so installing it over the phone's copy keeps the account and the
+device's data. Publication of a release is a separate step and its own
+digests live in §7's history. The digest changes with every client edit; the freshness
+guard in the test suite is what keeps the server and APK copies in step,
+rather than any recorded hash.
 
 Release signing comes from `android/keystore.properties` + `android/keystore/`.
 **Reuse the same key across releases** — a different signer turns every update
@@ -589,6 +594,197 @@ Measured against the live endpoints, no account needed:
 Not verified here: a completed sign-in and a written list entry. Both need the
 reader's MAL account, so the last mile is theirs — everything up to the login
 page, and both pipes, are what is measured above.
+
+### 7.4 The Library's three shelves
+
+Linking the account feeds the Library too, and the Library is three tabs now —
+**Anime**, **Manga**, **18+** — split the way the app itself is. The first two
+are the account's own MyAnimeList lists: everything already watched and read is
+there without retyping it, each card carrying its status, its progress
+(episodes for anime, chapters for manga) and its score, and an order control of
+its own (see §7.6). The 18+ shelf is everything adult on the account — **both
+kinds**: a list that tracks adult manga is exactly the list this shelf exists
+for, and a card still opens in its own area because every card carries its
+kind. Which entries are adult is MAL's own answer
+twice over: the black NSFW flag, or the `Hentai` genre — either one files the
+entry under 18+ (badged `18+` when it is drawn on a shelf that is not 18+). The device's own records (Continue watching, Favorites,
+History, export/import) did not move: they are the 18+ panel's floor.
+
+**Nothing on a shelf is one of our ids.** MAL knows AniList ids, mangafire hids
+and hanime slugs not at all, so a tap resolves the title against the area's own
+catalog first — exact title, then a title that starts with it, then the search's
+own top hit — and opens the sheet that area already opens: the anime player, the
+manga reader, or the 18+ title page. The match is remembered per title (and per
+shelf — the 18+ shelf once used the entry's own media kind for its messages,
+which sent a failed match to the Anime panel's note, where nobody would see it).
+
+**Two things about the list call are load-bearing.**
+
+- `nsfw=true` is not decoration: MAL withholds black-flagged entries from list
+  answers without it, and those are exactly the shelf that exists to show them.
+- `fields` names the handful of keys the cards draw, twice: both as the
+  `list_status{…}` / `node{…}` sub-sections a list entry is made of, and as the
+  keys inside them. Belt and braces on purpose — **MAL answers an unknown field
+  name with `200` and no key**, so a silent miss would empty every shelf instead
+  of failing loudly. Measured against the live API with the app's own client id
+  and no account: `fields=id,title,bogus_field_xyz,num_episodes` came back `200`
+  carrying the valid keys, and a made-up `bogus{a,b}` sub-section was flattened
+  to `bogusa` rather than refused. The anime and manga strings differ in exactly
+  one field name, because asking the wrong kind for its progress field is asking
+  for something that media does not have.
+
+The lists are kept on the device for ten minutes, so switching tabs is not a
+round trip, and the copy **paints first** — a phone with no signal, or a token
+that died, still shows the list it read this morning. Unlinking drops the copy
+with the tokens. Measured on the emulator with the release APK built from these
+sources (sha256 `ea4c2623…`) and a seeded account copy in storage: the tabs read
+`2 tracked`, `2 tracked`, `1 tracked`; the anime shelf drew
+`Watching · 12/220 ep · ★ 8` and `Completed · 366/366 ep`; the manga shelf drew
+Berserk plus the badged adult entry; the 18+ shelf drew the adult anime entry
+and the device's own filter, tools, favorites and history underneath it. A tap
+on NARUTO resolved to AniList id 20 through the app's own `/api/anime/search`
+and opened the detail sheet with `220 episodes` and the embed
+(`flixcloud.cc/e/bo2qdw3m3kjf?v=2`); a tap on a seeded adult title opened the 18+
+page (`overflow-season-1`); a tap on a title the catalog does not have answered
+on the panel the tap happened in. With `mal.auth` cleared, all three shelves said
+how to fill themselves and the page made **no** `/api/mal` request at all. The
+stale path was measured live too: an expired token with a twenty-minute-old copy
+painted its cards before the network was consulted, refreshed once through
+`/api/mal/token`, and — when the refresh was refused — kept every card and said
+nothing.
+
+**Two paths this client had wrong, found by reading a real account.** The first
+build's shelves said *"Could not read your MyAnimeList list — not_found"*, and
+two separate mistakes were behind it:
+
+- the list was requested from `/v2/animelist`, which is not an endpoint at all —
+  MAL's own path is `/v2/users/@me/animelist`. Both kinds are now asserted by
+  path in the suite, not by the word `animelist`;
+- **every** status read and write used `/mylist_status`, and the route MAL serves
+  is `/my_list_status` (underscores). Both halves had therefore been failing
+  silently since tracking shipped: a title could be added from a detail sheet and
+  nothing landed. Reads also moved off that route entirely — a `GET` on it is
+  `405 method_not_allowed`, so a reader's own status is read from
+  `/anime/{id}?fields=my_list_status,…`, which is where MAL puts it.
+
+Measured on the reader's own phone (release 1.0.20 installed over 1.0.19, same
+signer, linked account intact): the Manga shelf drew **148 tracked** titles with
+their real statuses and progress; the Anime shelf said plainly that nothing is on
+the anime list yet (that account tracks manga only) rather than looking broken;
+the 18+ shelf said the account has nothing flagged adult; and a title's detail
+sheet showed *"on your list"* with its status select and a progress field of
+**3** — read back from MAL, which this row had never managed before.
+
+### 7.5 The list keeps itself current
+
+Opening an episode writes episodes watched; opening a chapter writes chapters
+read. It happens where the thing actually opens — a resolved player for an
+episode, a rendered reader for a chapter — and three rules keep it from being a
+nuisance:
+
+- **forward only.** A number already reached is never rewritten, and one this
+  session already sent costs no request at all, so re-opening episode 1 of a
+  series you are on episode 40 of changes nothing.
+- **their status is kept.** Only a *plan to watch/read* is moved to
+  watching/reading, and a title that is not on the list yet is added that way —
+  that is what "the list keeps itself current without me touching MAL" means.
+- **reaching the total finishes it.** The last episode or chapter seen marks the
+  entry completed, the same rule MAL's own clients apply.
+
+Every failure is swallowed on purpose: playback must never depend on
+MyAnimeList, and the detail sheet's row is where a reader goes to see what
+actually happened. Measured live on that account, end to end: a manga reading
+*2/100 chapters* was opened from the Library at chapter 3, and the account read
+back *3/100* after — written by the app, with the status left as it was.
+
+Not verified here: an **anime** write against a real account (that account tracks
+no anime, and adding one to a public list is not something a test should decide).
+Its call site and rules are asserted, and the manga path shares all of them.
+
+### 7.6 Organizing: every shelf, in an order the reader picks
+
+The Library had one order — newest list activity — and no way to ask for
+another. It has eight orders now, and one table owns what they are called:
+`server/client/src/sorts.js` holds **Last read**, **Last watched**, **Last
+updated**, **Recently added**, **Title A–Z**, **Progress**, **Score**,
+**Status**, plus the comparators behind them (progress is furthest-along first,
+falling back to the raw count where a total is unknown; status is grouped
+watching/reading, on hold, completed, plan, dropped). The words are shared on
+purpose: "last read" on the manga shelf and "last watched" on the anime shelf
+must read as one idea, not two inventions.
+
+A shelf **declares** which of those orders it can honour — the first is its
+default — and gets a `<select data-sort-for="…">` for it. Eight shelves do:
+`mal-anime`, `mal-manga`, `mal-adult`, `watch-anime`, `read-manga`, and the
+18+ panel's own `cont`, `fav`, `hist`. The suite asserts that control and
+section are in step in both directions: a control with no section is a
+dropdown that never fills, a shelf with no control is an order nobody can pick.
+
+**A sort never reaches the network.** The choice is saved under
+`htv:sorts:v1` and announced as an `htv:sort` event; the shelf that owns the
+rows listens and redraws from what it already has — the account's shelves from
+`malCache()` (a re-read of a list of titles in order to sort that list is a
+request nobody asked for), the 18+ lists from localStorage. The catalog's own
+`#sort` is remembered the same way and restored only if the stored value is
+one the select still offers, so a value from an older build is never sent as
+an unknown column.
+
+**What "last read" reads from.** The account shelves sort on MAL's own
+`list_status.updated_at` — the moment the list moved — which is now printed
+next to the status, so the order is never a mystery:
+`Reading · 3/100 ch · updated 46m ago`. Past thirty days it prints a date
+instead of a count.
+
+**The device's own record, and the two rails.** MyAnimeList knows where a list
+stands; it does not know which chapter was on screen last night.
+`activity.js` keeps one entry per title under `htv:activity:v1` (capped at
+60), written at the moment the thing actually opens — a resolved player for an
+episode, a rendered reader for a chapter — carrying the number, the total and,
+for manga, the chapter's own id. That feeds two new rails: **Continue
+watching** above the anime shelf and **Continue reading** above the manga
+shelf, each with its own order, a × on every card and a Clear chip in the
+header. Tapping one opens the title at the recorded chapter or episode; the
+rails call the areas' own openers (`setOpener` is handed `openAnime` and
+`openManga` by boot) so no second copy of a sheet's logic exists. The Library
+also remembers which tab you left it on (`!libTab`), because the app opens on
+Anime and someone who lives on their manga list should not have to say so on
+every visit.
+
+Measured on the reader's own phone — release **1.0.21** (versionCode 22,
+sha256 `cd79b850…`, v2 signature, signer unchanged) installed over 1.0.20 with
+the account and the device's data intact:
+
+- the Manga shelf read **148 tracked** with the new meta, and its first card
+  was the one updated 46 minutes earlier, because the shelf's default order is
+  *Last read*; the Anime shelf reported no anime (that account tracks manga);
+  `htv:sorts:v1` came back with `{"!libTab":"manga"}` after one visit and the
+  Library re-opened on that tab.
+- all eight selects came up filled with their own words on a first run —
+  `watch-anime=watched(3)`, `mal-manga=last(5)`, `mal-adult=updated(4)`,
+  `fav=added(2)` — and on the seeded web copy, changing a control re-ordered
+  that shelf alone (`Progress` put 380-ch, 327-ch, 12-ch, 3-ch in order) while
+  the network log showed **no** `/api/mal` request for it.
+- **end to end, on a real title:** a manga at **12 chapters read** was opened
+  at its oldest chapter — a prologue, **Ch. 0** — and 10 pages rendered. The
+  record landed as `{number: 0, total: 522, ref: "4793357"}` and the rail drew
+  one card, `Ch. 0 · read just now`. Leaving the sheet and tapping that card
+  re-opened the same `Chapter 0 · Prologue` with its 10 pages. MyAnimeList was
+  **not touched**: `num_chapters_read` stayed 12 and `updated_at` stayed
+  `2025-11-07T20:29:01+00:00` — the forward-only rule skipped the write,
+  because 12 ≥ 0.
+
+**What the phone caught that no suite had:** chapter 0 was written to storage
+and then filtered out on read — `noteOpen` accepted it while `all()` re-read
+with `> 0`, so the rail stayed empty with the record sitting right there.
+Both ends now say `>= 0`, and the pair is asserted in the suite: a guard and a
+filter that disagree about what counts look exactly like a feature that does
+nothing.
+
+One layout fix under all of it: a poster card inside a rail had **no width**.
+A flex row has no column template to impose one, so a card sized itself to its
+own title and a shelf of them came out ragged — already true of Continue
+watching and Recommended, made visible by two new rails. `.rail .card` now
+carries the width of the grid's smallest column at each breakpoint.
 
 ---
 
