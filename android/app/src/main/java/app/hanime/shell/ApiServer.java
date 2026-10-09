@@ -2,6 +2,7 @@ package app.hanime.shell;
 
 import android.content.Context;
 import android.content.res.AssetManager;
+import android.os.SystemClock;
 import android.util.Log;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
@@ -56,6 +57,27 @@ final class ApiServer {
         return covers;
     }
 
+    /**
+     * The last page the WebView asked us for and we answered from assets, and
+     * when. A page that reached the WebView any other way — a redirect the
+     * WebView followed on its own, which is how the MyAnimeList sign-in comes
+     * back — is never in here, and that is exactly how the shell tells the two
+     * apart before deciding to load it again (see MainActivity.reclaim).
+     */
+    private volatile String lastPageServed;
+    private volatile long lastPageServedAt;
+
+    /** True when this page came from the APK, not from the network. */
+    boolean servedPage(String url) {
+        return url != null && url.equals(lastPageServed)
+                && SystemClock.uptimeMillis() - lastPageServedAt < 120_000L;
+    }
+
+    private void notePageServed(String url) {
+        lastPageServed = url;
+        lastPageServedAt = SystemClock.uptimeMillis();
+    }
+
     /** Returns null to let the WebView perform the request itself. */
     WebResourceResponse handle(WebResourceRequest request) {
         String url = request.getUrl().toString();
@@ -72,6 +94,7 @@ final class ApiServer {
             // before assets so the two can never be confused: nothing under
             // /covers/ is ever served out of the APK.
             if (path.startsWith("/covers/")) return covers.serve(path);
+            if (request.isForMainFrame()) notePageServed(url);
             return asset(path);
         } catch (Exception e) {
             // Never let a handler exception take the WebView down with it: an

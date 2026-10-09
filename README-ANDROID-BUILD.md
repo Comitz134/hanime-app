@@ -546,6 +546,22 @@ only method MAL supports. The login page opens as a normal navigation, and
 and `*.myanimelist.net`. Everything else http(s) is still swallowed, so an
 injected ad overlay cannot borrow the same door.
 
+**The redirect comes home over the network, and that has to be handled.** MAL
+answers the sign-in with a redirect to `https://hanime.tv/?code=…`, and a
+WebView follows a redirect without offering the app the new URL — measured: on a
+chain to MAL's own login page, whose *final* URL is what arrives, the first URL
+is never offered at all. The chain begins on `myanimelist.net`, which this shell
+deliberately passes through, so the code used to land on the **real** hanime.tv:
+site-served rather than APK-served, unstyled, and with nothing to redeem the
+code — which is how a *successful* sign-in still ended with "not linked". The
+shell now watches the URL it actually committed (`doUpdateVisitedHistory`, with
+`onPageFinished` behind it) and, when that URL is this origin and still carries
+`code` or `error` while the page did **not** come from the APK
+(`ApiServer.servedPage`), loads it once from here: an app-initiated navigation is
+answered from assets like any other page, so the client boots with the code and
+links the account. Both log lines name themselves — `visited <url>` and
+`reclaiming the MyAnimeList redirect through the app`.
+
 Neither backend stores anything: `/api/mal/token` performs the exchange (fields
 allowlisted, the secret added server-side) and `/api/mal/v2/…` forwards the
 caller's own bearer token. Both are query-only, because Android's WebView
@@ -888,6 +904,12 @@ Stated plainly, because the rest of this section is measured:
 
 ## 9. Gotchas already hit here
 
+- **A WebView follows a redirect without telling the app the new URL.** Only the
+  committed URL arrives, through `doUpdateVisitedHistory`/`onPageFinished` — the
+  URL the navigation started from is never offered to `shouldInterceptRequest`.
+  So anything that must catch a redirect target (the MyAnimeList sign-in coming
+  back to `https://hanime.tv/?code=…`) has to look at the commit, not at the
+  request, or it will silently fetch the page from the network. See §7.3.
 - **`??=` in the vendored signer** (Chrome 85+) fails to parse on Chromium 83 →
   no signature, every video 502s. Regenerate with `make-signer-asset.mjs`;
   guarded by a test.

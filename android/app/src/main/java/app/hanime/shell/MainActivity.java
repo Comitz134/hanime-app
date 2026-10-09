@@ -818,6 +818,16 @@ public class MainActivity extends Activity {
         @Override
         public void onPageFinished(WebView view, String url) {
             progress.setVisibility(View.GONE);
+            reclaimMalRedirect(url);
+        }
+
+        @Override
+        public void doUpdateVisitedHistory(WebView view, String url, boolean isReload) {
+            // The URL the WebView actually committed — which is not always the
+            // one it was asked for, and the difference is the whole reason
+            // reclaimMalRedirect exists below.
+            Log.i(TAG, "visited " + url);
+            reclaimMalRedirect(url);
         }
 
         @Override
@@ -827,6 +837,11 @@ public class MainActivity extends Activity {
 
             boolean httpish = scheme.equals("http") || scheme.equals("https");
             if (httpish && uri.toString().startsWith(currentBase())) {
+                // The MyAnimeList sign-in comes back to this origin with the
+                // code in the query. Asked here, it is answered from assets in
+                // one step; when the WebView never asks (the next comment), the
+                // same reclaim below picks it up after the fact.
+                if (isMalRedirect(uri) && reclaim(uri.toString())) return true;
                 return false;
             }
             // MyAnimeList signs the user in through its own pages, and the
@@ -873,6 +888,55 @@ public class MainActivity extends Activity {
         private boolean isMalLoginHost(String host) {
             return host != null
                     && (host.equals("myanimelist.net") || host.endsWith(".myanimelist.net"));
+        }
+
+        /** The redirect URL this shell has already handed back to itself. */
+        private String reclaimedMalUrl;
+
+        /** True when a URL is the MyAnimeList sign-in coming home: our own
+         *  origin, and still carrying what the client's callback needs. */
+        private boolean isMalRedirect(Uri uri) {
+            if (uri == null || !uri.toString().startsWith(currentBase())) return false;
+            try {
+                return uri.getQueryParameter("code") != null
+                        || uri.getQueryParameter("error") != null;
+            } catch (Exception e) {
+                return false;
+            }
+        }
+
+        /**
+         * Load a MyAnimeList redirect *through the app*, once per URL.
+         *
+         * The redirect answers a request this shell deliberately passes
+         * through — myanimelist.net — and a WebView follows a redirect without
+         * asking the app again. So the code was being fetched from the network
+         * and landed on the real hanime.tv: unstyled, and useless, because
+         * redeeming it is the bundled client's job and it never saw the URL.
+         * Loading the same URL from here makes it an app-initiated navigation,
+         * which is answered from assets like every other page of this app, so
+         * the client boots with the code and links the account.
+         *
+         * Returns true when the caller should cancel the navigation it holds.
+         */
+        private boolean reclaim(String url) {
+            if (url == null || web == null || url.equals(reclaimedMalUrl)) return false;
+            // The WebView asks us for every page it loads itself, and a page we
+            // answered is already the bundled client running its own callback.
+            // Reclaiming *that* one would exchange the code twice, so the
+            // second — network — copy is the only one worth reloading.
+            if (api != null && api.servedPage(url)) return false;
+            reclaimedMalUrl = url;
+            Log.i(TAG, "reclaiming the MyAnimeList redirect through the app");
+            web.loadUrl(url);
+            return true;
+        }
+
+        /** The safety net: run for every committed main-frame URL, in case the
+         *  navigation callbacks never saw the redirect at all. */
+        private void reclaimMalRedirect(String url) {
+            if (url == null || web == null) return;
+            if (isMalRedirect(Uri.parse(url))) reclaim(url);
         }
     }
 
