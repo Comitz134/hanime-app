@@ -158,23 +158,31 @@ sha256sum "$APK"
 Current build:
 
 ```
-package: name='app.hanime.shell' versionCode='24' versionName='1.0.23'
+package: name='app.hanime.shell' versionCode='26' versionName='1.0.25'
 sdkVersion:'26'   targetSdkVersion:'34'
 launchable-activity: name='app.hanime.shell.MainActivity'
 permissions: INTERNET, ACCESS_NETWORK_STATE, REQUEST_INSTALL_PACKAGES, POST_NOTIFICATIONS
 Verifies / v2 scheme: true / signer CN=hanime shell (unchanged)  [cert sha256 13c01040…]
-1,432,842 bytes / sha256 635d97255ebbc96cdbbca36c9d3658d59f7829af670905cc66636b66cf64b0e9
-  assets/index.html 458,701 bytes sha256 66a9f9ea087f8f9f752994e2aaf13114b2037e6deb613f5086af70e5a2095dcf
+1,434,518 bytes / sha256 1d9c5e9327436229332afe40d369efd2b3238b9e1dbd08a3248a29e9f7bb3aff
+  assets/index.html 459,645 bytes sha256 25503c5f3f6854dc47bbc7c3d7da892e6739558a33e21d353d603c2616a8f804
   assets/hls.min.js 413,952 bytes sha256 484054e8cd03d3f6d1781fb7f402bdc318d8a4c527f933a95c624e27cc9a9470
 ```
 
 The bundled client's digest above is the one read back out of the APK built
 from this tree — not assumed — and it is byte-identical to
-`server/public/index.html` in this tree. 1.0.23 carries the films & series
+`server/public/index.html` in this tree. 1.0.23 carried the films & series
 area (f-movies.org routes, new navbar icon) plus that area's own device
-library and continue-watching rail; it is signed with the same key as
-1.0.22, so installing it over the phone's copy keeps the account and the
-device's data. Publication of a release is a separate step and its own
+library and continue-watching rail. 1.0.25 fixes its playback: the embeds the
+area had recorded (vidsrc.cc, vidsrc.xyz, vidapi.to) were all dead within a
+day — a 522 from the edge, a domain that no longer resolves, a Turnstile gate
+— and a dead embed is a black frame with nothing in it, which is exactly what
+the phone showed. The player route now reads the doors from the site's own
+player page (`/watch/index.html`) and knocks on each one, so a door that does
+not answer arrives as a labelled, unpressable button and the first that does
+answer is what opens; the site's picker door (embos.top, which frames one of
+several providers of its own choosing and landed on a 404 on the phone) is
+ordered last. It is signed with the same key as 1.0.22, so installing it over
+the phone's copy keeps the account and the device's data. Publication of a release is a separate step and its own
 digests live in §7's history. The digest changes with every client edit; the freshness
 guard in the test suite is what keeps the server and APK copies in step,
 rather than any recorded hash.

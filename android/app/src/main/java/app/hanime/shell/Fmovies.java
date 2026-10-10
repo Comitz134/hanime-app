@@ -5,7 +5,10 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.UnsupportedEncodingException;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.net.URLEncoder;
+import java.util.Locale;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -28,15 +31,20 @@ import java.util.regex.Pattern;
  *   f-movies.org pages        static detail and episode HTML: a JSON-LD
  *                             block, one anchor per season and episode.
  *
- * Playback needs no scraping at all: the page builds three embed URLs
- * (vidsrc.cc, vidsrc.xyz, vidapi.to) from the numeric id in the slug, the
- * season and the episode — so the player route is a pure template fill and
- * cannot go stale the way a stored iframe URL would.
+ * Playback is the site's own player page, and the doors it offers are read
+ * from the site rather than hard-coded: /watch/index.html names its servers
+ * (`sources = [...]`: embos, vidcore, vidapi) as URL templates filled with the
+ * numeric id in the slug, the season and the episode. Those hosts rotate — the
+ * three recorded here first (vidsrc.cc, vidsrc.xyz, vidapi.to) all died within
+ * a day, and every one of them is a black frame in the player — so the names,
+ * and whether each door answers, are asked of the site, with the built-in list
+ * as the fallback for the day its page cannot be read.
  *
  * Everything is parsed from the site's real markup shape (verified against
- * live pages on 2026-10-09), cached in memory with the same TTLs as the Node
- * twin, and answer-for-answer identical: the JVM tests in FmoviesTest stub
- * the transport — nothing here needs a device or the network to be verified.
+ * live pages on 2026-10-10), cached in memory with the same TTLs as the Node
+ * twin, and answer-for-answer identical: the JVM tests in FmoviesTest stub the
+ * transport and the knock on each door — nothing here needs a device or the
+ * network to be verified.
  */
 final class Fmovies {
 
@@ -55,6 +63,44 @@ final class Fmovies {
     private static final long TTL_CATALOG = 15 * 60_000L;    // the listing pages
     private static final long TTL_DETAILS = 6 * 60 * 60_000L;   // near-static
     private static final long TTL_EPISODES = 6 * 60 * 60_000L;
+    private static final long TTL_SERVERS = 30 * 60_000L;        // the doors rotate, but not every minute
+    // A player page that could not be read is asked again soon: a blip must
+    // not freeze the fallback list in place for half an hour.
+    private static final long TTL_SERVERS_RETRY = 2 * 60_000L;
+    private static final long TTL_HEALTH = 10 * 60_000L;         // a host that is down is down for a while
+
+    // The doors to fall back on when the site's player page cannot be read,
+    // verified against the live page on 2026-10-10 — in our own order, for the
+    // reason DOOR_ORDER carries.
+    private static final String WATCH_PAGE =
+            "/watch/index.html?type=tv&id=1&server=1&season=1&episode=1";
+    private static final List<Door> FALLBACK_DOORS = List.of(
+            new Door("https://vidcore.net/movie/{id}",
+                    "https://vidcore.net/tv/{id}/{season}/{episode}"),
+            new Door("https://vidapi.xyz/embed/movie/{id}",
+                    "https://vidapi.xyz/embed/tv/{id}/{season}/{episode}"),
+            new Door("https://embos.top/movie/?mid={id}",
+                    "https://embos.top/tv/?mid={id}&s={season}&e={episode}"));
+
+    /**
+     * Which door leads, when the site's own page does not get to say.
+     *
+     * The site lists embos first, and embos is not a player: it is a picker
+     * page that frames one of several providers of its own choosing, and it
+     * does not say which. On the phone it landed on one that answers 404, twice
+     * in a row, for the same episode that plays through the other two doors — a
+     * door that answers our knock and still leaves the reader with nothing. The
+     * two that render their own player therefore lead, and the picker comes
+     * last. A door the site names that is not in this list keeps its own
+     * relative order, after these; a list that names none of them keeps the
+     * site's order entirely. (The Node twin orders by the same table.)
+     */
+    private static final List<String> DOOR_ORDER = List.of("vidcore", "vidapi", "embos");
+
+    private static int doorRank(String id) {
+        int i = DOOR_ORDER.indexOf(id);
+        return i == -1 ? DOOR_ORDER.size() : i;
+    }
 
     static final class Result {
         final int status;
@@ -81,6 +127,8 @@ final class Fmovies {
     /** Cleared between tests so one test's answers never seed the next. */
     static void clearCache() {
         CACHE.clear();
+        doorCache = null;
+        doorCacheExpires = 0;
     }
 
     interface Producer {
@@ -473,10 +521,184 @@ final class Fmovies {
                 .put("slug", slug).put("season", season).put("data", data).toString());
     }
 
+    /** One door the site's player page names: a URL template per kind. */
+    private static final class Door {
+        final String id;
+        final String movie;
+        final String tv;
+
+        Door(String movie, String tv) {
+            this(null, movie, tv);
+        }
+
+        Door(String id, String movie, String tv) {
+            this.id = id;
+            this.movie = movie;
+            this.tv = tv;
+        }
+
+        String url(String type, int id, int season, int episode) {
+            return ("tv".equals(type) ? tv : movie)
+                    .replace("{id}", String.valueOf(id))
+                    .replace("{season}", String.valueOf(season))
+                    .replace("{episode}", String.valueOf(episode));
+        }
+    }
+
+    private static volatile List<Door> doorCache;
+    private static volatile long doorCacheExpires;
+
     /**
-     * GET /api/fmovies/(movie|tv)/:slug/player?season=&episode= — the three
-     * embeds the site itself would offer. Pure template fill from the numeric
-     * id in the slug, so it costs no upstream request and cannot go stale.
+     * Today's doors, read from the site's own player page.
+     *
+     * The page carries its server table as plain JavaScript — one object per
+     * door, `{ id: 'embos', aliases: […], movie: 'https://embos.top/movie/?mid={id}',
+     * tv: 'https://embos.top/tv/?mid={id}&s={season}&e={episode}' }` — so one
+     * cached read answers with the hosts that are current today. A page that
+     * cannot be read, or whose table no longer parses, is not an error the
+     * reader should see: the built-in list answers instead, and is believed for
+     * two minutes rather than half an hour, so a blip costs a retry.
+     */
+    private static synchronized List<Door> doors() {
+        long now = System.currentTimeMillis();
+        List<Door> hit = doorCache;
+        if (hit != null && doorCacheExpires > now) return hit;
+
+        List<Door> parsed = null;
+        try {
+            parsed = orderDoors(parseServers(get(WATCH_PAGE, TEXT_HTML)));
+        } catch (Exception e) {
+            parsed = null;      // the built-in doors answer below
+        }
+        if (parsed == null || parsed.isEmpty()) {
+            doorCache = FALLBACK_DOORS;
+            doorCacheExpires = now + TTL_SERVERS_RETRY;
+        } else {
+            doorCache = parsed;
+            doorCacheExpires = now + TTL_SERVERS;
+        }
+        return doorCache;
+    }
+
+    /** The site's `sources = [...]` table, one Door per entry, in its order. */
+    static List<Door> parseServers(String html) {
+        List<Door> out = new ArrayList<>();
+        if (html == null) return out;
+        Matcher table = Pattern.compile("var\\s+sources\\s*=\\s*\\[([\\s\\S]*?)\\];").matcher(html);
+        if (!table.find()) return out;
+        Matcher row = Pattern.compile(
+                "id:\\s*['\"]([^'\"]+)['\"][^}]*?movie:\\s*['\"]([^'\"]+)['\"][^}]*?tv:\\s*['\"]([^'\"]+)['\"]")
+                .matcher(table.group(1));
+        while (row.find()) out.add(new Door(row.group(1), row.group(2), row.group(3)));
+        return out;
+    }
+
+    /** The site's list, cut to the order we would rather they arrived in. */
+    static List<Door> orderDoors(List<Door> list) {
+        List<Door> out = new ArrayList<>(list);
+        // A stable sort by rank: unknown doors keep their own relative order.
+        out.sort((a, b) -> Integer.compare(doorRank(a.id), doorRank(b.id)));
+        return out;
+    }
+
+    /** What a knock on one door answered. */
+    static final class Health {
+        final boolean ok;
+        final String note;
+
+        Health(boolean ok, String note) {
+            this.ok = ok;
+            this.note = note;
+        }
+    }
+
+    /** The knock itself: a seam the JVM tests replace, so tests never dial. */
+    interface Prober {
+        Health knock(String url);
+    }
+
+    static Prober prober = new HttpProber();
+
+    /**
+     * Does a door answer at all — and may it be framed?
+     *
+     * A dead host is the failure that actually happened: two of the three doors
+     * stopped resolving and the third refused to be framed, so the player
+     * showed black and said nothing. Reachability and the framing headers are
+     * the two questions the site's own page cannot answer for us, so they are
+     * answered here — once per door per ten minutes, so opening a player does
+     * not dial three hosts every time. The body is dropped unread: this is a
+     * knock on the door, not a download.
+     */
+    private static Health health(String url) {
+        String answer;
+        try {
+            // The negative answer is cached too, which is the point: a door
+            // that is down is known to be down, cheaply, for ten minutes.
+            answer = cached("health:" + url, TTL_HEALTH, () -> {
+                Health h = prober.knock(url);
+                return h.ok ? "ok" : "no:" + h.note;
+            });
+        } catch (Exception e) {
+            // A knock that throws inside the producer is answered, never
+            // thrown — this branch is only here so the route cannot fail with
+            // the door list already in hand.
+            return new Health(false, "unreachable");
+        }
+        if ("ok".equals(answer)) return new Health(true, null);
+        return new Health(false, answer.startsWith("no:") ? answer.substring(3) : answer);
+    }
+
+    static final class HttpProber implements Prober {
+        @Override
+        public Health knock(String url) {
+            HttpURLConnection conn = null;
+            try {
+                conn = (HttpURLConnection) new URL(url).openConnection();
+                conn.setRequestMethod("GET");
+                conn.setInstanceFollowRedirects(true);
+                // Shorter than the Node twin's eight: this dial happens inside
+                // a request the phone is waiting on, and a door that needs
+                // longer than five seconds to say hello is not one to wait for.
+                conn.setConnectTimeout(5_000);
+                conn.setReadTimeout(5_000);
+                conn.setRequestProperty("User-Agent", BROWSER_UA);
+                // The door's front desk: an embed asked for with no referer is
+                // turned away. (The Node twin sends the same pair.)
+                conn.setRequestProperty("Referer", SITE + "/");
+                conn.setRequestProperty("Accept", TEXT_HTML);
+                int status = conn.getResponseCode();
+                if (status < 200 || status >= 300) return new Health(false, "http_" + status);
+
+                String xfo = conn.getHeaderField("X-Frame-Options");
+                if (xfo != null) {
+                    String lower = xfo.toLowerCase(Locale.ROOT);
+                    if (lower.contains("deny") || lower.contains("sameorigin")) {
+                        return new Health(false, "frames_refused");
+                    }
+                }
+                String csp = conn.getHeaderField("Content-Security-Policy");
+                if (csp != null) {
+                    Matcher m = Pattern.compile("frame-ancestors\\s+([^;]+)", Pattern.CASE_INSENSITIVE)
+                            .matcher(csp);
+                    if (m.find() && m.group(1).toLowerCase(Locale.ROOT).contains("'none'")) {
+                        return new Health(false, "frames_refused");
+                    }
+                }
+                return new Health(true, null);
+            } catch (Exception e) {
+                return new Health(false, "unreachable");
+            } finally {
+                if (conn != null) conn.disconnect();
+            }
+        }
+    }
+
+    /**
+     * GET /api/fmovies/(movie|tv)/:slug/player?season=&episode= — one URL per
+     * door the site offers, filled with the numeric id in the slug, plus
+     * whether that door answered. The client opens the first one that did, so a
+     * door that went dark is a labelled button rather than a black player.
      */
     private static Result player(String type, String slug, Map<String, String> q) throws JSONException {
         Matcher idMatch = Pattern.compile("-(\\d+)$").matcher(slug);
@@ -487,12 +709,16 @@ final class Fmovies {
         int id = Integer.parseInt(idMatch.group(1));
         int season = Math.max(1, intPipeZero(q.get("season") == null ? "1" : q.get("season")));
         int episode = Math.max(1, intPipeZero(q.get("episode") == null ? "1" : q.get("episode")));
-        boolean isTv = "tv".equals(type);
+        List<Door> doors = doors();
         JSONArray sources = new JSONArray();
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < doors.size(); i++) {
+            String url = doors.get(i).url(type, id, season, episode);
+            Health probe = health(url);
             sources.put(new JSONObject()
                     .put("label", "Server " + (i + 1))
-                    .put("url", isTv ? tvUrl(i, id, season, episode) : movieUrl(i, id)));
+                    .put("url", url)
+                    .put("ok", probe.ok)
+                    .put("note", probe.ok ? JSONObject.NULL : probe.note));
         }
         JSONObject out = new JSONObject();
         out.put("type", type);
@@ -502,33 +728,6 @@ final class Fmovies {
         out.put("episode", episode);
         out.put("sources", sources);
         return new Result(200, out.toString());
-    }
-
-    private static String movieUrl(int server, int id) {
-        if (server == 0) {
-            return "https://vidsrc.cc/embed/movie/" + id
-                    + "?auto=true&server=1&color=ef4444&ref=www.f-movies.org";
-        }
-        if (server == 1) {
-            return "https://vidsrc.xyz/embed/movie/" + id
-                    + "?server=2&color=ef4444&ref=www.f-movies.org";
-        }
-        return "https://vidapi.to/embed/movie/" + id
-                + "?ref=www.f-movies.org&color=ef4444&s=1";
-    }
-
-    private static String tvUrl(int server, int id, int season, int episode) {
-        String head = "/" + id + "/" + season + "/" + episode;
-        if (server == 0) {
-            return "https://vidsrc.cc/embed/tv" + head
-                    + "?auto=true&server=1&color=ef4444&ref=www.f-movies.org";
-        }
-        if (server == 1) {
-            return "https://vidsrc.xyz/embed/tv" + head
-                    + "?server=2&color=ef4444&ref=www.f-movies.org";
-        }
-        return "https://vidapi.to/embed/tv" + head
-                + "?ref=www.f-movies.org&color=ef4444&s=1";
     }
 
     /**

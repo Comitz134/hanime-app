@@ -1093,6 +1093,17 @@ test('the movies area searches, opens and plays through its own routes', () => {
   assert.ok(/id="lx-frame"/.test(script), 'the embed frame lost the id closing depends on');
   assert.ok(/data-fx-src=/.test(script), 'the three servers cannot be picked');
 
+  // Those hosts rotate and go dark (two of the three did within a day), so the
+  // doors arrive with the server's verdict on each. The one that answers is
+  // what opens, and one that did not is a button that says so, not a black
+  // frame the reader has to guess at.
+  assert.ok(/const live = sources\.filter\(\(s\) => s\.ok !== false\)/.test(script),
+    'a door that did not answer could still be the one that opens');
+  assert.ok(/const first = live\[0\] \?\? sources\[0\]/.test(script),
+    'the frame does not open the first door that answered');
+  assert.ok(/s\.ok === false[\s\S]{0,80}disabled/.test(script),
+    'a door that did not answer is offered as pressable');
+
   // A slow answer that lands after the reader moved on must not repaint.
   assert.ok(/seq !== openSeq/.test(script),
     'a late answer would repaint a page that moved on');

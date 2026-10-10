@@ -85,6 +85,14 @@ video { width: 100%; display: block; background: #000; aspect-ratio: 16 / 9; }
   background: hsl(var(--primary)); border-color: hsl(var(--primary));
   color: hsl(var(--primary-foreground)); font-weight: 600;
 }
+/* A door that did not answer — the site rotates its player hosts, so the list
+   the server knocks on can come back with one or two dark. It stays visible:
+   "Server 2 is not answering" is information, and a door that is gone from the
+   row reads as a door that never existed. */
+.q-btn:disabled {
+  opacity: .45; text-decoration: line-through; cursor: not-allowed;
+}
+.q-btn:disabled:hover { border-color: hsl(var(--border)); color: hsl(var(--muted-foreground)); }
 
 .detail-label {
   font-size: .625rem; letter-spacing: .16em; text-transform: uppercase;

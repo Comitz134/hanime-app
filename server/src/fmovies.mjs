@@ -9,11 +9,18 @@
 // `numberOfSeasons`) plus one `<a href="?season=S&episode=N" title="…">` per
 // episode and a `?season=` link per season.
 //
-// Playback does not need scraping at all. The page builds three embed URLs
-// from the numeric id in the slug (`…-1396`), the season and the episode —
-// embos, vidcore, vidapi — with only the Referer varying per server. So the
-// player route is a pure template fill; it cannot break the way a stored
-// iframe URL would.
+// Playback is the site's own player page, and the doors it offers are read
+// from the site rather than hard-coded. That page (`/watch/index.html`) names
+// its three servers as `sources = [...]` — embos, vidcore, vidapi — each as a
+// URL template filled with the numeric id in the slug (`…-1396`), the season
+// and the episode. The hosts behind those names rotate, though: the previous
+// three (vidsrc.cc, vidsrc.xyz, vidapi.to) all died within a day of being
+// recorded here — a 522 from the edge, a domain with no DNS left, and a
+// Turnstile gate — and every one of them is a black frame in the player. So
+// the names, and the health of the hosts behind them, are asked of the site
+// every time (with the list below as the fallback for the day its page cannot
+// be read), and a door that does not answer is labelled as such instead of
+// being offered as a way to watch.
 //
 // Everything is parsed from the site's real markup shape (verified against
 // live pages on 2026-10-09). No client-side keys, no account, and the same
@@ -25,24 +32,58 @@ const SITE = 'https://www.f-movies.org';
 const TIMEOUT_MS = 12_000;
 const SEARCH_PAGE_SIZE = 20;   // upstream's fixed `/api/search` limit
 
-// The three embeds the page itself advertises (`server=1..3`).
+// The player page that names the doors, and the list to fall back on when it
+// cannot be read. Any id answers here: the page's source table does not depend
+// on what was asked for.
+const WATCH_PAGE = '/watch/index.html?type=tv&id=1&server=1&season=1&episode=1';
+
+// The doors to fall back on when that page cannot be read, verified against
+// the live page on 2026-10-10 — in our own order, for the reason below.
 const SERVERS = [
   {
-    id: 'embos', label: 'Server 1',
-    movie: 'https://vidsrc.cc/embed/movie/{id}?auto=true&server=1&color=ef4444&ref=www.f-movies.org',
-    tv: 'https://vidsrc.cc/embed/tv/{id}/{season}/{episode}?auto=true&server=1&color=ef4444&ref=www.f-movies.org',
+    id: 'vidcore', label: 'Server 1',
+    movie: 'https://vidcore.net/movie/{id}',
+    tv: 'https://vidcore.net/tv/{id}/{season}/{episode}',
   },
   {
-    id: 'vidcore', label: 'Server 2',
-    movie: 'https://vidsrc.xyz/embed/movie/{id}?server=2&color=ef4444&ref=www.f-movies.org',
-    tv: 'https://vidsrc.xyz/embed/tv/{id}/{season}/{episode}?server=2&color=ef4444&ref=www.f-movies.org',
+    id: 'vidapi', label: 'Server 2',
+    movie: 'https://vidapi.xyz/embed/movie/{id}',
+    tv: 'https://vidapi.xyz/embed/tv/{id}/{season}/{episode}',
   },
   {
-    id: 'vidapi', label: 'Server 3',
-    movie: 'https://vidapi.to/embed/movie/{id}?ref=www.f-movies.org&color=ef4444&s=1',
-    tv: 'https://vidapi.to/embed/tv/{id}/{season}/{episode}?ref=www.f-movies.org&color=ef4444&s=1',
+    id: 'embos', label: 'Server 3',
+    movie: 'https://embos.top/movie/?mid={id}',
+    tv: 'https://embos.top/tv/?mid={id}&s={season}&e={episode}',
   },
 ];
+
+/**
+ * Which door leads, when the site's own page does not get to say.
+ *
+ * The site lists embos first, and embos is not a player: it is a picker page
+ * that frames one of several providers of its own choosing, and it does not
+ * say which. On the phone it landed on one that answers 404, twice in a row,
+ * for the same episode that plays through the other two doors — a door that
+ * answers our knock and still leaves the reader with nothing. The two that
+ * render their own player therefore lead, and the picker comes last. A door the
+ * site names that is not in this list keeps its own relative order, after
+ * these; a list that names none of them keeps the site's order entirely.
+ */
+const DOOR_ORDER = ['vidcore', 'vidapi', 'embos'];
+
+function orderDoors(list) {
+  const rank = (id) => {
+    const i = DOOR_ORDER.indexOf(id);
+    return i === -1 ? DOOR_ORDER.length : i;
+  };
+  return list
+    .map((door, at) => ({ door, at }))
+    .sort((a, b) => rank(a.door.id) - rank(b.door.id) || a.at - b.at)
+    .map((entry) => entry.door);
+}
+
+/** How long a health answer about a door is trusted, and how long it may take. */
+const HEALTH_TIMEOUT_MS = 8_000;
 
 const BROWSER_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
@@ -54,8 +95,19 @@ const TTL = {
   catalog: 15 * 60_000,    // the /movies and /tv-series listing pages
   details: 6 * 3600_000,   // synopses and season lists are near-static
   episodes: 6 * 3600_000,
+  servers: 30 * 60_000,    // the doors rotate, but not every minute
+  health: 10 * 60_000,     // a host that is down is usually down for a while
 };
 const cache = new Map();
+
+/**
+ * Drop every cached answer. Only the tests call it, and only so one case's
+ * answers never seed the next — the Java twin carries the same hook, for the
+ * same reason and under the same name.
+ */
+export function clearCache() {
+  cache.clear();
+}
 
 /**
  * memo(kind, key, produce) — same contract as the anime module's cached():
@@ -312,22 +364,108 @@ async function handleEpisodes(slug, url, res) {
 }
 
 /**
- * GET /api/fmovies/(movie|tv)/:slug/player?season=&episode= — the three
- * embeds the site itself would offer. Pure template fill from the numeric id
- * in the slug, so it costs no upstream request and cannot go stale.
+ * Today's player doors, read from the site's own player page.
+ *
+ * The page carries its server table as plain JavaScript:
+ *
+ *   var sources = [
+ *     { id: 'embos', aliases: [...], movie: 'https://embos.top/movie/?mid={id}',
+ *       tv: 'https://embos.top/tv/?mid={id}&s={season}&e={episode}' },
+ *     …
+ *
+ * One object per door, in the order the site itself lists them. A page that
+ * cannot be read, or whose table no longer parses, is not an error the reader
+ * should see: the built-in list is the answer, cached as though it had been
+ * read, so a dead upstream costs one request per TTL rather than one per open.
  */
-function handlePlayer(type, slug, url, res) {
+function parseServers(html) {
+  const table = /var\s+sources\s*=\s*\[([\s\S]*?)\];/.exec(html);
+  if (!table) return [];
+  const out = [];
+  const row = /id:\s*['"]([^'"]+)['"][^}]*?movie:\s*['"]([^'"]+)['"][^}]*?tv:\s*['"]([^'"]+)['"]/g;
+  let m;
+  while ((m = row.exec(table[1])) !== null) {
+    out.push({ id: m[1], movie: m[2], tv: m[3] });
+  }
+  return out;
+}
+
+function servers() {
+  return memo('servers', 'doors', async () => {
+    try {
+      const list = orderDoors(parseServers(await getHtml(WATCH_PAGE)));
+      if (list.length) {
+        return list.map((s, i) => ({ id: s.id, label: `Server ${i + 1}`, movie: s.movie, tv: s.tv }));
+      }
+    } catch (e) {
+      // The built-in list below is the answer; this is not a failed request.
+    }
+    return SERVERS;
+  });
+}
+
+/**
+ * Does this door answer at all — and may it be framed?
+ *
+ * A dead host is the failure that actually happened: two of the three doors
+ * stopped resolving, and the third refused to be framed, so the player showed
+ * black and said nothing. Reachability and the framing headers are the two
+ * questions the page itself cannot answer for us, so they are answered here,
+ * once per door per ten minutes. The body is dropped unread: this is a knock
+ * on the door, not a download.
+ */
+function health(url) {
+  return memo('health', `h:${url}`, async () => {
+    let res;
+    try {
+      res = await fetch(url, {
+        redirect: 'follow',
+        headers: {
+          'user-agent': BROWSER_UA,
+          referer: `${SITE}/`,
+          accept: 'text/html,application/xhtml+xml',
+        },
+        signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
+      });
+    } catch (e) {
+      return { ok: false, code: 'unreachable' };
+    }
+    try {
+      res.body?.cancel?.();
+    } catch (e) {
+      // Nothing to release; the answer stands either way.
+    }
+    if (!res.ok) return { ok: false, code: `http_${res.status}` };
+    const xfo = (res.headers.get('x-frame-options') ?? '').toLowerCase();
+    if (xfo.includes('deny') || xfo.includes('sameorigin')) {
+      return { ok: false, code: 'frames_refused' };
+    }
+    const ancestors = /frame-ancestors\s+([^;]+)/i.exec(res.headers.get('content-security-policy') ?? '');
+    if (ancestors && /'none'/i.test(ancestors[1])) return { ok: false, code: 'frames_refused' };
+    return { ok: true };
+  });
+}
+
+/**
+ * GET /api/fmovies/(movie|tv)/:slug/player?season=&episode= — one URL per door
+ * the site offers, filled with the numeric id in the slug, plus whether that
+ * door answered. The client opens the first one that did, so a door that went
+ * dark is a labelled button rather than a black player.
+ */
+async function handlePlayer(type, slug, url, res) {
   const idMatch = /-(\d+)$/.exec(slug);
   if (!idMatch) return json(res, 404, { error: 'not_found', slug });
   const id = Number(idMatch[1]);
   const season = Math.max(1, Number(url.searchParams.get('season') ?? 1) | 0);
   const episode = Math.max(1, Number(url.searchParams.get('episode') ?? 1) | 0);
-  const sources = SERVERS.map((s) => ({
-    label: s.label,
-    url: (type === 'tv' ? s.tv : s.movie)
+  const doors = await servers();
+  const sources = await Promise.all(doors.map(async (s) => {
+    const doorUrl = (type === 'tv' ? s.tv : s.movie)
       .replaceAll('{id}', String(id))
       .replaceAll('{season}', String(season))
-      .replaceAll('{episode}', String(episode)),
+      .replaceAll('{episode}', String(episode));
+    const probe = await health(doorUrl);
+    return { label: s.label, url: doorUrl, ok: probe.ok, note: probe.ok ? null : probe.code };
   }));
   json(res, 200, { type, slug, id, season, episode, sources });
 }

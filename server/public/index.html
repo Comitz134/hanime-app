@@ -714,6 +714,14 @@ video { width: 100%; display: block; background: #000; aspect-ratio: 16 / 9; }
   background: hsl(var(--primary)); border-color: hsl(var(--primary));
   color: hsl(var(--primary-foreground)); font-weight: 600;
 }
+/* A door that did not answer — the site rotates its player hosts, so the list
+   the server knocks on can come back with one or two dark. It stays visible:
+   "Server 2 is not answering" is information, and a door that is gone from the
+   row reads as a door that never existed. */
+.q-btn:disabled {
+  opacity: .45; text-decoration: line-through; cursor: not-allowed;
+}
+.q-btn:disabled:hover { border-color: hsl(var(--border)); color: hsl(var(--muted-foreground)); }
 
 .detail-label {
   font-size: .625rem; letter-spacing: .16em; text-transform: uppercase;
@@ -7916,15 +7924,19 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     </button>`).join("");
   }
   function paintShowSide() {
+    const isTv = dState3.type === "tv";
     const ep = dState3.episodes.find((e) => e.n === dState3.ep);
     const chip = $("#side-chip");
-    if (chip) chip.textContent = `S${dState3.season} \xB7 E${dState3.ep}`;
+    if (chip) chip.textContent = isTv ? `S${dState3.season} \xB7 E${dState3.ep}` : "";
     const title = $("#side-ep-title");
-    if (title) title.textContent = (ep == null ? void 0 : ep.title) || `Episode ${dState3.ep}`;
+    if (title) title.textContent = isTv ? (ep == null ? void 0 : ep.title) || `Episode ${dState3.ep}` : "";
     const list = $("#ep-list");
     if (list) list.innerHTML = epListHtml2();
     const line = $("#hero-ep-line");
-    if (line) line.textContent = `Episode ${dState3.ep}${(ep == null ? void 0 : ep.title) ? " \xB7 " + ep.title : ""}`;
+    if (line) {
+      line.textContent = isTv ? `Episode ${dState3.ep}${(ep == null ? void 0 : ep.title) ? " \xB7 " + ep.title : ""}` : "";
+      line.hidden = !isTv;
+    }
     const prev = $("#ep-prev");
     if (prev) prev.disabled = dState3.ep <= 1;
     const next = $("#ep-next");
@@ -7944,10 +7956,13 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
       if (!sources.length) throw new Error("no source");
       if (seq !== openSeq) return;
       dState3.sources = sources;
-      slot.innerHTML = `<div class="lx-frame"><iframe id="lx-frame" allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+      const live = sources.filter((s) => s.ok !== false);
+      const first = live[0] ?? sources[0];
+      slot.innerHTML = `${live.length ? "" : '<p class="note">None of the site&rsquo;s own players answer right now.</p>'}
+      <div class="lx-frame"><iframe id="lx-frame" allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
         allowfullscreen referrerpolicy="origin" title="Player"></iframe></div>
-      <div class="quality">${sources.map((s, i) => `<button class="q-btn" type="button" data-fx-src="${i}" aria-pressed="${i === 0}">${esc(s.label)}</button>`).join("")}</div>`;
-      document.getElementById("lx-frame").src = sources[0].url;
+      <div class="quality">${sources.map((s, i) => `<button class="q-btn" type="button" data-fx-src="${i}" aria-pressed="${s === first}"${s.ok === false ? ` disabled title="${esc(`${s.label} is not answering on f-movies right now${s.note ? ` (${s.note})` : ""}`)}"` : ""}>${esc(s.label)}</button>`).join("")}</div>`;
+      document.getElementById("lx-frame").src = first.url;
       noteOpen("show", {
         id: dState3.ref,
         title: (_a10 = dState3.details) == null ? void 0 : _a10.title,
@@ -8069,8 +8084,8 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
         </div>` : ""}
       </div>
       <aside class="detail-side">
-        <div class="side-row"><span class="side-chip" id="side-chip"></span></div>
-        <h3 class="side-title" id="side-ep-title"></h3>
+        ${isTv ? `<div class="side-row"><span class="side-chip" id="side-chip"></span></div>
+        <h3 class="side-title" id="side-ep-title"></h3>` : ""}
         <div class="detail-label">Description</div>
         <p class="detail-desc" id="side-ep-desc">${esc(details.description ?? "")}</p>
         <div class="detail-tags">${genres}</div>

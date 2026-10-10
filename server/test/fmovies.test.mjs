@@ -1,12 +1,13 @@
 // The films & series routes, with f-movies.org stubbed: the TMDB search
 // JSON for queries, its static listing/detail/episode HTML for everything
-// else. The player route asserts the opposite — that it never touches the
-// network at all, because the three embeds are built from the slug.
+// else. The player route fetches twice over: the site's own player page, which
+// names the doors it offers, and then each door itself, to say which ones
+// answer — a door that went dark is a labelled button, not a black frame.
 
 import test, { afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { handleFmovies } from '../src/fmovies.mjs';
+import { handleFmovies, clearCache } from '../src/fmovies.mjs';
 
 /** A response double that records what the handler answered. */
 function fakeRes() {
@@ -39,6 +40,16 @@ function jsonResponse(status, body) {
 }
 function htmlResponse(status, html) {
   return { ok: status >= 200 && status < 300, status, text: async () => html };
+}
+/** The player route's reachability probe reads status and framing headers. */
+function probeResponse(status, headers = {}) {
+  const lower = new Map(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]));
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    headers: { get: (k) => lower.get(String(k).toLowerCase()) ?? null },
+    body: null,
+  };
 }
 
 afterEach(() => { globalThis.fetch = realFetch; });
@@ -214,22 +225,80 @@ test('a season the page does not offer is a 404, not the first season', async ()
   assert.equal(res.json.error, 'season_not_found');
 });
 
-test('the player is built from the slug, and never fetches', async () => {
-  stubFetch([]);                                    // any fetch would throw
+// The site's own player page: the table of doors it offers, in its real shape
+// (verified against the live page on 2026-10-10). Everything the player route
+// knows about hosts comes from here.
+const watchPageHtml = `<!DOCTYPE html><html><head><title>Player</title></head><body>
+  <script>
+    (function () {
+      var params = new URLSearchParams(location.search);
+      var sources = [
+        { id: 'embos', aliases: ['1', 'server1', 's1'], movie: 'https://embos.top/movie/?mid={id}', tv: 'https://embos.top/tv/?mid={id}&s={season}&e={episode}' },
+        { id: 'vidcore', aliases: ['2', 'server2', 's2'], movie: 'https://vidcore.net/movie/{id}', tv: 'https://vidcore.net/tv/{id}/{season}/{episode}' },
+        { id: 'vidapi', aliases: ['3', 'server3', 's3'], movie: 'https://vidapi.xyz/embed/movie/{id}', tv: 'https://vidapi.xyz/embed/tv/{id}/{season}/{episode}' },
+      ];
+    })();
+  </script>
+</body></html>`;
+
+test('the player names the doors the site itself names, and says which answer', async () => {
+  // The door list and each door's health are cached module-wide, so this case
+  // starts from nothing and pays for every knock itself.
+  clearCache();
+  stubFetch([
+    ['/watch/index.html', () => htmlResponse(200, watchPageHtml)],
+    ['embos.top', () => probeResponse(200)],
+    // A door that is up but refuses to be framed is as black as a dead one.
+    ['vidcore', () => probeResponse(200, { 'X-Frame-Options': 'SAMEORIGIN' })],
+    // And a door whose host is gone (the vidsrc.cc of the day) says so.
+    ['vidapi.xyz', () => probeResponse(522)],
+  ]);
 
   const movie = await call('/api/fmovies/movie/cavegirl-580175/player');
   assert.equal(movie.status, 200);
   assert.deepEqual(movie.json.sources.map((s) => s.label), ['Server 1', 'Server 2', 'Server 3']);
-  assert.equal(movie.json.sources[0].url,
-    'https://vidsrc.cc/embed/movie/580175?auto=true&server=1&color=ef4444&ref=www.f-movies.org');
-  assert.equal(movie.json.sources[2].url,
-    'https://vidapi.to/embed/movie/580175?ref=www.f-movies.org&color=ef4444&s=1');
-  assert.deepEqual(fetchLog, []);
+  assert.equal(movie.json.sources[0].url, 'https://vidcore.net/movie/580175');
+  assert.equal(movie.json.sources[1].url, 'https://vidapi.xyz/embed/movie/580175');
+  assert.equal(movie.json.sources[2].url, 'https://embos.top/movie/?mid=580175');
+  assert.deepEqual(movie.json.sources.map((s) => s.ok), [false, false, true]);
+  assert.deepEqual(movie.json.sources.map((s) => s.note), ['frames_refused', 'http_522', null]);
+
+  // The knock carries the site's own referer, because that is the door's
+  // front desk — an embed asked for with no referer is turned away.
+  const knock = fetchLog.find((f) => f.url.includes('embos.top'));
+  assert.equal(knock.opts.headers.referer, 'https://www.f-movies.org/');
 
   const tv = await call('/api/fmovies/tv/breaking-bad-1396/player?season=5&episode=16');
-  assert.equal(tv.json.sources[1].url,
-    'https://vidsrc.xyz/embed/tv/1396/5/16?server=2&color=ef4444&ref=www.f-movies.org');
-  assert.deepEqual(fetchLog, []);
+  assert.equal(tv.json.sources[0].url, 'https://vidcore.net/tv/1396/5/16');
+  assert.equal(tv.json.sources[2].url, 'https://embos.top/tv/?mid=1396&s=5&e=16');
+});
+
+test('a player page that cannot be read leaves the built-in doors, cached as an answer', async () => {
+  // Without this the previous case's door list is still cached, and the table
+  // this case is about would never be asked for.
+  clearCache();
+  stubFetch([
+    // The watch page is deliberately unstubbed: asking for it throws.
+    ['embos.top', () => probeResponse(200)],
+    ['vidcore', () => probeResponse(200)],
+    ['vidapi.xyz', () => probeResponse(200)],
+  ]);
+
+  const first = await call('/api/fmovies/tv/breaking-bad-1396/player?season=1&episode=1');
+  // The built-in list is in our own order: the two doors that render their own
+  // player lead, and the picker that can land on a 404 comes last.
+  assert.deepEqual(first.json.sources.map((s) => s.url), [
+    'https://vidcore.net/tv/1396/1/1',
+    'https://vidapi.xyz/embed/tv/1396/1/1',
+    'https://embos.top/tv/?mid=1396&s=1&e=1',
+  ]);
+  assert.deepEqual(first.json.sources.map((s) => s.ok), [true, true, true]);
+  assert.equal(fetchLog.filter((f) => f.url.includes('/watch/index.html')).length, 1,
+    'the fallback list is an answer: it must not cost a request per open');
+
+  // A second open inside the same TTL pays nothing for the list.
+  await call('/api/fmovies/movie/cavegirl-580175/player');
+  assert.equal(fetchLog.filter((f) => f.url.includes('/watch/index.html')).length, 1);
 });
 
 test('a slug without a numeric id has no player', async () => {

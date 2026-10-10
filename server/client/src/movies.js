@@ -226,15 +226,22 @@ function epListHtml() {
 }
 
 function paintShowSide() {
+  // Only a series has an episode to name: a film would otherwise carry phrases
+  // like "Episode 1" and "S1 · E1" about nothing, on a page whose whole point
+  // is that it is one sitting long.
+  const isTv = dState.type === 'tv';
   const ep = dState.episodes.find((e) => e.n === dState.ep);
   const chip = $('#side-chip');
-  if (chip) chip.textContent = `S${dState.season} · E${dState.ep}`;
+  if (chip) chip.textContent = isTv ? `S${dState.season} · E${dState.ep}` : '';
   const title = $('#side-ep-title');
-  if (title) title.textContent = ep?.title || `Episode ${dState.ep}`;
+  if (title) title.textContent = isTv ? (ep?.title || `Episode ${dState.ep}`) : '';
   const list = $('#ep-list');
   if (list) list.innerHTML = epListHtml();
   const line = $('#hero-ep-line');
-  if (line) line.textContent = `Episode ${dState.ep}${ep?.title ? ' · ' + ep.title : ''}`;
+  if (line) {
+    line.textContent = isTv ? `Episode ${dState.ep}${ep?.title ? ' · ' + ep.title : ''}` : '';
+    line.hidden = !isTv;
+  }
   const prev = $('#ep-prev');
   if (prev) prev.disabled = dState.ep <= 1;
   const next = $('#ep-next');
@@ -254,14 +261,26 @@ async function loadShowPlayer(seq, ep) {
     if (!sources.length) throw new Error('no source');
     if (seq !== openSeq) return;
     dState.sources = sources;
+    // The doors are the site's own, and the server has already knocked on each
+    // one. A door that did not answer is the normal state of this world — the
+    // three hosts behind these names rotate, and two of them were dead the day
+    // this was written — so the first that *did* answer is what opens, and the
+    // rest are offered as buttons that say why they are not pressable. The
+    // alternative is what the reader saw: a black frame with nothing in it.
+    const live = sources.filter((s) => s.ok !== false);
+    const first = live[0] ?? sources[0];
     // The frame keeps the anime area's id on purpose: the sheet's close
     // already knows how to stop an embed playing behind the view the reader
     // came back to, and one sheet holds one player at a time.
-    slot.innerHTML = `<div class="lx-frame"><iframe id="lx-frame" allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+    slot.innerHTML = `${live.length ? ''
+      : '<p class="note">None of the site&rsquo;s own players answer right now.</p>'}
+      <div class="lx-frame"><iframe id="lx-frame" allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
         allowfullscreen referrerpolicy="origin" title="Player"></iframe></div>
       <div class="quality">${sources.map((s, i) =>
-        `<button class="q-btn" type="button" data-fx-src="${i}" aria-pressed="${i === 0}">${esc(s.label)}</button>`).join('')}</div>`;
-    document.getElementById('lx-frame').src = sources[0].url;
+        `<button class="q-btn" type="button" data-fx-src="${i}" aria-pressed="${s === first}"${
+          s.ok === false ? ` disabled title="${esc(`${s.label} is not answering on f-movies right now${s.note ? ` (${s.note})` : ''}`)}"` : ''
+        }>${esc(s.label)}</button>`).join('')}</div>`;
+    document.getElementById('lx-frame').src = first.url;
     // A player resolving for this episode is an episode being watched, so the
     // rail at the top of this area is told — once per title, never backwards.
     // A movie has no episode to resume, so it travels with total 0 (no bar).
@@ -395,8 +414,8 @@ async function openShow(ref, chapter = null) {
         </div>` : ''}
       </div>
       <aside class="detail-side">
-        <div class="side-row"><span class="side-chip" id="side-chip"></span></div>
-        <h3 class="side-title" id="side-ep-title"></h3>
+        ${isTv ? `<div class="side-row"><span class="side-chip" id="side-chip"></span></div>
+        <h3 class="side-title" id="side-ep-title"></h3>` : ''}
         <div class="detail-label">Description</div>
         <p class="detail-desc" id="side-ep-desc">${esc(details.description ?? '')}</p>
         <div class="detail-tags">${genres}</div>

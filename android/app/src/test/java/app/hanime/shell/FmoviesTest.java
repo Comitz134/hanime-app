@@ -10,34 +10,57 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
  * The /api/fmovies route family with the upstream stubbed: the TMDB search
  * JSON for queries, the site's static listing/detail/episode HTML for
- * everything else. The player route asserts the opposite — that it never
- * touches the network at all, because the three embeds are built from the
- * slug. These are the JVM twins of server/test/fmovies.test.mjs; both suites
- * pin the same response contract.
+ * everything else. The player route fetches twice over — the site's own player
+ * page, which names the doors it offers, and then each door itself, to say
+ * which ones answer. These are the JVM twins of server/test/fmovies.test.mjs;
+ * both suites pin the same response contract.
  */
 public class FmoviesTest {
 
     private Anime.Transport realTransport;
     private FakeTransport fake;
+    private Fmovies.Prober realProber;
+    private FakeProber knock;
 
     @Before
     public void setUp() {
         realTransport = Fmovies.transport;
         fake = new FakeTransport();
         Fmovies.transport = fake;
+        realProber = Fmovies.prober;
+        knock = new FakeProber();
+        Fmovies.prober = knock;
         Fmovies.clearCache();
     }
 
     @After
     public void tearDown() {
         Fmovies.transport = realTransport;
+        Fmovies.prober = realProber;
         Fmovies.clearCache();
+    }
+
+    /** A knock on a door, by host substring, and a recorded log of them. */
+    static final class FakeProber implements Fmovies.Prober {
+        final Map<String, Fmovies.Health> answers = new HashMap<>();
+        final List<String> knocks = new ArrayList<>();
+
+        @Override
+        public Fmovies.Health knock(String url) {
+            knocks.add(url);
+            for (Map.Entry<String, Fmovies.Health> e : answers.entrySet()) {
+                if (url.contains(e.getKey())) return e.getValue();
+            }
+            throw new AssertionError("unstubbed knock: " + url);
+        }
     }
 
     /** A transport double that answers by URL substring, and can fail on one. */
@@ -287,9 +310,14 @@ public class FmoviesTest {
         assertEquals("season_not_found", new JSONObject(res.body).getString("error"));
     }
 
-    @Test
-    public void thePlayerIsBuiltFromTheSlugAndNeverFetches() throws Exception {
-        // No routes at all: any fetch would throw an AssertionError.
+        @Test
+    public void thePlayerNamesTheDoorsTheSiteNamesAndSaysWhichAnswer() throws Exception {
+        fake.routes.put("/watch/index.html", WATCH_PAGE);
+        // A door that is up but refuses to be framed is as black as a dead one.
+        knock.answers.put("vidcore", new Fmovies.Health(false, "frames_refused"));
+        // And a door whose host is gone (the vidsrc.cc of the day) says so.
+        knock.answers.put("vidapi.xyz", new Fmovies.Health(false, "http_522"));
+        knock.answers.put("embos.top", new Fmovies.Health(true, null));
 
         Fmovies.Result movie = Fmovies.handle("/api/fmovies/movie/cavegirl-580175/player", q());
         assertEquals(200, movie.status);
@@ -297,21 +325,75 @@ public class FmoviesTest {
         JSONArray sources = body.getJSONArray("sources");
         assertEquals(3, sources.length());
         assertEquals("Server 1", sources.getJSONObject(0).getString("label"));
-        assertEquals("https://vidsrc.cc/embed/movie/580175"
-                        + "?auto=true&server=1&color=ef4444&ref=www.f-movies.org",
+        // Our order, not the site's: the picker door (embos, which the site
+        // lists first) arrives last.
+        assertEquals("https://vidcore.net/movie/580175",
                 sources.getJSONObject(0).getString("url"));
-        assertEquals("https://vidapi.to/embed/movie/580175"
-                        + "?ref=www.f-movies.org&color=ef4444&s=1",
+        assertEquals("https://vidapi.xyz/embed/movie/580175",
+                sources.getJSONObject(1).getString("url"));
+        assertEquals("https://embos.top/movie/?mid=580175",
                 sources.getJSONObject(2).getString("url"));
-        assertEquals(0, fake.calls);
+        assertEquals("frames_refused", sources.getJSONObject(0).getString("note"));
+        assertEquals("http_522", sources.getJSONObject(1).getString("note"));
+        assertTrue(sources.getJSONObject(2).getBoolean("ok"));
+        assertTrue(sources.getJSONObject(2).isNull("note"));
+        // The knock carries the site's own referer, the doors' front desk.
+        assertTrue(fake.lastHeaders.get("Accept").contains("text/html"));
 
         Fmovies.Result tv = Fmovies.handle("/api/fmovies/tv/breaking-bad-1396/player",
                 q("season", "5", "episode", "16"));
         assertEquals(200, tv.status);
-        assertEquals("https://vidsrc.xyz/embed/tv/1396/5/16"
-                        + "?server=2&color=ef4444&ref=www.f-movies.org",
-                new JSONObject(tv.body).getJSONArray("sources").getJSONObject(1).getString("url"));
-        assertEquals(0, fake.calls);
+        JSONArray tvSources = new JSONObject(tv.body).getJSONArray("sources");
+        assertEquals("https://vidcore.net/tv/1396/5/16",
+                tvSources.getJSONObject(0).getString("url"));
+        assertEquals("https://embos.top/tv/?mid=1396&s=5&e=16",
+                tvSources.getJSONObject(2).getString("url"));
+    }
+
+    // The site's own player page: the table of doors it offers, in its real
+    // shape (verified against the live page on 2026-10-10).
+    private static final String WATCH_PAGE = "<!DOCTYPE html><html><head><title>Player</title>"
+            + "</head><body><script>\n"
+            + "      var sources = [\n"
+            + "        { id: 'embos', aliases: ['1', 'server1', 's1'],"
+            + " movie: 'https://embos.top/movie/?mid={id}',"
+            + " tv: 'https://embos.top/tv/?mid={id}&s={season}&e={episode}' },\n"
+            + "        { id: 'vidcore', aliases: ['2', 'server2', 's2'],"
+            + " movie: 'https://vidcore.net/movie/{id}',"
+            + " tv: 'https://vidcore.net/tv/{id}/{season}/{episode}' },\n"
+            + "        { id: 'vidapi', aliases: ['3', 'server3', 's3'],"
+            + " movie: 'https://vidapi.xyz/embed/movie/{id}',"
+            + " tv: 'https://vidapi.xyz/embed/tv/{id}/{season}/{episode}' },\n"
+            + "      ];\n"
+            + "</script></body></html>";
+
+    @Test
+    public void anUnreadablePlayerPageLeavesTheBuiltInDoorsCachedAsAnAnswer()
+            throws Exception {
+        // The watch page is deliberately a failure: a dead listing is not an
+        // error the reader should see.
+        fake.failures.put("/watch/index.html", new Exception("f-movies: status 522"));
+        knock.answers.put("embos.top", new Fmovies.Health(true, null));
+        knock.answers.put("vidcore", new Fmovies.Health(true, null));
+        knock.answers.put("vidapi.xyz", new Fmovies.Health(true, null));
+
+        Fmovies.Result first = Fmovies.handle("/api/fmovies/tv/breaking-bad-1396/player",
+                q("season", "1", "episode", "1"));
+        JSONArray sources = new JSONObject(first.body).getJSONArray("sources");
+        // The built-in list in our own order: the two doors that render their
+        // own player lead, and the picker that can land on a 404 comes last.
+        assertEquals("https://vidcore.net/tv/1396/1/1",
+                sources.getJSONObject(0).getString("url"));
+        assertEquals("https://vidapi.xyz/embed/tv/1396/1/1",
+                sources.getJSONObject(1).getString("url"));
+        assertEquals("https://embos.top/tv/?mid=1396&s=1&e=1",
+                sources.getJSONObject(2).getString("url"));
+        for (int i = 0; i < 3; i++) assertTrue(sources.getJSONObject(i).getBoolean("ok"));
+        assertEquals("the fallback list is an answer: one read, not one per open", 1, fake.calls);
+
+        // A second open inside the TTL pays nothing for the list.
+        Fmovies.handle("/api/fmovies/movie/cavegirl-580175/player", q());
+        assertEquals(1, fake.calls);
     }
 
     @Test
