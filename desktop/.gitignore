@@ -1,0 +1,4 @@
+# build outputs — reproducible from source with gradle
+build/
+.gradle/
+.kotlin/
