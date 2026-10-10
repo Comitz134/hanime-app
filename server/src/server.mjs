@@ -21,13 +21,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getCatalog, getSources, warm, SITE_BASE, USER_AGENT } from './hanime.mjs';
-import { mangle, unmangle, fetchUpstream, relayPlaylist, relayBinary } from './hls.mjs';
+import { mangle, mangleVia, unmangleLink, fetchUpstream, relayPlaylist, relayBinary } from './hls.mjs';
 import { account, setCookie, clear as clearSession, sessionInfo, raw as rawSession } from './session.mjs';
 import { buildIndex, searchPlaylists, allItems } from './playlists.mjs';
 import { crawl, crawlLock, loadIndex as loadCrawlIndex, indexStats as crawlStats } from './playlist-crawl.mjs';
 import { versionPayload, streamApk } from './app-release.mjs';
 import { handleAnime } from './anime.mjs';
-import { handleFmovies } from './fmovies.mjs';
+import { handleFmovies, resolveFilm } from './fmovies.mjs';
 import { handleAddon } from './addon.mjs';
 import { handleMalApi, handleMalToken } from './mal.mjs';
 import {
@@ -552,10 +552,11 @@ async function handleHealth(res) {
 // --------------------------------------------------------------------------
 
 async function handleRelay(url, res, req) {
-  const target = unmangle(url.searchParams);
-  if (!target) return text(res, 400, 'bad relay link');
+  const link = unmangleLink(url.searchParams);
+  if (!link) return text(res, 400, 'bad relay link');
+  const target = link.url;
 
-  const upstream = await fetchUpstream(target);
+  const upstream = await fetchUpstream(target, {}, link);
   if (!upstream.ok) {
     // Pass the upstream status through so the player can surface it honestly
     // instead of treating a 403 as a decode error.
@@ -577,8 +578,12 @@ async function handleRelay(url, res, req) {
 
   if (asText.trimStart().startsWith('#EXTM3U')) {
     const origin = baseUrl(req);
-    const link = (abs) => `${origin}/relay?${mangle(abs)}`;
-    return relayPlaylist(target, link, res, bytes.toString('latin1'));
+    // Nested URIs inherit the link's own profile: a playlist that needs the
+    // door's referer needs it on every variant and segment below it too.
+    const relink = link.referer || link.origin
+      ? (abs) => `${origin}/relay?${mangleVia(abs, link)}`
+      : (abs) => `${origin}/relay?${mangle(abs)}`;
+    return relayPlaylist(target, relink, res, bytes.toString('latin1'));
   }
 
   res.writeHead(200, {
@@ -702,6 +707,27 @@ async function handleRequest(req, res) {
     // do not already answer.
     if (pathname === '/addon/manifest.json' || pathname.startsWith('/addon/')) {
       return await handleAddon(url, res, pathname, callSelf);
+    }
+
+    // The in-app route for a film. The player is handed this URL; the door is
+    // resolved here (which may boot a browser for a few seconds) and the answer
+    // is a redirect into the relay. Lazy on purpose: the stream list must not
+    // wait for a resolution the reader may never ask for.
+    const play = /^\/play\/films\/(movie|tv)\/([a-z0-9.-]+)$/.exec(pathname);
+    if (play) {
+      const [, type, slug] = play;
+      const found = await resolveFilm(type, slug, {
+        season: Math.max(1, Number(url.searchParams.get('season') ?? 1) | 0),
+        episode: Math.max(1, Number(url.searchParams.get('episode') ?? 1) | 0),
+      });
+      if (!found.ok) {
+        // Plain text with the reason: this URL is opened by a media player, so
+        // anything structured would only end up as a decode error on screen.
+        return text(res, found.code === 'no_browser' ? 503 : 404, `nothing to play (${found.code})`);
+      }
+      const link = mangleVia(found.url, { referer: found.referer });
+      res.writeHead(302, { location: `/relay?${link}`, 'cache-control': 'no-store' });
+      return res.end();
     }
 
     if (pathname === '/relay') return await handleRelay(url, res, req);

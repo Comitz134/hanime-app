@@ -25,44 +25,103 @@ const FETCH_TIMEOUT_MS = 60_000;
 // holding a stale one simply re-resolves from /api.
 const LINK_KEY = crypto.randomBytes(32);
 
-/** Upstream URL -> opaque, tamper-proof query pair for our own relay. */
-export function mangle(absoluteUrl) {
-  const u = Buffer.from(absoluteUrl, 'utf8').toString('base64url');
-  const sig = crypto.createHmac('sha256', LINK_KEY).update(u).digest('base64url').slice(0, 22);
-  return `u=${u}&s=${sig}`;
+function encode(value) {
+  return Buffer.from(value, 'utf8').toString('base64url');
 }
 
-/** Verify and unwrap a relay query pair. Returns null if the pair is not ours. */
-export function unmangle(query) {
-  const u = query.get('u');
-  const s = query.get('s');
-  if (!u || !s) return null;
-  const expect = crypto.createHmac('sha256', LINK_KEY).update(u).digest('base64url').slice(0, 22);
-  const a = Buffer.from(s);
-  const b = Buffer.from(expect);
-  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+function decode(value) {
   try {
-    const url = Buffer.from(u, 'base64url').toString('utf8');
-    return url.startsWith('https://') ? url : null;
+    return Buffer.from(value, 'base64url').toString('utf8');
   } catch {
     return null;
   }
 }
 
-function upstreamHeaders(extra = {}) {
-  return {
-    'user-agent': USER_AGENT,
-    origin: SITE_BASE,
-    referer: `${SITE_BASE}/`,
-    accept: '*/*',
-    ...extra,
-  };
+/**
+ * The signature covers every part of the link, so neither the target nor the
+ * headers it is read with can be swapped after the fact. The join is on a
+ * character that cannot appear in a URL or a base64url token.
+ */
+function signatureFor(parts) {
+  return crypto.createHmac('sha256', LINK_KEY).update(parts.join('\n')).digest('base64url').slice(0, 22);
 }
 
-export async function fetchUpstream(url, init = {}) {
+/** Upstream URL -> opaque, tamper-proof query pair for our own relay. */
+export function mangle(absoluteUrl) {
+  const u = encode(absoluteUrl);
+  return `u=${u}&s=${signatureFor([u, '', ''])}`;
+}
+
+/**
+ * The same link, for an upstream that only answers a page on its own site.
+ * The film doors are like that: their CDN returns 403 unless the request
+ * carries their referer, so the link has to carry it too — signed, because a
+ * header the client can rewrite is not a header worth sending.
+ */
+export function mangleVia(absoluteUrl, { referer = null, origin = null } = {}) {
+  const u = encode(absoluteUrl);
+  const parts = [`u=${u}`];
+  if (referer) parts.push(`r=${encode(referer)}`);
+  if (origin) parts.push(`o=${encode(origin)}`);
+  parts.push(`s=${signatureFor([u, referer ?? '', origin ?? ''])}`);
+  return parts.join('&');
+}
+
+/**
+ * Verify and unwrap a relay link. Returns `{ url, referer, origin }`, or null
+ * when the pair is not ours. Nothing about the caller's query is trusted: the
+ * target and the headers both come out of the signed payload.
+ */
+export function unmangleLink(query) {
+  const u = query.get('u');
+  const s = query.get('s');
+  if (!u || !s) return null;
+
+  const referer = query.get('r') ? decode(query.get('r')) : null;
+  const origin = query.get('o') ? decode(query.get('o')) : null;
+  if (query.get('r') && referer === null) return null;
+  if (query.get('o') && origin === null) return null;
+
+  const expect = signatureFor([u, referer ?? '', origin ?? '']);
+  const a = Buffer.from(s);
+  const b = Buffer.from(expect);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+
+  const url = decode(u);
+  if (!url || !url.startsWith('https://')) return null;
+  return { url, referer, origin };
+}
+
+/** Just the target of a relay link, or null. */
+export function unmangle(query) {
+  return unmangleLink(query)?.url ?? null;
+}
+
+/**
+ * Headers for reading an upstream. Defaults are hanime's, because that is the
+ * upstream with the strictest expectations; a link that carries its own
+ * referer/origin replaces them outright rather than blending the two sites'
+ * identities together.
+ */
+function upstreamHeaders(profile, extra = {}) {
+  const base = profile?.referer || profile?.origin
+    ? {
+        'user-agent': USER_AGENT,
+        ...(profile.origin ? { origin: profile.origin } : {}),
+        ...(profile.referer ? { referer: profile.referer } : {}),
+      }
+    : {
+        'user-agent': USER_AGENT,
+        origin: SITE_BASE,
+        referer: `${SITE_BASE}/`,
+      };
+  return { ...base, accept: '*/*', ...extra };
+}
+
+export async function fetchUpstream(url, init = {}, profile = null) {
   return fetch(url, {
     ...init,
-    headers: upstreamHeaders(init.headers),
+    headers: upstreamHeaders(profile, init.headers),
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
 }

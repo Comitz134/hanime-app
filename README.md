@@ -19,6 +19,31 @@ never to the site.
   obligations that come with that upstream.
 - **`mobile/`** — a Flutter app that talks only to your proxy.
 
+### Films play in the app, not in a browser tab
+
+The film area's upstream offers "servers" (vidcore, vidapi, embos) that are not
+streams at all — each one is a *player page*, and the stream URL exists only
+inside it: signed by their JavaScript, tied to their referer, different on every
+deployment. Two of the three doors currently answer 404 for titles they do not
+carry; the one that works only ever plays inside a web page.
+
+So the server resolves it the only way that keeps working: `src/browser.mjs`
+borrows the machine's own Chrome/Edge for a few seconds, opens the door, and
+reads the master playlist off the wire over CDP (Node's built-in WebSocket, no
+dependencies). The playlist is then served through the same signed relay the
+18+ shelf uses, with the door's referer attached to every request, so the app's
+native player gets a plain HLS URL on loopback — no browser, no embed.
+
+```
+GET /api/fmovies/movie/f1-911430/resolve   → where the bytes are (slow: boots a browser)
+GET /play/films/movie/f1-911430            → 302 into the relay, for a media player
+```
+
+The stream picker offers this as *Hanime · in-app* ahead of the embed doors,
+which stay behind it for titles the resolver cannot reach. Set `HANIME_BROWSER`
+to a Chrome/Edge binary if it lives somewhere unusual; without any browser the
+in-app entry is simply absent and playback behaves as before.
+
 ---
 
 ## What the site actually does

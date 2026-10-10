@@ -397,15 +397,24 @@ test('a film stream says which door is dark', async () => {
 
   const res = await call('/addon/stream/movie/ha%3Afm%3Acavegirl-580175.json');
   assert.equal(res.status, 200);
-  assert.equal(res.json.streams.length, 2);
+
+  // The film opens in the app's own player: the first entry is a media URL on
+  // this server, which resolves the door when the player asks for it.
+  const [inApp, ...doors] = res.json.streams;
+  assert.equal(inApp.name, 'Hanime · in-app');
+  assert.equal(inApp.description, 'HLS — plays in the player');
+  assert.equal(inApp.url, 'http://local/play/films/movie/cavegirl-580175');
+  assert.equal(inApp.externalUrl, undefined);
+
   // Which door the server prefers is the films area's business (its own test
   // pins that); here the point is that a refused door still travels — marked,
-  // not hidden — and neither door is handed over as a media URL.
-  const descriptions = res.json.streams.map((s) => s.description);
+  // not hidden — behind the one that plays.
+  assert.equal(doors.length, 2);
+  const descriptions = doors.map((s) => s.description);
   assert.ok(descriptions.includes('embed — frames_refused, opens in your browser'));
   assert.ok(descriptions.includes('embed — opens in your browser'));
-  assert.deepEqual(res.json.streams.map((s) => s.name), ['Hanime · Server 1', 'Hanime · Server 2']);
-  assert.ok(res.json.streams.every((s) => s.externalUrl && !s.url));
+  assert.deepEqual(doors.map((s) => s.name), ['Hanime · Server 1', 'Hanime · Server 2']);
+  assert.ok(doors.every((s) => s.externalUrl && !s.url));
 });
 
 test('a stream request for a title the door cannot resolve answers empty', async () => {

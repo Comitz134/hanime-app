@@ -20,11 +20,13 @@
 // clients append themselves, which is why an id is parsed rather than looked
 // up: the season and episode travel in the string.
 //
-// The embeds problem is visible in `streams()`: the 18+ shelf resolves to HLS
-// playlists a native player can open, while anime and films answer with embed
-// *pages* — they are handed over as `externalUrl`, which clients open in a
-// browser. Resolving those pages to real media is its own piece of work; when
-// it lands, only this function changes.
+// Playback is the interesting part, and `streams()` is where it shows. The 18+
+// shelf resolves to HLS playlists a native player can open. Films are one layer
+// harder: their doors hand out a *player*, not a stream, so `/play/films/…`
+// borrows a browser to learn what that player plays and the relay serves it —
+// the film lands in the app's own player all the same. Anime titles still answer
+// with embed pages and travel as `externalUrl` until someone resolves them the
+// same way.
 
 const PAGE_SIZE = 24;
 
@@ -318,7 +320,7 @@ async function meta(ref, self) {
  * `externalUrl` so the client opens them where they actually work, rather than
  * handing a player an HTML document it cannot decode.
  */
-async function streams(ref, self) {
+async function streams(ref, self, origin) {
   if (ref.area === 'ad') {
     const body = await self(`/api/videos/${seg(ref.key)}/sources`);
     return (body?.sources ?? []).map((s) => {
@@ -361,13 +363,33 @@ async function streams(ref, self) {
     } catch (e) {
       return [];
     }
-    return (body?.sources ?? []).map((s) => ({
-      name: `Hanime · ${s.label ?? 'door'}`,
-      description: s.ok === false
-        ? `embed — ${s.note ?? 'not answering'}, opens in your browser`
-        : 'embed — opens in your browser',
-      externalUrl: s.url,
-    }));
+    const doors = body?.sources ?? [];
+
+    // The door pages do not hand out a stream; they hand out a player, and the
+    // stream URL exists only inside it. `/play/films/…` resolves that on demand
+    // (booting a browser for a few seconds) and answers with the playlist — so
+    // the film plays in the app's own player instead of a browser tab. It leads
+    // the list, because it is the only entry that ends in the app's player; the
+    // doors stay behind it, honestly labelled, for the titles it cannot resolve.
+    const query = type === 'tv' ? `?season=${season}&episode=${episode}` : '';
+    const inApp = doors.some((s) => s.ok !== false)
+      ? [{
+          name: 'Hanime · in-app',
+          description: 'HLS — plays in the player',
+          url: `${origin}/play/films/${type}/${seg(ref.key)}${query}`,
+        }]
+      : [];
+
+    return [
+      ...inApp,
+      ...doors.map((s) => ({
+        name: `Hanime · ${s.label ?? 'door'}`,
+        description: s.ok === false
+          ? `embed — ${s.note ?? 'not answering'}, opens in your browser`
+          : 'embed — opens in your browser',
+        externalUrl: s.url,
+      })),
+    ];
   }
 
   return [];
@@ -423,7 +445,7 @@ export async function handleAddon(url, res, pathname, self) {
       if (!doc) return send(res, 404, { error: 'not_found' });
       return send(res, 200, { meta: doc });
     }
-    const list = await streams(ref, self);
+    const list = await streams(ref, self, `${url.protocol}//${url.host}`);
     return send(res, 200, { streams: list });
   }
 

@@ -37,6 +37,8 @@ const SEARCH_PAGE_SIZE = 20;   // upstream's fixed `/api/search` limit
 // on what was asked for.
 const WATCH_PAGE = '/watch/index.html?type=tv&id=1&server=1&season=1&episode=1';
 
+import { browserAvailable, resolveDoor } from './browser.mjs';
+
 // The doors to fall back on when that page cannot be read, verified against
 // the live page on 2026-10-10 — in our own order, for the reason below.
 const SERVERS = [
@@ -453,28 +455,107 @@ function health(url) {
  * dark is a labelled button rather than a black player.
  */
 async function handlePlayer(type, slug, url, res) {
-  const idMatch = /-(\d+)$/.exec(slug);
-  if (!idMatch) return json(res, 404, { error: 'not_found', slug });
-  const id = Number(idMatch[1]);
-  const season = Math.max(1, Number(url.searchParams.get('season') ?? 1) | 0);
-  const episode = Math.max(1, Number(url.searchParams.get('episode') ?? 1) | 0);
-  const doors = await servers();
-  const sources = await Promise.all(doors.map(async (s) => {
-    const doorUrl = (type === 'tv' ? s.tv : s.movie)
-      .replaceAll('{id}', String(id))
-      .replaceAll('{season}', String(season))
-      .replaceAll('{episode}', String(episode));
-    const probe = await health(doorUrl);
-    return { label: s.label, url: doorUrl, ok: probe.ok, note: probe.ok ? null : probe.code };
-  }));
+  const target = requestTarget(type, slug, url);
+  if (!target) return json(res, 404, { error: 'not_found', slug });
+  const { id, season, episode } = target;
+  const sources = await Promise.all((await servers()).map((s) => doorSource(s, target)));
   json(res, 200, { type, slug, id, season, episode, sources });
+}
+
+/** The slug's id plus the episode asked for — everything a door URL needs. */
+function requestTarget(type, slug, url) {
+  const idMatch = /-(\d+)$/.exec(slug);
+  if (!idMatch) return null;
+  return {
+    type,
+    id: Number(idMatch[1]),
+    season: Math.max(1, Number(url.searchParams.get('season') ?? 1) | 0),
+    episode: Math.max(1, Number(url.searchParams.get('episode') ?? 1) | 0),
+  };
+}
+
+function doorSource(server, target) {
+  const doorUrl = (target.type === 'tv' ? server.tv : server.movie)
+    .replaceAll('{id}', String(target.id))
+    .replaceAll('{season}', String(target.season))
+    .replaceAll('{episode}', String(target.episode));
+  return health(doorUrl).then((probe) => ({
+    label: server.label,
+    url: doorUrl,
+    ok: probe.ok,
+    note: probe.ok ? null : probe.code,
+  }));
+}
+
+/**
+ * Resolve the title to a media URL a normal player can open.
+ *
+ * Exported because the in-app route (`/play/films/…`) needs the same answer
+ * without a second copy of the door walk. Doors are tried in order and the
+ * first one that plays wins; a title the doors do not carry comes back as a
+ * plain "nothing to play", with each door's reason kept for the log.
+ */
+export async function resolveFilm(type, slug, { season = 1, episode = 1 } = {}) {
+  const idMatch = /-(\d+)$/.exec(slug);
+  if (!idMatch) return { ok: false, code: 'not_found' };
+  if (!browserAvailable()) return { ok: false, code: 'no_browser' };
+
+  const target = { type, id: Number(idMatch[1]), season, episode };
+  const attempts = [];
+
+  for (const server of await servers()) {
+    const { url: doorUrl } = await doorSource(server, target);
+    const probe = await health(doorUrl);
+    if (!probe.ok) {
+      attempts.push({ door: server.label, code: probe.code });
+      continue;
+    }
+    const found = await resolveDoor(doorUrl);
+    if (found.ok) {
+      return {
+        ok: true,
+        door: server.label,
+        url: found.url,
+        referer: found.referer ?? doorUrl,
+        attempts,
+      };
+    }
+    attempts.push({ door: server.label, code: found.code });
+  }
+
+  return { ok: false, code: 'no_playable_door', attempts };
+}
+
+/**
+ * GET /api/fmovies/(movie|tv)/:slug/resolve?season=&episode= — the same walk,
+ * answered as JSON for anything that wants to know where the bytes are. This
+ * is the slow one: it may boot a browser, and it says so in the response.
+ */
+async function handleResolve(type, slug, url, res) {
+  const target = requestTarget(type, slug, url);
+  if (!target) return json(res, 404, { error: 'not_found', slug });
+  const found = await resolveFilm(type, slug, target);
+  if (!found.ok) {
+    return json(res, found.code === 'no_browser' ? 503 : 404, {
+      error: found.code,
+      slug,
+      attempts: found.attempts ?? null,
+      hint: found.code === 'no_browser'
+        ? 'No Chrome/Edge found for the resolver; set HANIME_BROWSER to one.'
+        : null,
+    });
+  }
+  json(res, 200, {
+    type, slug, id: target.id, season: target.season, episode: target.episode,
+    door: found.door, media: 'hls', url: found.url, referer: found.referer,
+  });
 }
 
 /** One entry point for the whole /api/fmovies family. */
 export async function handleFmovies(url, res, pathname) {
   if (pathname === '/api/fmovies/search') return handleSearch(url, res);
 
-  const m = /^\/api\/fmovies\/(movie|tv)\/([a-z0-9.-]+)(?:\/(episodes|player))?$/.exec(pathname);
+  const m = /^\/api\/fmovies\/(movie|tv)\/([a-z0-9.-]+)(?:\/(episodes|player|resolve))?$/.exec(pathname);
   if (m) {
     const [, type, slug, sub] = m;
     if (sub === 'episodes') {
@@ -482,6 +563,7 @@ export async function handleFmovies(url, res, pathname) {
       return handleEpisodes(slug, url, res);
     }
     if (sub === 'player') return handlePlayer(type, slug, url, res);
+    if (sub === 'resolve') return handleResolve(type, slug, url, res);
     return handleDetails(type, slug, res);
   }
   return json(res, 404, { error: 'not_found', pathname });
