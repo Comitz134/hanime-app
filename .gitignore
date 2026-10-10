@@ -45,3 +45,6 @@ toolchain/
 *.log
 .DS_Store
 Thumbs.db
+
+# The shell's fetched upstream tree (script-managed, never committed).
+shell/.upstream/

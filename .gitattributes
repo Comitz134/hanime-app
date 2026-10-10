@@ -1,0 +1,8 @@
+# Shell scripts are executed, not just read: a CRLF checkout fails on the first
+# line ("set: command not found") under Git Bash. Keep them LF everywhere.
+*.sh text eol=lf
+
+# The web client and the server are plain JS run by node; LF keeps diffs honest
+# across the two machines this is developed on.
+*.mjs text eol=lf
+*.js text eol=lf

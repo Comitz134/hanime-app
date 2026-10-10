@@ -1,13 +1,23 @@
 # hanime client, self-hosted
 
-Two pieces:
+One server, several windows onto it — every client talks only to the proxy,
+never to the site.
 
 - **`server/`** — a zero-dependency Node proxy that owns the upstream
   authentication dance and serves a clean REST API plus an HLS relay.
-  Fully working and verified against the live site.
-- **`mobile/`** — a Flutter app that talks only to your proxy.
+  Fully working and verified against the live site. It also speaks the Stremio
+  addon protocol (`server/src/addon.mjs`), which is what the desktop shell eats.
 - **`server/public/`** — a web client the server serves itself. Installable as a
   PWA on a phone, so you can use the whole thing today without a toolchain.
+- **`android/`** — the phone app, a Java shell around the same server, with a
+  device library per area and an in-app player.
+- **`desktop/`** — a Kotlin + Compose desktop window written for this project.
+- **`shell/`** — the full desktop app: a fork of **NuvioDesktop** (Kotlin +
+  Compose, native mpv player) rewired to this catalogue. This is the one that
+  looks and behaves like a finished streaming app; see
+  [`shell/README.md`](shell/README.md) for how to build it and for the GPL-3.0
+  obligations that come with that upstream.
+- **`mobile/`** — a Flutter app that talks only to your proxy.
 
 ---
 

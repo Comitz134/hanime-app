@@ -28,6 +28,7 @@ import { crawl, crawlLock, loadIndex as loadCrawlIndex, indexStats as crawlStats
 import { versionPayload, streamApk } from './app-release.mjs';
 import { handleAnime } from './anime.mjs';
 import { handleFmovies } from './fmovies.mjs';
+import { handleAddon } from './addon.mjs';
 import { handleMalApi, handleMalToken } from './mal.mjs';
 import {
   searchPlaylists as searchPublicPlaylists,
@@ -667,7 +668,12 @@ function serveStatic(pathname, res) {
 // router
 // --------------------------------------------------------------------------
 
-const server = http.createServer(async (req, res) => {
+/**
+ * One request, through the whole router. Named — and reused below — because
+ * the addon bridge (src/addon.mjs) answers out of these same routes, and one
+ * dispatch beats a second copy of every parser.
+ */
+async function handleRequest(req, res) {
   const url = new URL(req.url, `http://${req.headers.host ?? 'localhost'}`);
   const { pathname } = url;
 
@@ -690,6 +696,14 @@ const server = http.createServer(async (req, res) => {
   }
 
   try {
+    // The catalogue as an addon, for the desktop app (src/addon.mjs). Ahead of
+    // the API token gate on purpose: it is what the app on this machine reads
+    // its whole library through, and it exposes nothing the /api routes below
+    // do not already answer.
+    if (pathname === '/addon/manifest.json' || pathname.startsWith('/addon/')) {
+      return await handleAddon(url, res, pathname, callSelf);
+    }
+
     if (pathname === '/relay') return await handleRelay(url, res, req);
 
     // Optional shared-secret gate. Set API_TOKEN when the server is reachable
@@ -757,7 +771,41 @@ const server = http.createServer(async (req, res) => {
     if (res.headersSent) return res.destroy();
     return json(res, status, { error: 'upstream_error', message: err.message });
   }
-});
+}
+
+const server = http.createServer(handleRequest);
+
+/**
+ * A GET through this server's own router, answered as parsed JSON. This is how
+ * the addon bridge reads /api routes in process: no socket, no port, and no
+ * second implementation of anything.
+ */
+async function callSelf(path) {
+  const headers = { host: `127.0.0.1:${PORT}`, accept: 'application/json' };
+  // The bridge is inside the house; it carries the token when one is set.
+  if (API_TOKEN) headers.authorization = `Bearer ${API_TOKEN}`;
+
+  const req = { method: 'GET', url: path, headers, on() {}, destroy() {} };
+  let status = null;
+  let body = '';
+  const res = {
+    headersSent: false,
+    statusCode: 0,
+    writeHead(code) { status = code; this.statusCode = code; this.headersSent = true; },
+    end(text) { body += text == null ? '' : String(text); },
+    setHeader() {},
+    destroy() {},
+    on() {},
+  };
+
+  await handleRequest(req, res);
+  if (status !== null && status >= 400) {
+    const err = new Error(`${path} answered ${status}`);
+    err.status = status;
+    throw err;
+  }
+  return body ? JSON.parse(body) : null;
+}
 
 server.listen(PORT, HOST, async () => {
   console.log(`hanime proxy listening on http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
