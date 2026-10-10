@@ -2,6 +2,12 @@
 <resources>
     <!-- The web client's measured tokens, so the shell matches the product. -->
     <color name="shell_background">#111111</color>
+    <!--
+      The launcher icon's own black, measured off the artwork rather than
+      chosen: the adaptive foreground PNG carries the same value as its canvas,
+      so the mark cannot end up as a visible square on the launcher's shape.
+    -->
+    <color name="ic_launcher_background">#05040A</color>
     <color name="shell_card">#191919</color>
     <color name="shell_foreground">#EEEEEE</color>
     <color name="shell_muted">#B4B4B4</color>

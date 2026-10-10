@@ -140,7 +140,10 @@ final class Updater {
             PendingIntent pi = PendingIntent.getActivity(app, 1, tap,
                     PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
             Notification notification = new Notification.Builder(app, NOTIFY_CHANNEL_ID)
-                    .setSmallIcon(R.drawable.ic_launcher_foreground)
+                    // Not the launcher foreground: Android draws a small icon as
+                    // an alpha mask, and the launcher's is a photograph of a
+                    // black tile — in the status bar that is a black square.
+                    .setSmallIcon(R.drawable.ic_notification)
                     .setContentTitle(app.getString(R.string.notif_title, info.versionName))
                     .setContentText(app.getString(R.string.notif_text))
                     .setContentIntent(pi)

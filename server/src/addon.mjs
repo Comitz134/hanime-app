@@ -78,7 +78,7 @@ export function manifest() {
   return {
     id: 'tv.hanime.bridge',
     version: '1.0.0',
-    name: 'Hanime',
+    name: 'SEKAI',
     description: 'Anime, films and series from this server, plus its own 18+ shelf.',
     resources: ['catalog', 'meta', 'stream'],
     types: ['movie', 'series'],

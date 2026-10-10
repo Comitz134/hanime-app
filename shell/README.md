@@ -19,6 +19,11 @@ shell/
   LICENSE-NuvioDesktop-GPL-3.0   upstream's license — read it before shipping anything
 ```
 
+The app calls itself **SEKAI**: the window title, the installer's package and
+menu names, the taskbar icon, the launcher icons and the sidebar wordmark are
+this project's. The artwork for all of it is generated from one source image —
+see `_mf/make-sekai-icons.py` and `NOTICE.md`.
+
 ## Run it
 
 Requirements: **JDK 17** (`JAVA_HOME` set), **Node 20+** on `PATH`. Windows,
@@ -59,10 +64,12 @@ fork:
 | file | change |
 | --- | --- |
 | `HanimeServer.kt` *(new)* | brings up `server/`, waits for a real answer, stops only its own child |
-| `Main.kt` | calls it on boot; window title `Hanime`; opens past Nuvio's account gate |
+| `Main.kt` | calls it on boot; window title `SEKAI`; opens past Nuvio's account gate |
 | `AddonPlatform.desktop.kt` | seeds this server's addon bridge as the built-in source |
 | `DesktopStorage.kt` | profile/cache directories named `Hanime`, so an installed Nuvio on the same machine never shares state |
 | `NetworkStatusRepository.kt` | "servers reachable" probes this project's `/api/videos`, not Nuvio's Supabase |
+| `composeApp/build.gradle.kts` | package, vendor and menu name `SEKAI` (four lines changed; the file is otherwise upstream's) |
+| `composeResources/`, `desktopMain/resources/icons/` | the `SEKAI` icons and the sidebar wordmark |
 | `gradle.properties` | heap lowered to build on a 16 GB machine |
 
 The seeded addon (`server/src/addon.mjs`) is what feeds the shell its shelves and
@@ -90,6 +97,9 @@ runtimes stay where they already live (in upstream's own history).
 
 ## Known cosmetics
 
-The window title says Hanime, but the app icons and the About screen are still
-upstream's. Swapping the icon set is a resource change in `composeApp/src/**/composeResources`
-if you want it.
+The name, the icon set and the sidebar wordmark are this project's. The About
+screen and the licence list still attribute Nuvio, which GPL-3.0 requires and
+which is left deliberately. Upstream's other selectable icon colours
+(`arctic_blue`, `emerald`, `rose_gold`, `copper`, `graphite`) are untouched:
+choosing one of those in Settings swaps the fork's mark back to upstream's
+artwork for that colour.

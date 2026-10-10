@@ -39,9 +39,12 @@ compose.desktop {
         mainClass = "app.hanime.desktop.MainKt"
         nativeDistributions {
             targetFormats(TargetFormat.Msi, TargetFormat.Dmg, TargetFormat.Deb)
-            packageName = "Hanime"
+            packageName = "SEKAI"
             packageVersion = "1.0.0"
-            description = "A desktop client for your own hanime bench"
+            description = "A desktop client for your own catalogue"
+            // The installer's icon — Windows reads the .ico, the other two
+            // formats take the PNG next to it.
+            iconFile.set(project.file("src/main/resources/sekai-icon.ico"))
         }
     }
 }

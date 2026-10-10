@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The themed-icon (monochrome) layer, drawn rather than traced from the tile:
+  a themed icon is an alpha silhouette, so only the gate and the peak inside it
+  are here. Adaptive canvases are 108x108 with a 66x66 safe zone; the gate
+  spans 16..92 so its wings survive the tighter masks without touching the crop.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- The kasagi, with the slight upward curve of its ends -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M16,30c8,-3 20,-4 38,-4s30,1 38,4l-3,7c-9,-2 -21,-3 -35,-3s-26,1 -35,3z" />
+
+    <!-- The nuki, the second beam, and the tablet between the beams -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M26,44h56v6H26z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M49,36h10v8H49z" />
+
+    <!-- The two pillars -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M33,37h7v47h-7z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M68,37h7v47h-7z" />
+
+    <!-- The peak standing inside the gate -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M54,54l15,21c-4,-2 -7,-4 -9,-7c-2,3 -4,5 -6,6c-2,-1 -4,-3 -6,-6c-2,3 -5,5 -9,7z" />
+</vector>

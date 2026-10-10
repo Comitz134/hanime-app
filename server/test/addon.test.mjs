@@ -189,7 +189,9 @@ test('the manifest names the shelves this server actually has', () => {
 test('the manifest route answers the document itself', async () => {
   const res = await call('/addon/manifest.json');
   assert.equal(res.status, 200);
-  assert.equal(res.json.name, 'Hanime');
+  // The name the client shows for this source: the app's own, so the library
+  // reads as SEKAI's rather than as one more third-party addon.
+  assert.equal(res.json.name, 'SEKAI');
 });
 
 // ----------------------------------------------------------------- catalogs

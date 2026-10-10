@@ -2,6 +2,7 @@ package app.hanime.desktop
 
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
@@ -38,7 +39,10 @@ fun main() {
         val state = remember { AppState() }
         Window(
             onCloseRequest = { ServerKeeper.stop(); exitApplication() },
-            title = "Hanime",
+            title = "SEKAI",
+            // The same artwork the packaged build uses, so the taskbar and the
+            // installer agree about what this app is.
+            icon = painterResource("sekai-icon.png"),
             state = rememberWindowState(
                 size = DpSize(1420.dp, 940.dp),
                 position = WindowPosition(Alignment.Center),

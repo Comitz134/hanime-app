@@ -131,7 +131,7 @@ fun main(args: Array<String>) {
                 SentryInitializer.close()
                 exitApplication()
             },
-            title = if (smokePlayerUrl == null) "Hanime" else "Hanime Player Smoke",
+            title = if (smokePlayerUrl == null) "SEKAI" else "SEKAI Player Smoke",
             state = windowState,
             icon = painterResource(appIconState.selected.transparentPreviewResource),
             init = ::configureMacosWindowBeforePeer,

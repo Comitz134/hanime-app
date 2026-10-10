@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The notification small icon. Android draws a small icon as an alpha mask and
+  tints it with the notification's colour, so this is the gate on nothing at
+  all — the launcher's own foreground is a photograph of a black tile now, and
+  a black tile in the status bar is a black square.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M2,5.5c1.8,-0.7 5.2,-1 10,-1s8.2,0.3 10,1l-0.7,1.7c-2.1,-0.5 -5.2,-0.7 -9.3,-0.7s-7.2,0.2 -9.3,0.7z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M6.4,9h11.2v1.6H6.4z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M10.6,6.6h2.8v2.4h-2.8z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M7.2,7.6h1.7v13H7.2z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M15.1,7.6h1.7v13h-1.7z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12,11.5l3.4,5c-0.9,-0.5 -1.6,-1 -2.1,-1.7c-0.5,0.7 -0.9,1.2 -1.3,1.4c-0.4,-0.2 -0.8,-0.7 -1.3,-1.4c-0.5,0.7 -1.2,1.2 -2.1,1.7z" />
+</vector>

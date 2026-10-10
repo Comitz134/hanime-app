@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">hanime</string>
+    <string name="app_name">SEKAI</string>
     <string name="settings_title">Update source</string>
 
     <string name="server_label">Update source address</string>
@@ -36,7 +36,7 @@
     <string name="last_failed">failed — %1$s</string>
     <string name="last_unknown">no result recorded</string>
 
-    <string name="diag_header">hanime shell diagnostics</string>
+    <string name="diag_header">SEKAI shell diagnostics</string>
     <string name="diag_package">applicationId: %1$s</string>
     <string name="diag_source">effective source: %1$s</string>
     <string name="diag_builtin">built-in source: %1$s</string>
