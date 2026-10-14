@@ -6,6 +6,15 @@
 <meta name="theme-color" content="#111111">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="SEKAI">
+<!--
+  The mark, for the surfaces outside the page: the browser tab, iOS's home
+  screen (which ignores the manifest's icons) and the install sheet. Files sit
+  next to this document in public/, so a plain path is the whole story.
+-->
+<link rel="icon" href="/favicon.ico" sizes="32x32">
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/app.webmanifest">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -590,6 +599,18 @@
           </div>
           <div class="rail" id="read-rail" hidden></div>
           <p class="note" id="read-note" hidden></p>
+
+          <!-- What this device keeps on purpose, as against what it merely
+               opened: the rail above says where the reader was, this says what
+               they meant to come back to. -->
+          <div class="sec-head" id="saved-head" style="margin-top:1.75rem" hidden>
+            <div class="sec-head-l">
+              <h2>Saved</h2>
+              <span class="sec-count" id="saved-count">0</span>
+            </div>
+          </div>
+          <div class="grid" id="saved-grid" hidden></div>
+          <p class="note" id="saved-note" hidden></p>
 
           <div class="sec-head" style="margin-top:1.75rem">
             <div class="sec-head-l">

@@ -158,19 +158,38 @@ sha256sum "$APK"
 Current build:
 
 ```
-package: name='app.hanime.shell' versionCode='26' versionName='1.0.25'
+package: name='app.hanime.shell' versionCode='27' versionName='1.0.26'
 sdkVersion:'26'   targetSdkVersion:'34'
 launchable-activity: name='app.hanime.shell.MainActivity'
 permissions: INTERNET, ACCESS_NETWORK_STATE, REQUEST_INSTALL_PACKAGES, POST_NOTIFICATIONS
 Verifies / v2 scheme: true / signer CN=hanime shell (unchanged)  [cert sha256 13c01040…]
-1,434,518 bytes / sha256 1d9c5e9327436229332afe40d369efd2b3238b9e1dbd08a3248a29e9f7bb3aff
-  assets/index.html 459,645 bytes sha256 25503c5f3f6854dc47bbc7c3d7da892e6739558a33e21d353d603c2616a8f804
+2,072,107 bytes / sha256 659062515ca9bd1a306b0dbc68d8499becdf2c3d6d777c06c5f914e630ac5dcc
+  assets/index.html 473,957 bytes sha256 e073962be747e4cd6ed4b696246708cad77783f1291e46c374bb39ddb7292b2f
   assets/hls.min.js 413,952 bytes sha256 484054e8cd03d3f6d1781fb7f402bdc318d8a4c527f933a95c624e27cc9a9470
 ```
 
 The bundled client's digest above is the one read back out of the APK built
 from this tree — not assumed — and it is byte-identical to
-`server/public/index.html` in this tree. 1.0.23 carried the films & series
+`server/public/index.html` in this tree.
+
+1.0.26 is the release that gives the app its own face and fills in the manga
+area, and it is the first build whose page carries the title page's own row of
+controls. Keeping a title writes it to a device shelf of its own (Library →
+Manga, with a cross on each card to take it off again, and the same
+`localStorage` fail-soft as the rest of the library); the second tile is when
+the next chapter is due, read off the median gap between the chapters already
+posted because mangafire publishes no schedule — and it reads `N/A` rather than
+projecting a title that has stopped, one with too few dated chapters, or one
+whose "cadence" is a re-upload; the third brings the account's MyAnimeList
+controls up to the row rather than scrolling the page down to them, and a
+second press hands them back; the fourth opens the title on mangafire.to in
+this app's own window, where a back press returns to the app. That last tile
+cannot be a plain navigation: the shell swallows every foreign URL an injected
+link could start (that is what keeps an ad from opening the browser over a
+player), so the tile asks the shell's bridge, and the bridge opens only https
+on mangafire's own domain (`MangaSource`, JVM-tested, `MangaSourceTest`).
+
+1.0.23 carried the films & series
 area (f-movies.org routes, new navbar icon) plus that area's own device
 library and continue-watching rail. 1.0.25 fixes its playback: the embeds the
 area had recorded (vidsrc.cc, vidsrc.xyz, vidapi.to) were all dead within a
@@ -1092,6 +1111,52 @@ the channel contract: the beta URL is a rolling asset, a dry run hands out
 both channel URLs, and **the URL compiled into `build.gradle` must equal the
 one `publish-github.mjs` refreshes** — it caught its own regex before it
 caught anything else.
+
+### 8.0.3 The manga title page's own controls (v27 / 1.0.26)
+
+Measured inside the installed release APK on the `shell35` emulator, driven
+through the WebView's own DevTools socket (`tools/webview-probe.mjs`) with the
+page's real `window.Shell` bridge in front of it. The row, on a live title:
+
+```json
+{ "title": "All-Class Awakening: God Slayer",
+  "kicker": "manhua · 2025 · releasing · Mangafire", "chapters": 253,
+  "nextFact": "Next chapter2026-10-16 · about every 7 days",
+  "tiles": [ { "label": "Add to library", "pressed": "false", "save": true },
+             { "label": "≈2d", "stat": true },
+             { "label": "Tracking", "track": true },
+             { "label": "WebView", "src": "https://mangafire.to/title/ro8ro" } ],
+  "estimate": { "chip": "≈2d", "scrolledBy": 0 },
+  "saveBefore": { "pressed": "false", "label": "Add to library" },
+  "saveAfter": { "pressed": "true", "label": "In library" },
+  "storage": ["htv:manga-saved:v1", "htv:library:v1", "htv:prefs:v1"],
+  "dock": { "hidden": false, "expanded": "true", "movedOutOfSide": true,
+            "slotText": "MyAnimeListlooking this up…", "aboveChapters": true },
+  "dockClosed": { "hidden": true, "backInSide": true } }
+```
+
+`scrolledBy: 0` is the guard the suite also holds: the estimate is a reading,
+and pressing it moves nothing. Saving filled the Library's manga shelf —
+`{ "count": "1", "cards": 1, "firstCard": "All-Class Awakening: God Slayer …",
+"gridHidden": false, "noteHidden": true, "drops": 1 }` — and the cross on the
+shelf card emptied it again, leaving the shelf's own note
+(`Nothing saved yet. The heart on a manga title page keeps a title here.`).
+
+The source tile, which is the one thing here the app could not do by itself:
+
+```
+I Shell   : opening the manga source: https://mangafire.to/title/ro8ro
+I Shell   : visited https://mangafire.to/title/ro8ro
+  targets   https://mangafire.to/title/ro8ro  (title: All-Class Awakening: God Slayer)
+```
+
+The page itself came up rendered (`document.title` = the title, 49 links, real
+text), an internal link on it walked within it (`visited https://mangafire.to/`),
+and a back press returned to the app (`back off a foreign page: …` → `visited
+https://hanime.tv/`). The other direction — the property the swallowing exists
+for — was checked on the same build: `location.assign('https://example.com/')`
+from the page logged `suppressed external navigation: https://example.com/` and
+left the WebView where it was.
 
 ### 8.1 What is not verified here
 

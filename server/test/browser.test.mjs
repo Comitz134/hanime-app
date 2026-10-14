@@ -117,3 +117,33 @@ test('a link whose target is not https is refused, referer or not', () => {
   const q = new URLSearchParams(mangleVia('http://127.0.0.1:8787/api/health', { referer: 'https://x/' }));
   assert.equal(unmangleLink(q), null);
 });
+
+// A key on a link is a decryption key for the body behind it, so it is signed
+// like everything else: a link that could be re-pointed at another body, or have
+// its key swapped, would be an oracle for unwrapping anything flixcloud serves.
+
+test('a relay link can carry a playlist key, and it survives the round trip', () => {
+  const key = Buffer.alloc(32, 5).toString('base64url');
+  const q = new URLSearchParams(mangleVia('https://fetch8.flixcloud.cc/v/master.m3u8', {
+    referer: 'https://flixcloud.cc/',
+    key,
+  }));
+  const link = unmangleLink(q);
+  assert.equal(link.key, key);
+  assert.equal(link.referer, 'https://flixcloud.cc/');
+});
+
+test('editing the key on a link invalidates it', () => {
+  const q = new URLSearchParams(mangleVia('https://fetch8.flixcloud.cc/v/master.m3u8', {
+    referer: 'https://flixcloud.cc/',
+    key: Buffer.alloc(32, 5).toString('base64url'),
+  }));
+  q.set('k', Buffer.alloc(32, 9).toString('base64url'));
+  assert.equal(unmangleLink(q), null);
+});
+
+test('adding a key to a plain link invalidates it', () => {
+  const q = new URLSearchParams(mangle('https://fetch8.flixcloud.cc/v/master.m3u8'));
+  q.set('k', Buffer.alloc(32, 5).toString('base64url'));
+  assert.equal(unmangleLink(q), null, 'the signature covers the empty key too');
+});

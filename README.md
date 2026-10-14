@@ -495,6 +495,18 @@ The client now carries two libraries behind one menu:
   goes through this server, which speaks as `lunarx.to` on the way out and
   caches answers (episodes and player links included) in memory. Playback is
   the same embed LunarX plays by default, so what works there works here.
+
+  Playback is where this server stops being a proxy. LunarX hands over an
+  embed *page*, not a stream, so `GET /play/anime/:id?ep=` opens it here and
+  answers with a 302 into the relay — the episode plays in the app's own
+  player. Which hosts can be opened, and how, is one table in
+  `src/providers.mjs`; the stream picker lists one *Hanime · in-app* entry per
+  openable server (each naming its source through `src=`, so a second server
+  keeps its own row) and leaves the embeds behind them for hosts the table does
+  not claim. A live survey — 2,238 episodes across the mainstream and the 18+
+  catalogue, recorded in `_mf/providers.json`/`_mf/providers2.json` — found
+  flixcloud to be LunarX's only provider so far; the day it hands over another
+  host, that is a new table entry, not a new special case.
 - **18+ · hanime** — everything from hanime.tv, labelled in the menu and with
   an `18+` chip on the section itself.
 

@@ -850,6 +850,14 @@ public class MainActivity extends Activity {
             if (httpish && isMalLoginHost(uri.getHost())) {
                 return false;
             }
+            // The manga source page is the other page the app walks to on
+            // purpose, so once it is open its own links walk within it. It is
+            // reached by the title page's button through the bridge above rather
+            // than by a link of our own, and it stays a page rather than a door:
+            // nothing here hands a URL to the browser.
+            if (httpish && MangaSource.isSource(uri.toString())) {
+                return false;
+            }
             // Everything else http(s) is swallowed, never handed to the
             // browser: an invisible ad overlay — or any injected link at all —
             // must not be able to pop the browser open on an ad. In-page
@@ -1009,6 +1017,26 @@ public class MainActivity extends Activity {
                 } catch (Exception ignored) {
                     // Nothing can handle it; staying put is the least surprising.
                 }
+            });
+        }
+
+        /**
+         * The one foreign page this app opens of its own accord: a manga title's
+         * source on mangafire.to, pressed by the reader on that title's page.
+         *
+         * The page cannot walk there itself — an in-page foreign navigation is
+         * swallowed above, which is what keeps an injected link from opening the
+         * browser over a player — so the button asks this instead. The door is
+         * narrow, and MangaSource is the rule: https on their domain, or nothing
+         * happens at all. It opens in this app's own window, where the back press
+         * already knows how to return (see handleBack).
+         */
+        @JavascriptInterface
+        public void openSource(String url) {
+            MainThread.post(() -> {
+                if (web == null || !MangaSource.isSource(url)) return;
+                Log.i(TAG, "opening the manga source: " + url);
+                web.loadUrl(url);
             });
         }
 

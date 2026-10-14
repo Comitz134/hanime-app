@@ -8,6 +8,7 @@ import test, { afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { handleFmovies, clearCache } from '../src/fmovies.mjs';
+import { clearCache as clearOpenSubsCache } from '../src/opensubs.mjs';
 
 /** A response double that records what the handler answered. */
 function fakeRes() {
@@ -336,5 +337,90 @@ test('episodes on a movie and unknown paths answer 404', async () => {
   const nowhere = await call('/api/fmovies/nope');
   assert.equal(nowhere.status, 404);
   assert.equal(nowhere.json.error, 'not_found');
+  assert.deepEqual(fetchLog, []);
+});
+
+// ---------------------------------------------------------------- subtitles
+
+test('a film answers the tracks its IMDb id has, language and all', async () => {
+  clearCache();
+  clearOpenSubsCache();
+  stubFetch([
+    ['data.vidsrc.sh', () => jsonResponse(200, { status_code: '200', data: { imdb_id: 'tt0133093' } })],
+    ['opensubtitles-v3.strem.io', () => jsonResponse(200, {
+      subtitles: [
+        { id: '37756', url: 'https://subs5.strem.io/en/download/x/file/45899', lang: 'ger', movieReleaseName: 'Matrix, The (1999)' },
+        { id: '18076', url: 'https://subs5.strem.io/en/download/x/file/20484', lang: 'eng' },
+      ],
+    })],
+  ]);
+
+  const res = await call('/api/fmovies/movie/the-matrix-603/subtitles');
+  assert.equal(res.status, 200);
+  assert.equal(res.json.imdb_id, 'tt0133093');
+  assert.deepEqual(res.json.tracks.map((t) => [t.language, t.name, t.format]), [
+    ['de', 'Matrix, The (1999)', 'srt'],
+    ['en', null, 'srt'],
+  ]);
+  assert.ok(res.json.tracks[0].url.startsWith('https://subs5.strem.io/'));
+
+  // The IMDb id is the one hop the slug cannot make itself: the video route's
+  // data API is where the door chain keeps it, and it is what the site's own
+  // player reads.
+  const mapping = fetchLog.find((f) => f.url.includes('data.vidsrc.sh'));
+  assert.ok(mapping.url.includes('type=movie') && mapping.url.includes('tmdb=603'), mapping.url);
+});
+
+test('an episode is asked as an episode', async () => {
+  clearCache();
+  clearOpenSubsCache();
+  stubFetch([
+    ['data.vidsrc.sh', () => jsonResponse(200, { data: { imdb_id: 'tt0903747' } })],
+    ['opensubtitles-v3.strem.io', () => jsonResponse(200, {
+      subtitles: [{ id: '1', url: 'https://subs5.strem.io/en/download/x/file/1', lang: 'eng', movieReleaseName: 'Breaking.Bad.S01E01' }],
+    })],
+  ]);
+
+  const res = await call('/api/fmovies/tv/breaking-bad-1396/subtitles?season=1&episode=1');
+  assert.equal(res.status, 200);
+  assert.equal(res.json.season, 1);
+  assert.equal(res.json.episode, 1);
+  assert.deepEqual(res.json.tracks.map((t) => t.language), ['en']);
+  assert.ok(fetchLog.some((f) => f.url.includes('/subtitles/series/tt0903747:1:1.json')));
+});
+
+test('when the addon has nothing, the door player\'s own list is the answer', async () => {
+  clearCache();
+  clearOpenSubsCache();
+  // The same route answers both questions: this title has no IMDb id to look up
+  // with, and it does name one subtitle file of its own.
+  stubFetch([['data.vidsrc.sh', () => jsonResponse(200, {
+    data: { title: 'Curb Your Enthusiasm 2000' },
+    default_subs: [{ lang: 'English - eng', code: 'en', url: 'https://vidapi.cloud/subs/abc/eng.eng.srt' }],
+  })]]);
+
+  const res = await call('/api/fmovies/tv/4546-4546/subtitles?season=7&episode=9');
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.json.tracks.map((t) => [t.language, t.name]), [['en', 'English']]);
+  assert.equal(res.json.tracks[0].url, 'https://vidapi.cloud/subs/abc/eng.eng.srt');
+  assert.equal(fetchLog.filter((f) => f.url.includes('opensubtitles')).length, 0,
+    'with no IMDb id there is nothing to ask the addon');
+});
+
+test('a title with neither source answers an empty list, not an error', async () => {
+  clearCache();
+  clearOpenSubsCache();
+  stubFetch([['data.vidsrc.sh', () => jsonResponse(200, { data: {}, default_subs: [] })]]);
+
+  const res = await call('/api/fmovies/movie/cavegirl-580175/subtitles');
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.json.tracks, []);
+});
+
+test('a slug without a numeric id has no subtitles', async () => {
+  clearCache();
+  stubFetch([]);
+  const res = await call('/api/fmovies/movie/serial-in-name-only/subtitles');
+  assert.equal(res.status, 404);
   assert.deepEqual(fetchLog, []);
 });

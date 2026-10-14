@@ -24,9 +24,14 @@
 // shelf resolves to HLS playlists a native player can open. Films are one layer
 // harder: their doors hand out a *player*, not a stream, so `/play/films/…`
 // borrows a browser to learn what that player plays and the relay serves it —
-// the film lands in the app's own player all the same. Anime titles still answer
-// with embed pages and travel as `externalUrl` until someone resolves them the
-// same way.
+// the film lands in the app's own player all the same. Anime answers with
+// flixcloud embeds, which `/play/anime/…` opens by itself (src/providers.mjs),
+// so those play in the app too; an embed from any other provider still travels
+// as `externalUrl`, which is where a page this server cannot open belongs.
+
+import { mangle, mangleVia } from './hls.mjs';
+import { isResolvableEmbed, resolveSubtitles } from './providers.mjs';
+import { subtitleTracks } from './fmovies.mjs';
 
 const PAGE_SIZE = 24;
 
@@ -41,15 +46,22 @@ function idFor(area, key) {
  * the season and episode carried in the tail.
  */
 function parseId(raw) {
-  const parts = String(raw ?? '').split(':');
+  // The desktop app's MAL tracker opens titles by their MyAnimeList id —
+  // `mal:21` in a library row, `mal:21:1:5` for its episode five — which is
+  // the same id space as `ha:ml:…`, spelled without the prefix. Normalising
+  // here means meta, streams and subtitles accept both.
+  const value = String(raw ?? '').trim();
+  const parts = (value.startsWith('mal:') ? `ha:ml:${value.slice('mal:'.length)}` : value).split(':');
   if (parts.length < 3 || parts[0] !== 'ha') return null;
   const [, area, ...rest] = parts;
   if (!rest.length || !rest.every((p) => p.length)) return null;
 
   // Both series areas carry an episode tail: `ha:an:21:1:5` and
   // `ha:ft:breaking-bad-1396:5:16` are the same two numbers in the same two
-  // places, and neither area's key can hold a colon of its own.
-  if (area === 'an' || area === 'ft') {
+  // places, and neither area's key can hold a colon of its own. A bare
+  // `mal:21` (a MyAnimeList list row, no `ha:` prefix) lands here too — the
+  // desktop app's tracker opens titles by their MAL id.
+  if (area === 'an' || area === 'ft' || area === 'ml') {
     if (rest.length >= 3) {
       const season = Number(rest[rest.length - 2]);
       const episode = Number(rest[rest.length - 1]);
@@ -63,14 +75,39 @@ function parseId(raw) {
   return null;
 }
 
+/**
+ * A MyAnimeList id back into the area everything else already speaks.
+ *
+ * The tracker's list rows know a title only by its MAL id (`mal:21`), and
+ * every route here is keyed by AniList's. AniList carries MAL's id on every
+ * anime record, so one query turns one into the other — and the answer is the
+ * normal `ha:an:<anilist id>` ref from there on, which means meta, streams
+ * and subtitles all work without knowing MAL exists. A title AniList has no
+ * record of is a null ref: a list row the catalogue cannot open, not an error.
+ */
+async function resolveMalRef(self, ref) {
+  if (ref.area !== 'ml') return ref;
+  const body = await self(`/api/anime/by-mal/${encodeURIComponent(ref.key)}`);
+  const id = Number(body?.details?.id);
+  if (!Number.isInteger(id) || id <= 0) return null;
+  return { area: 'an', key: String(id), season: ref.season, episode: ref.episode };
+}
+
 // ------------------------------------------------------------- the catalog
 
+// The 18+ shelves carry their own type, `hentai`, rather than hiding under
+// `movie`. The client's search and discover filters are built from the types a
+// source declares, so a shelf filed under `movie` had no filter of its own —
+// there was no way to ask the search box for this content. The type is also
+// only a label on the shelf: catalog, meta, stream and subtitle requests are
+// all resolved by the entry's own id (the 18+ entries stay `movie`, which is
+// what the player and the library read), so nothing else changes with it.
 const CATALOGS = [
   { key: 'anime-trending', type: 'series', name: 'Anime — trending now' },
   { key: 'films-listing', type: 'movie', name: 'Films — popular now' },
   { key: 'series-listing', type: 'series', name: 'Series — popular now' },
-  { key: 'adult-newest', type: 'movie', name: '18+ — newest' },
-  { key: 'adult-views', type: 'movie', name: '18+ — most viewed' },
+  { key: 'adult-newest', type: 'hentai', name: 'Hentai — newest' },
+  { key: 'adult-views', type: 'hentai', name: 'Hentai — most viewed' },
 ];
 
 /** The manifest a Stremio client reads first. */
@@ -80,8 +117,13 @@ export function manifest() {
     version: '1.0.0',
     name: 'SEKAI',
     description: 'Anime, films and series from this server, plus its own 18+ shelf.',
-    resources: ['catalog', 'meta', 'stream'],
-    types: ['movie', 'series'],
+    // `subtitles` is the fourth resource a Stremio client may ask for: the
+    // anime embeds name their own subtitle files (the flixcloud page lists
+    // them), and the app's player has an Addons tab that reads exactly this.
+    resources: ['catalog', 'meta', 'stream', 'subtitles'],
+    // `hentai` is this source's own shelf type, not a Stremio one — the client
+    // takes the filter list from here, which is the point of it.
+    types: ['movie', 'series', 'hentai'],
     catalogs: CATALOGS.map(({ key, type, name }) => ({
       type,
       id: key,
@@ -232,8 +274,14 @@ async function catalog(id, extra, self) {
     case 'adult-newest':
     case 'adult-views': {
       const order = id === 'adult-views' ? 'views' : 'released_at';
+      // `/api/videos` counts its pages from zero, the addon protocol from one:
+      // this shelf's first page is page 0 there. Handing the protocol's number
+      // straight over asked for the *second* page of the catalogue every time —
+      // the shelf never showed its newest, and a search whose matches all fit
+      // on one page came back empty.
+      const page0 = Math.max(0, page - 1);
       const body = await self(
-        `/api/videos?page=${page}&per_page=${PAGE_SIZE}&order_by=${order}&ordering=desc${search}`,
+        `/api/videos?page=${page0}&per_page=${PAGE_SIZE}&order_by=${order}&ordering=desc${search}`,
       );
       return (body?.data ?? []).map((item) => preview(adultMeta(item)));
     }
@@ -244,6 +292,15 @@ async function catalog(id, extra, self) {
 
 /** Everything one title's page needs, including its episode rows. */
 async function meta(ref, self) {
+  if (ref.area === 'ml') {
+    try {
+      ref = await resolveMalRef(self, ref);
+    } catch (e) {
+      return null;
+    }
+    if (!ref) return null;
+  }
+
   if (ref.area === 'an') {
     const body = await self(`/api/anime/${seg(ref.key)}`);
     const card = body?.details;
@@ -321,6 +378,15 @@ async function meta(ref, self) {
  * handing a player an HTML document it cannot decode.
  */
 async function streams(ref, self, origin) {
+  if (ref.area === 'ml') {
+    try {
+      ref = await resolveMalRef(self, ref);
+    } catch (e) {
+      return [];
+    }
+    if (!ref) return [];
+  }
+
   if (ref.area === 'ad') {
     const body = await self(`/api/videos/${seg(ref.key)}/sources`);
     return (body?.sources ?? []).map((s) => {
@@ -344,11 +410,31 @@ async function streams(ref, self, origin) {
     } catch (e) {
       return [];
     }
-    return (body?.sources ?? []).map((s) => ({
-      name: `Hanime · ${s.label ?? 'player'}`,
-      description: 'embed — opens in your browser',
-      externalUrl: s.url,
-    }));
+    const sources = body?.sources ?? [];
+
+    // A source on a provider this server can open by itself (src/providers.mjs)
+    // leads the list as a media URL in the app's own player. Every such source
+    // gets its own entry and the route is told which to try first, so a second
+    // server from LunarX keeps its own row instead of being hidden behind the
+    // first — the entry names the first one as it always did, and the rest say
+    // which server they are. A source no provider claims adds no entry here and
+    // stays what it was: an embed for the browser.
+    const inApp = sources
+      .filter((s) => isResolvableEmbed(s.url))
+      .map((s, i) => ({
+        name: i === 0 ? 'Hanime · in-app' : `Hanime · in-app (${s.label ?? i + 1})`,
+        description: 'HLS — plays in the player',
+        url: `${origin}/play/anime/${seg(ref.key)}?ep=${ep}${s.label ? `&src=${encodeURIComponent(s.label)}` : ''}`,
+      }));
+
+    return [
+      ...inApp,
+      ...sources.map((s) => ({
+        name: `Hanime · ${s.label ?? 'player'}`,
+        description: 'embed — opens in your browser',
+        externalUrl: s.url,
+      })),
+    ];
   }
 
   if (ref.area === 'fm' || ref.area === 'ft') {
@@ -393,6 +479,96 @@ async function streams(ref, self, origin) {
   }
 
   return [];
+}
+
+/**
+ * The subtitle tracks a title offers — the protocol's `subtitles` resource.
+ *
+ * Three of the four areas have some. Anime's embeds name their own files
+ * (flixcloud lists them on the page). Films and series have none inside the
+ * door at all — their players resolve to a plain HLS master with no subtitle
+ * renditions and never fetch one, checked live — so they are asked of the
+ * OpenSubtitles addon by IMDb id instead (src/opensubs.mjs), with the door
+ * player's own thin list as the fallback. The 18+ shelf carries no subtitle
+ * renditions either, so it answers an empty list, which is a real answer —
+ * "nothing to offer" — not an error.
+ *
+ * A track travels to the client as a relay link rather than as the CDN URL it
+ * really is: the link carries the provider's referer where one is needed, so
+ * the player downloads the file through this server without having to know
+ * whose CDN it is, and without a header of its own.
+ */
+async function subtitles(ref, self, origin) {
+  if (ref.area === 'ml') {
+    try {
+      ref = await resolveMalRef(self, ref);
+    } catch (e) {
+      return [];
+    }
+    if (!ref) return [];
+  }
+
+  if (ref.area === 'fm' || ref.area === 'ft') {
+    const type = ref.area === 'fm' ? 'movie' : 'tv';
+    const season = Math.max(1, Number(ref.season ?? 1) | 0);
+    const episode = Math.max(1, Number(ref.episode ?? 1) | 0);
+    let found;
+    try {
+      found = await subtitleTracks(type, ref.key, { season, episode });
+    } catch (e) {
+      return [];
+    }
+    return (found?.tracks ?? []).map((track, i) => ({
+      id: String(track.id ?? i),
+      // No referer: the subtitle CDN answers a plain reader, and inventing one
+      // would break the link the moment it changed.
+      url: `${origin}/relay?${mangle(track.url)}`,
+      lang: track.lang,
+      label: track.label,
+      format: track.format ?? 'srt',
+    }));
+  }
+
+  if (ref.area !== 'an') return [];
+  const ep = Math.max(1, Number(ref.episode ?? 1) | 0);
+
+  let body;
+  try {
+    body = await self(`/api/anime/${seg(ref.key)}/player?ep=${ep}`);
+  } catch (e) {
+    return [];
+  }
+
+  for (const source of body?.sources ?? []) {
+    const found = await resolveSubtitles(source.url);
+    if (!found.ok || !found.tracks.length) continue;
+    return found.tracks.map((track, i) => ({
+      id: `${found.provider}-${i}`,
+      url: `${origin}/relay?${mangleVia(track.url, { referer: found.referer })}`,
+      // The page names a track the way a person would ('English (Dialogues
+      // [SoM])'): the language is the half a language picker can match a
+      // preference against, and it has to be a code to do it — a client asked
+      // for English matches 'en' and not the word 'English'. The rest of the
+      // name is what tells three English tracks apart.
+      lang: track.code ?? languageOf(track.language),
+      label: detailOf(track.language),
+      format: track.format,
+    }));
+  }
+  return [];
+}
+
+/** 'English (Dialogues [SoM])' -> 'English'; anything else passes through. */
+function languageOf(name) {
+  return String(name).split('(')[0].trim() || 'unknown';
+}
+
+/** 'English (Dialogues [SoM])' -> 'Dialogues [SoM]', or nothing when absent. */
+function detailOf(name) {
+  const at = String(name).indexOf('(');
+  if (at < 0) return undefined;
+  const detail = String(name).slice(at + 1).replace(/\)\s*$/, '').trim();
+  return detail || undefined;
 }
 
 // ---------------------------------------------------------------- routing
@@ -447,6 +623,15 @@ export async function handleAddon(url, res, pathname, self) {
     }
     const list = await streams(ref, self, `${url.protocol}//${url.host}`);
     return send(res, 200, { streams: list });
+  }
+
+  // /addon/subtitles/<type>/<id>.json — the same id shape, answered with the
+  // tracks the embed names. An empty list is a complete answer.
+  if (parts[0] === 'subtitles' && parts.length === 3) {
+    const ref = parseId(decodeURIComponent(parts[2].replace(/\.json$/, '')));
+    if (!ref) return send(res, 404, { error: 'bad_id' });
+    const list = await subtitles(ref, self, `${url.protocol}//${url.host}`);
+    return send(res, 200, { subtitles: list });
   }
 
   return send(res, 404, { error: 'not_found', pathname });

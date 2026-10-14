@@ -1,19 +1,31 @@
-// The MyAnimeList relay with fetch stubbed — the Node twin of
-// android/.../MalTest.java, pinning the same contract: everything crosses
-// the pipe as QUERY PARAMETERS (Android's WebView interceptor is never
-// handed a request body, so a body-based contract could not be implemented
-// by the app's Java twin at all), the token route forwards only the fields
-// MAL documents (plus the env-held secret, when a registration issued one),
-// the API route forwards the caller's own Bearer untouched, GET parameters
-// continue as MAL's query, PUT parameters become the form body MAL writes
-// list status with, and a request that fails a precondition never reaches
-// the network.
+// MyAnimeList, as the desktop app's tracker meets it: the desktop login
+// handoff (src/mal.mjs) and the `mal:` ids the tracker's library rows carry
+// (src/addon.mjs).
+//
+// The handoff exists because the desktop app is a native window: it opens the
+// system browser at MAL's authorize URL, MAL redirects to this server's own
+// origin (the registered redirect URI) with `?code=…&state=…`, and the app
+// collects the code by polling for the state it minted. The state is the only
+// thing that makes the handover safe, which is what these tests pin down.
+//
+// The id half: a library row knows a title only as `mal:21`, and every route
+// in the addon is keyed by AniList's id. AniList carries MAL's id on the
+// record, so one query turns one into the other and the row opens like any
+// other title.
 
 import test, { afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { Readable } from 'node:stream';
 
-import { handleMalApi, handleMalToken } from '../src/mal.mjs';
+import { handleAnime } from '../src/anime.mjs';
+import {
+  DESKTOP_STATE_PREFIX,
+  clearPendingDesktopCodes,
+  handleDesktopLanding,
+  handleMalDesktopCallback,
+  isDesktopState,
+  stashDesktopCode,
+} from '../src/mal.mjs';
+import { handleAddon } from '../src/addon.mjs';
 
 /** A response double that records what the handler answered. */
 function fakeRes() {
@@ -26,14 +38,6 @@ function fakeRes() {
   };
 }
 
-/** A request double: method and headers; the pipe never reads a body. */
-function fakeReq(method, headers) {
-  const req = Readable.from([]);
-  req.method = method;
-  req.headers = headers ?? {};
-  return req;
-}
-
 const realFetch = globalThis.fetch;
 let fetchLog = [];
 
@@ -43,215 +47,253 @@ function stubFetch(routes) {
     const u = String(url);
     fetchLog.push({ url: u, opts });
     for (const [match, reply] of routes) {
-      if (u.includes(match)) {
-        const { status, body, headers } = typeof reply === 'function' ? reply(u, opts) : reply;
-        return {
-          ok: status >= 200 && status < 300,
-          status,
-          headers: new Map(Object.entries(headers ?? { 'content-type': 'application/json' })),
-          text: async () => JSON.stringify(body),
-        };
-      }
+      if (u.includes(match)) return reply(u, opts);
     }
     throw new Error(`unstubbed fetch: ${u}`);
   };
 }
 
-const tokenUrl = (query) => new URL(`http://localhost/api/mal/token?${query}`);
+function jsonResponse(status, body) {
+  return { ok: status >= 200 && status < 300, status, json: async () => body };
+}
+
+/** Like fakeRes, for handlers that answer HTML rather than JSON. */
+function htmlRes() {
+  return {
+    status: null,
+    headers: null,
+    body: null,
+    writeHead(status, headers) { this.status = status; this.headers = headers; },
+    end(text) { this.body = text; },
+  };
+}
 
 afterEach(() => {
   globalThis.fetch = realFetch;
-  delete process.env.MAL_CLIENT_SECRET;
+  clearPendingDesktopCodes();
 });
 
-// ------------------------------------------------------------ POST /token
+// ------------------------------------------------------------- the handoff
 
-test('the token route forwards exactly the fields MAL documents', async () => {
-  stubFetch([['myanimelist.net/v1/oauth2/token', {
-    status: 200,
-    body: { token_type: 'Bearer', expires_in: 3600, access_token: 'a', refresh_token: 'r' },
-  }]]);
+test('a code the browser dropped is collected once, by its state', async () => {
+  assert.equal(stashDesktopCode('st-1', 'code-abc'), true);
 
   const res = fakeRes();
-  await handleMalToken(tokenUrl(new URLSearchParams({
-    client_id: 'cid123',
-    grant_type: 'authorization_code',
-    code: 'the-code',
-    code_verifier: 'v'.repeat(43),
-    redirect_uri: 'https://hanime.tv/',
-    evil: 'must not pass',
-  }).toString()), fakeReq('POST'), res);
-
+  await handleMalDesktopCallback(new URL('http://self/api/mal/desktop-callback?state=st-1'), res);
   assert.equal(res.status, 200);
-  assert.equal(fetchLog.length, 1);
-  assert.ok(fetchLog[0].url.includes('myanimelist.net/v1/oauth2/token'));
-  // Inbound is the query; onward to MAL it is the form those docs specify.
-  const sent = fetchLog[0].opts.body;
-  assert.ok(sent.includes('client_id=cid123'));
-  assert.ok(sent.includes('grant_type=authorization_code'));
-  assert.ok(sent.includes('code=the-code'));
-  assert.ok(sent.includes('code_verifier='));
-  assert.ok('the redirect is form-encoded',
-    sent.includes('redirect_uri=https%3A%2F%2Fhanime.tv%2F'));
-  assert.ok(!sent.includes('evil'), 'an undocumented field leaked into the form');
-  assert.equal(fetchLog[0].opts.headers['content-type'],
-    'application/x-www-form-urlencoded');
+  assert.deepEqual(res.json, { code: 'code-abc', state: 'st-1' });
+
+  // One read, then it is gone — a replayed poll is not a second chance at
+  // someone else's code.
+  const again = fakeRes();
+  await handleMalDesktopCallback(new URL('http://self/api/mal/desktop-callback?state=st-1'), again);
+  assert.equal(again.status, 404);
+  assert.equal(again.json.error, 'none_pending');
 });
 
-test('an env-held client secret rides only on the token route', async () => {
-  process.env.MAL_CLIENT_SECRET = 'topsecret';
-  stubFetch([['myanimelist.net/v1/oauth2/token', { status: 200, body: { access_token: 'a' } }]]);
+test('a state that was never minted answers nothing', async () => {
+  stashDesktopCode('st-real', 'code-real');
 
   const res = fakeRes();
-  await handleMalToken(
-    tokenUrl('client_id=c&grant_type=refresh_token&refresh_token=old'),
-    fakeReq('POST'),
-    res,
-  );
-
-  assert.equal(res.status, 200);
-  assert.ok(fetchLog[0].opts.body.includes('client_secret=topsecret'));
-});
-
-test('a grant MAL does not document is refused before the network', async () => {
-  stubFetch([]);
-  const res = fakeRes();
-  await handleMalToken(tokenUrl('client_id=c&grant_type=password'), fakeReq('POST'), res);
-  assert.equal(res.status, 400);
-  assert.equal(res.json.error, 'unsupported_grant_type');
-  assert.equal(fetchLog.length, 0, 'a refusal must not reach the network');
-});
-
-test('a half-finished exchange is refused before the network', async () => {
-  stubFetch([]);
-  const res = fakeRes();
-  await handleMalToken(
-    tokenUrl('client_id=c&grant_type=authorization_code&code=x'),
-    fakeReq('POST'),
-    res,
-  );
-  assert.equal(res.status, 400);
-  assert.equal(res.json.error, 'code_verifier_and_redirect_required');
-  assert.equal(fetchLog.length, 0);
-});
-
-test('the token route is POST-only', async () => {
-  stubFetch([]);
-  const res = fakeRes();
-  await handleMalToken(tokenUrl('client_id=c'), fakeReq('GET'), res);
-  assert.equal(res.status, 405);
-  assert.equal(fetchLog.length, 0);
-});
-
-// ------------------------------------------------------------ /mal/v2/* pipe
-
-test('a GET continues as the query, with the callers Bearer', async () => {
-  stubFetch([['api.myanimelist.net', { status: 200, body: { name: 'me' } }]]);
-  const res = fakeRes();
-  await handleMalApi(
-    new URL('http://localhost/api/mal/v2/users/@me?fields=name'),
-    fakeReq('GET', { authorization: 'Bearer abc123' }),
-    res,
-    '/api/mal/v2/users/@me',
-  );
-
-  assert.equal(res.status, 200);
-  assert.equal(res.json.name, 'me');
-  assert.equal(fetchLog[0].url,
-    'https://api.myanimelist.net/v2/users/@me?fields=name');
-  assert.equal(fetchLog[0].opts.headers.authorization, 'Bearer abc123');
-  assert.equal(fetchLog[0].opts.body, undefined, 'a GET carries no body');
-});
-
-test('PUT parameters become the form body MAL writes list status with', async () => {
-  stubFetch([['api.myanimelist.net', { status: 200, body: { status: 'watching' } }]]);
-  const res = fakeRes();
-  await handleMalApi(
-    new URL('http://localhost/api/mal/v2/anime/21/my_list_status'
-      + '?status=watching&score=8&num_watched_episodes=5&blank='),
-    fakeReq('PUT', { authorization: 'Bearer t' }),
-    res,
-    '/api/mal/v2/anime/21/my_list_status',
-  );
-
-  assert.equal(res.status, 200);
-  assert.equal(fetchLog[0].opts.method, 'PUT');
-  assert.ok(!fetchLog[0].url.includes('?'),
-    'the fields must reach MAL as the body, not twice as the query');
-  const sent = fetchLog[0].opts.body;
-  assert.ok(sent.includes('status=watching'));
-  assert.ok(sent.includes('score=8'));
-  assert.ok(sent.includes('num_watched_episodes=5'));
-  assert.ok(!sent.includes('blank'), 'an empty value must be omitted');
-  assert.equal(fetchLog[0].opts.headers['content-type'],
-    'application/x-www-form-urlencoded');
-});
-
-test('the pipe is closed to callers with no token', async () => {
-  stubFetch([]);
-  const noAuth = fakeRes();
-  await handleMalApi(
-    new URL('http://localhost/api/mal/v2/users/@me'),
-    fakeReq('GET', {}),
-    noAuth,
-    '/api/mal/v2/users/@me',
-  );
-  assert.equal(noAuth.status, 401);
-  assert.equal(fetchLog.length, 0, 'a refusal must not reach the network');
-
-  const wrongScheme = fakeRes();
-  await handleMalApi(
-    new URL('http://localhost/api/mal/v2/users/@me'),
-    fakeReq('GET', { authorization: 'Basic abc' }),
-    wrongScheme,
-    '/api/mal/v2/users/@me',
-  );
-  assert.equal(wrongScheme.status, 401);
-  assert.equal(fetchLog.length, 0);
-});
-
-test('anything that is not v2 is not this pipe', async () => {
-  stubFetch([]);
-  const res = fakeRes();
-  await handleMalApi(
-    new URL('http://localhost/api/mal/v1/legacy'),
-    fakeReq('GET', { authorization: 'Bearer t' }),
-    res,
-    '/api/mal/v1/legacy',
-  );
+  await handleMalDesktopCallback(new URL('http://self/api/mal/desktop-callback?state=st-other'), res);
   assert.equal(res.status, 404);
-  assert.equal(fetchLog.length, 0);
+
+  // The real entry is untouched: one stranger's poll does not burn it.
+  const real = fakeRes();
+  await handleMalDesktopCallback(new URL('http://self/api/mal/desktop-callback?state=st-real'), real);
+  assert.equal(real.status, 200);
+
+  // No state at all is the same answer, not a leak of every pending code.
+  const blank = fakeRes();
+  await handleMalDesktopCallback(new URL('http://self/api/mal/desktop-callback'), blank);
+  assert.equal(blank.status, 404);
 });
 
-test('a foreign origin cannot borrow the relay', async () => {
-  stubFetch([['api.myanimelist.net', { status: 200, body: {} }]]);
-  const res = fakeRes();
-  await handleMalApi(
-    new URL('http://localhost/api/mal/v2/users/@me'),
-    fakeReq('GET', {
-      origin: 'https://evil.example',
-      host: 'localhost:8787',
-      authorization: 'Bearer t',
-    }),
-    res,
-    '/api/mal/v2/users/@me',
-  );
-  assert.equal(res.status, 403);
-  assert.equal(fetchLog.length, 0, 'the relay was borrowed cross-origin');
+test('a redirect-shaped payload of absurd size is not believed', () => {
+  // The route is reachable by anything on this machine, so the stash is
+  // bounded: a state longer than any client mints, or a code longer than MAL
+  // can issue, is not a redirect MAL produced. (The code bound was once 512,
+  // which is *below* what MAL sends — see the next test.)
+  assert.equal(stashDesktopCode('x'.repeat(300), 'code'), false);
+  assert.equal(stashDesktopCode('st', 'c'.repeat(4097)), false);
+  assert.equal(stashDesktopCode('', 'code'), false);
+  assert.equal(stashDesktopCode('st', ''), false);
+});
 
-  // The same origin the server answers under — what the web copy sends —
-  // passes, and a non-browser caller that sends no Origin at all passes too.
-  const own = fakeRes();
-  await handleMalApi(
-    new URL('http://localhost/api/mal/v2/users/@me'),
-    fakeReq('GET', {
-      origin: 'http://localhost:8787',
-      host: 'localhost:8787',
-      authorization: 'Bearer t',
-    }),
-    own,
-    '/api/mal/v2/users/@me',
+test('a code as long as MAL actually issues is accepted and collected', async () => {
+  // A live login on 2026-10-11 arrived with a 898-character code. A bound
+  // below that silently refused real logins: the browser was shown
+  // "signed in" while the app polled forever for a code the server had
+  // thrown away.
+  const code = 'd'.repeat(898);
+  assert.equal(stashDesktopCode('st-long', code), true);
+
+  const res = fakeRes();
+  await handleMalDesktopCallback(new URL('http://self/api/mal/desktop-callback?state=st-long'), res);
+  assert.equal(res.status, 200);
+  assert.equal(res.json.code, code);
+});
+
+test('the landing page claims a sign-in only when the code was really held', () => {
+  // A refused stash used to still say "you can close this tab", which is what
+  // made a refused login look like a stalled one, with nothing to say why.
+  const refused = htmlRes();
+  const landed = handleDesktopLanding(
+    new URL(`http://self/?code=${'c'.repeat(4097)}&state=${DESKTOP_STATE_PREFIX}toolong`),
+    refused,
   );
-  assert.equal(own.status, 200);
-  assert.equal(fetchLog.length, 1);
+  assert.equal(landed, true);
+  assert.equal(refused.status, 200);
+  assert.doesNotMatch(refused.body, /close this tab/i);
+  assert.match(refused.body, /try again/i);
+
+  const held = htmlRes();
+  handleDesktopLanding(
+    new URL(`http://self/?code=real-code&state=${DESKTOP_STATE_PREFIX}fine`),
+    held,
+  );
+  assert.match(held.body, /close this tab/i);
+});
+
+// The redirect origin is shared with the web client, so a login must say which
+// client it belongs to — the state carries that, and the app is the one that
+// prefixes it.
+
+test('a desktop login lands on its own page, not the web client', async () => {
+  const res = htmlRes();
+  const handled = handleDesktopLanding(
+    new URL(`http://self/?code=code-xyz&state=${DESKTOP_STATE_PREFIX}abc123`),
+    res,
+  );
+  assert.equal(handled, true);
+  assert.equal(res.status, 200);
+  assert.match(res.headers['content-type'], /text\/html/);
+  // The browser is told its part is done — it is never handed the web client,
+  // whose own callback would report a mismatch for a state it never minted.
+  assert.match(res.body, /Signed in to MyAnimeList/);
+  assert.match(res.body, /close this tab/i);
+
+  // And the code the browser dropped is waiting for the app's own poll.
+  const poll = fakeRes();
+  await handleMalDesktopCallback(
+    new URL(`http://self/api/mal/desktop-callback?state=${DESKTOP_STATE_PREFIX}abc123`),
+    poll,
+  );
+  assert.equal(poll.status, 200);
+  assert.equal(poll.json.code, 'code-xyz');
+});
+
+test('the web client\'s own redirect is left to the web client', async () => {
+  const res = htmlRes();
+  const handled = handleDesktopLanding(new URL('http://self/?code=c&state=plain-state'), res);
+  // Not ours to answer: the server falls through and serves the client, whose
+  // code it consumes from the address bar.
+  assert.equal(handled, false);
+  assert.equal(res.status, null);
+});
+
+test('only a state the app signed is a desktop state', () => {
+  assert.equal(isDesktopState(`${DESKTOP_STATE_PREFIX}abc`), true);
+  assert.equal(isDesktopState('abc'), false);
+  assert.equal(isDesktopState(''), false);
+  assert.equal(isDesktopState(null), false);
+  assert.equal(isDesktopState(undefined), false);
+});
+
+test('a desktop redirect without a code is not answered as one', () => {
+  const res = htmlRes();
+  // `?state=…&error=access_denied` is MAL saying no: nothing is stashed and
+  // the browser is not congratulated for a login that was refused.
+  assert.equal(handleDesktopLanding(new URL(`http://self/?state=${DESKTOP_STATE_PREFIX}x&error=access_denied`), res), false);
+  assert.equal(res.status, null);
+});
+
+// ------------------------------------------------------ mal: ids in the addon
+
+const anilistCard = {
+  id: 99001,
+  idMal: 20,
+  title: { romaji: 'Test no Hito' },
+  description: 'A test title.',
+  episodes: 12,
+  averageScore: 81,
+  startDate: { year: 2024 },
+  format: 'TV',
+  status: 'FINISHED',
+  coverImage: { large: 'https://s4.anilist.co/c.jpg' },
+  bannerImage: 'https://s4.anilist.co/b.jpg',
+  genres: ['Action'],
+  recommendations: { nodes: [] },
+};
+
+const lunarxPlayer = {
+  data: [{ server: 'sv-2', player_url: 'https://flixcloud.cc/e/abc?v=2' }],
+};
+
+/** The `self` the server passes in: this file's own anime routes only. */
+async function self(path) {
+  const url = new URL(path, 'http://self');
+  const res = fakeRes();
+  if (url.pathname.startsWith('/api/anime/')) await handleAnime(url, res, url.pathname);
+  else throw new Error(`unstubbed self route: ${path}`);
+  if (res.status >= 400) {
+    const err = new Error(`${path} answered ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  return res.json;
+}
+
+async function call(path) {
+  const url = new URL(path, 'http://local');
+  const res = fakeRes();
+  await handleAddon(url, res, url.pathname, self);
+  return res;
+}
+
+test('a MAL library row opens as the title it names', async () => {
+  stubFetch([
+    ['graphql.anilist.co', () => jsonResponse(200, { data: { Media: anilistCard } })],
+    ['api.lunarx.to/api/animes/v2/episodes', () => jsonResponse(200, { data: [] })],
+  ]);
+
+  // The shape the desktop app's tracker asks with: `mal:21`, no `ha:` prefix.
+  const res = await call('/addon/meta/series/mal%3A20.json');
+  assert.equal(res.status, 200);
+
+  // AniList was asked by MAL's id…
+  assert.ok(fetchLog.some((c) => c.url.includes('graphql.anilist.co') && c.opts.body.includes('idMal')), 'asked AniList by idMal');
+
+  // …and the answer carries AniList's own id, so every later request —
+  // streams, subtitles, episodes — leaves the id space the routes speak.
+  assert.equal(res.json.meta.id, 'ha:an:99001');
+  assert.equal(res.json.meta.name, 'Test no Hito');
+});
+
+test('a MAL row plays its episode through the anime area', async () => {
+  stubFetch([
+    ['graphql.anilist.co', () => jsonResponse(200, { data: { Media: anilistCard } })],
+    ['api.lunarx.to/api/3rdprovider', () => jsonResponse(200, lunarxPlayer)],
+  ]);
+
+  const res = await call('/addon/stream/series/mal%3A20%3A1%3A5.json');
+  assert.equal(res.status, 200);
+  // Episode five of the MAL row is episode five of the AniList title.
+  assert.ok(fetchLog.some((c) => c.url.includes('api/3rdprovider') && c.url.includes('anilist=99001') && c.url.includes('episode=5')));
+});
+
+test('a MAL id the catalogue has no record of is nothing, not an error', async () => {
+  stubFetch([
+    ['graphql.anilist.co', () => jsonResponse(200, { data: { Media: null } })],
+  ]);
+
+  // "No such title" is the addon's normal 404 — the same answer any unknown
+  // id gets — so the app shows its empty state instead of a broken row.
+  const meta = await call('/addon/meta/series/mal%3A424242.json');
+  assert.equal(meta.status, 404);
+  assert.equal(meta.json.error, 'not_found');
+
+  const streams = await call('/addon/stream/series/mal%3A424242%3A1%3A1.json');
+  assert.equal(streams.status, 200);
+  assert.deepEqual(streams.json.streams, []);
 });

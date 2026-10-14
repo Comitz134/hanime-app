@@ -8,9 +8,13 @@
 
 import test, { afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { handleAnime } from '../src/anime.mjs';
 import { handleFmovies, clearCache } from '../src/fmovies.mjs';
+import { clearCache as clearOpenSubsCache } from '../src/opensubs.mjs';
 import { handleAddon, manifest } from '../src/addon.mjs';
 
 /** A response double that records what the handler answered. */
@@ -24,11 +28,30 @@ function fakeRes() {
   };
 }
 
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const flix = JSON.parse(fs.readFileSync(path.join(HERE, 'fixtures/flixcloud-capture.json'), 'utf8'));
+
+/** The captured flixcloud page, as the tests below need it to answer. */
+function flixPage() {
+  return `<!doctype html><html><body><script>
+  const data = { obfuscation_seed:"${flix.embed.seed}",
+    ${flix.embed.tokenField}:"${flix.embed.token}",
+    ${flix.embed.keyFrag2Field}:"${flix.embed.keyFrag2Value}",
+    ${flix.embed.containerName}:{${flix.embed.arrayName}:[{${flix.embed.objectName}:{${flix.embed.keyField}:"${flix.embed.keyFieldValue}",${flix.embed.ivField}:"${flix.embed.ivFieldValue}"}}]},
+    w_payload:"${flix.embed.wPayload}",
+    subtitles:${flix.embed.subtitlesRaw ?? '[]'} };
+</script></body></html>`;
+}
+
 const realFetch = globalThis.fetch;
 let fetchLog = [];
+// The paths the addon asked *this* server for (`self`): the shelf a client sees
+// is a translation of one of these, and the translation is what some tests pin.
+let selfLog = [];
 
 function stubFetch(routes) {
   fetchLog = [];
+  selfLog = [];
   globalThis.fetch = async (url, opts = {}) => {
     const u = String(url);
     fetchLog.push({ url: u, opts });
@@ -146,6 +169,7 @@ const ADULT = new Map([
  */
 async function self(path) {
   const url = new URL(path, 'http://self');
+  selfLog.push(path);
   const body = ADULT.get(url.pathname);
   if (body) return body;
 
@@ -173,14 +197,19 @@ async function call(path) {
 test('the manifest names the shelves this server actually has', () => {
   const m = manifest();
   assert.equal(m.id, 'tv.hanime.bridge');
-  assert.deepEqual(m.resources, ['catalog', 'meta', 'stream']);
-  assert.deepEqual(m.types, ['movie', 'series']);
+  // `subtitles` is a resource like the other three: the app asks this source
+  // for them through the same protocol, and the anime embeds have them.
+  assert.deepEqual(m.resources, ['catalog', 'meta', 'stream', 'subtitles']);
+  // `hentai` is a shelf type of this source's own: the client builds its
+  // search and discover filters from these, so the 18+ shelves must declare
+  // themselves rather than disappear under `movie`.
+  assert.deepEqual(m.types, ['movie', 'series', 'hentai']);
   assert.deepEqual(m.catalogs.map((c) => [c.type, c.id]), [
     ['series', 'anime-trending'],
     ['movie', 'films-listing'],
     ['series', 'series-listing'],
-    ['movie', 'adult-newest'],
-    ['movie', 'adult-views'],
+    ['hentai', 'adult-newest'],
+    ['hentai', 'adult-views'],
   ]);
   // Every shelf answers a search, so one search box reaches all of them.
   assert.ok(m.catalogs.every((c) => c.extra.some((e) => e.name === 'search')));
@@ -244,7 +273,7 @@ test('the series shelf asks for the tv listing and keeps only series', async () 
 });
 
 test('the 18+ shelves read their own ordering', async () => {
-  const res = await call('/addon/catalog/movie/adult-newest/adult-newest.json');
+  const res = await call('/addon/catalog/hentai/adult-newest/adult-newest.json');
   // A shelf entry is a poster and its caption: the long description and the
   // tag list belong to the title's own page, not to every row of a rail.
   assert.deepEqual(res.json.metas, [{
@@ -256,6 +285,24 @@ test('the 18+ shelves read their own ordering', async () => {
     posterShape: 'poster',
     releaseInfo: '2024',
   }]);
+});
+
+test('the 18+ shelf counts pages the way the catalogue behind it does', async () => {
+  // `/api/videos` counts its pages from zero, the addon protocol from one, so
+  // the shelf's first page is page 0 there. Passing the protocol's number
+  // straight through asked for the second page of the catalogue: the shelf
+  // never showed its newest, and a search whose matches all fit on one page
+  // came back empty.
+  selfLog = [];
+  await call('/addon/catalog/hentai/adult-newest/adult-newest.json');
+  assert.match(selfLog[0], /\/api\/videos\?page=0&per_page=24&order_by=released_at&ordering=desc$/);
+
+  await call('/addon/catalog/hentai/adult-newest/adult-newest.json?skip=24');
+  assert.match(selfLog[1], /\?page=1&per_page=24/);
+
+  await call('/addon/catalog/hentai/adult-newest/adult-newest.json?search=Mankitsu');
+  assert.match(selfLog[2], /\?page=0&/);
+  assert.match(selfLog[2], /&q=Mankitsu$/);
 });
 
 test('the plain three-part catalog form is the same request', async () => {
@@ -376,17 +423,217 @@ test('the 18+ shelf resolves to HLS a player can open', async () => {
   }]);
 });
 
-test('an anime episode hands the embed over as an external URL', async () => {
+test('an anime episode leads with the stream this server can open itself', async () => {
   stubFetch([['api.lunarx.to/api/3rdprovider', () => jsonResponse(200, lunarxPlayer)]]);
 
   const res = await call('/addon/stream/series/ha%3Aan%3A99001%3A1%3A3.json');
   assert.equal(res.status, 200);
   assert.ok(fetchLog[0].url.includes('episode=3'), fetchLog[0].url);
+
+  // LunarX named a flixcloud embed, and flixcloud is a provider this server
+  // opens by itself, so the episode is a media URL in the app's player first —
+  // the embed stays behind it, because a stream entry that plays is not a
+  // reason to hide the page the provider also serves. The in-app URL names the
+  // server to try first, so that a second server from LunarX cannot silently
+  // take the first one's place.
+  assert.deepEqual(res.json.streams, [
+    {
+      name: 'Hanime · in-app',
+      description: 'HLS — plays in the player',
+      url: 'http://local/play/anime/99001?ep=3&src=sv-2',
+    },
+    {
+      name: 'Hanime · sv-2',
+      description: 'embed — opens in your browser',
+      externalUrl: 'https://flixcloud.cc/e/abc?v=2',
+    },
+  ]);
+});
+
+test('a second resolvable server keeps its own in-app entry', async () => {
+  stubFetch([['api.lunarx.to/api/3rdprovider', () => jsonResponse(200, {
+    data: [
+      { server: 'sv-2', player_url: 'https://flixcloud.cc/e/aaa?v=2' },
+      { server: 'sv-3', player_url: 'https://flixcloud.cc/e/bbb?v=2' },
+    ],
+  })]]);
+
+  const res = await call('/addon/stream/series/ha%3Aan%3A99001%3A1%3A5.json');
+  assert.equal(res.status, 200);
+
+  // Both servers are this server's own to open, so both lead — the first as the
+  // plain in-app entry, the second named, each pointing at itself through `src`.
+  assert.deepEqual(res.json.streams, [
+    {
+      name: 'Hanime · in-app',
+      description: 'HLS — plays in the player',
+      url: 'http://local/play/anime/99001?ep=5&src=sv-2',
+    },
+    {
+      name: 'Hanime · in-app (sv-3)',
+      description: 'HLS — plays in the player',
+      url: 'http://local/play/anime/99001?ep=5&src=sv-3',
+    },
+    {
+      name: 'Hanime · sv-2',
+      description: 'embed — opens in your browser',
+      externalUrl: 'https://flixcloud.cc/e/aaa?v=2',
+    },
+    {
+      name: 'Hanime · sv-3',
+      description: 'embed — opens in your browser',
+      externalUrl: 'https://flixcloud.cc/e/bbb?v=2',
+    },
+  ]);
+});
+
+test('a resolvable server leads even when it is not the first one named', async () => {
+  stubFetch([['api.lunarx.to/api/3rdprovider', () => jsonResponse(200, {
+    data: [
+      { server: 'sv-9', player_url: 'https://other-provider.example/e/xyz?v=2' },
+      { server: 'sv-2', player_url: 'https://flixcloud.cc/e/ccc?v=2' },
+    ],
+  })]]);
+
+  const res = await call('/addon/stream/series/ha%3Aan%3A99001%3A1%3A6.json');
+  assert.equal(res.status, 200);
+
+  // Which server comes first is LunarX's order, not ours: an embed this server
+  // can open leads whichever position it was handed in, and the provider it
+  // cannot open keeps its place in the embeds below.
+  assert.deepEqual(res.json.streams, [
+    {
+      name: 'Hanime · in-app',
+      description: 'HLS — plays in the player',
+      url: 'http://local/play/anime/99001?ep=6&src=sv-2',
+    },
+    {
+      name: 'Hanime · sv-9',
+      description: 'embed — opens in your browser',
+      externalUrl: 'https://other-provider.example/e/xyz?v=2',
+    },
+    {
+      name: 'Hanime · sv-2',
+      description: 'embed — opens in your browser',
+      externalUrl: 'https://flixcloud.cc/e/ccc?v=2',
+    },
+  ]);
+});
+
+test('an embed from a provider this server cannot open stays a browser hand-off', async () => {
+  stubFetch([['api.lunarx.to/api/3rdprovider', () => jsonResponse(200, {
+    data: [{ server: 'sv-9', player_url: 'https://other-provider.example/e/xyz?v=2' }],
+  })]]);
+
+  const res = await call('/addon/stream/series/ha%3Aan%3A99001%3A1%3A4.json');
+  assert.equal(res.status, 200);
+  // No in-app entry at all: offering one that cannot resolve would be a stream
+  // that fails where the embed would have worked.
   assert.deepEqual(res.json.streams, [{
-    name: 'Hanime · sv-2',
+    name: 'Hanime · sv-9',
     description: 'embed — opens in your browser',
-    externalUrl: 'https://flixcloud.cc/e/abc?v=2',
+    externalUrl: 'https://other-provider.example/e/xyz?v=2',
   }]);
+});
+
+// ------------------------------------------------------------- subtitles
+
+test('an anime episode offers the subtitles its embed names', async () => {
+  stubFetch([
+    ['api.lunarx.to/api/3rdprovider', () => jsonResponse(200, lunarxPlayer)],
+    ['flixcloud.cc/e/', () => htmlResponse(200, flixPage())],
+    ['/api/m3u8/', () => jsonResponse(200, flix.api)],
+  ]);
+
+  const res = await call('/addon/subtitles/series/ha%3Aan%3A99001%3A1%3A8.json');
+  assert.equal(res.status, 200);
+
+  const tracks = res.json.subtitles;
+  assert.equal(tracks.length, flix.parsed.subtitles.length);
+
+  // The page names a track the way a person would; the language is the code a
+  // picker matches a preference against and the label is what tells the tracks
+  // apart. The word 'English' would match no preference at all.
+  assert.deepEqual(tracks.map((t) => [t.lang, t.label, t.format]), [
+    ['en', '[SoM] English', 'ass'],
+    ['en', '[SoM] Signs & Songs', 'ass'],
+    ['en', 'Dubtitle(AI)', 'srt'],
+  ]);
+
+  // The file is the CDN's, but the link the client gets is this server's — and
+  // it carries the provider's referer, signed, so the player fetches the file
+  // with no header of its own.
+  for (const [i, track] of tracks.entries()) {
+    assert.ok(track.url.startsWith('http://local/relay?'), track.url);
+    const query = new URLSearchParams(track.url.split('?')[1]);
+    assert.equal(Buffer.from(query.get('u'), 'base64url').toString('utf8'), flix.parsed.subtitles[i].url);
+    assert.equal(Buffer.from(query.get('r'), 'base64url').toString('utf8'), 'https://flixcloud.cc/');
+  }
+});
+
+test('an episode with nothing to offer answers an empty list, not an error', async () => {
+  stubFetch([['api.lunarx.to/api/3rdprovider', () => jsonResponse(200, {
+    data: [{ server: 'sv-9', player_url: 'https://other-provider.example/e/xyz?v=2' }],
+  })]]);
+
+  const res = await call('/addon/subtitles/series/ha%3Aan%3A99001%3A1%3A9.json');
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.json.subtitles, []);
+  // A provider this server cannot open is not asked to explain itself: the
+  // embed page is never fetched.
+  assert.equal(fetchLog.filter((c) => c.url.includes('other-provider.example')).length, 0);
+});
+
+test('a film offers the tracks the subtitle addon has for its IMDb id', async () => {
+  clearCache();
+  clearOpenSubsCache();
+  stubFetch([
+    ['data.vidsrc.sh', () => jsonResponse(200, { data: { imdb_id: 'tt0133093' } })],
+    ['opensubtitles-v3.strem.io', () => jsonResponse(200, {
+      subtitles: [{ id: '1', url: 'https://subs5.strem.io/en/download/x/file/1', lang: 'eng', movieReleaseName: 'The Matrix' }],
+    })],
+  ]);
+
+  const res = await call('/addon/subtitles/movie/ha%3Afm%3Athe-matrix-603.json');
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.json.subtitles.map((t) => [t.lang, t.label, t.format]), [
+    ['en', 'The Matrix', 'srt'],
+  ]);
+
+  // The file is the addon's, but the link the client gets is this server's, so
+  // the player never has to know whose CDN it is.
+  const query = new URLSearchParams(res.json.subtitles[0].url.split('?')[1]);
+  assert.equal(
+    Buffer.from(query.get('u'), 'base64url').toString('utf8'),
+    'https://subs5.strem.io/en/download/x/file/1',
+  );
+});
+
+test('a series episode asks the subtitle addon as an episode', async () => {
+  clearCache();
+  clearOpenSubsCache();
+  stubFetch([
+    ['data.vidsrc.sh', () => jsonResponse(200, { data: { imdb_id: 'tt0903747' } })],
+    ['opensubtitles-v3.strem.io', () => jsonResponse(200, {
+      subtitles: [{ id: '1', url: 'https://subs5.strem.io/en/download/x/file/1', lang: 'por' }],
+    })],
+  ]);
+
+  // An episode id carries the episode the client appended, and that is what the
+  // addon is asked for — the same id shape the anime area answers with.
+  const res = await call('/addon/subtitles/series/ha%3Aft%3Abreaking-bad-1396%3A1%3A1.json');
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.json.subtitles.map((t) => t.lang), ['pt']);
+  assert.ok(fetchLog.some((c) => c.url.includes('/subtitles/series/tt0903747:1:1.json')));
+});
+
+test('the 18+ shelf has no subtitles, and says so without an upstream call', async () => {
+  stubFetch([]);
+
+  const res = await call('/addon/subtitles/movie/ha%3Aad%3Asome-slug.json');
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.json.subtitles, []);
+  assert.equal(fetchLog.length, 0, 'its playlists carry no subtitle tracks, so there is nothing to ask for');
 });
 
 test('a film stream says which door is dark', async () => {

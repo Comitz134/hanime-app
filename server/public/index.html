@@ -6,6 +6,15 @@
 <meta name="theme-color" content="#111111">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="SEKAI">
+<!--
+  The mark, for the surfaces outside the page: the browser tab, iOS's home
+  screen (which ignores the manifest's icons) and the install sheet. Files sit
+  next to this document in public/, so a plain path is the whole story.
+-->
+<link rel="icon" href="/favicon.ico" sizes="32x32">
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/app.webmanifest">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1090,6 +1099,47 @@ h2 .area-chip { font-size: .5625rem; }
    never wider than a thumb can use. */
 #manga-search-shell { margin-bottom: 1.25rem; max-width: 32rem; }
 
+/* A title page's own controls, in one row under its header: what can be done
+   with a title before the long read of its chapters. Four equal tiles that
+   share the width, the icon over the word, and the word free to take two
+   lines — "Add to library" is not a label that fits on one, and a row that
+   grows a scrollbar to say it is worse than one that wraps. */
+.manga-actions {
+  display: grid; grid-auto-flow: column; grid-auto-columns: 1fr;
+  gap: .5rem; margin-bottom: 1.25rem;
+}
+.act-btn {
+  display: flex; flex-direction: column; align-items: center; gap: .375rem;
+  padding: .625rem .25rem; border-radius: var(--radius);
+  border: 1px solid hsl(var(--border) / .7); background: hsl(var(--card) / .45);
+  color: hsl(var(--muted-foreground));
+  transition: border-color .2s, background .2s, color .2s;
+}
+.act-btn:hover { border-color: hsl(var(--input)); background: hsl(var(--card)); color: hsl(var(--foreground)); }
+.act-btn:active { border-color: hsl(var(--primary)); }
+.act-btn[aria-pressed="true"] {
+  border-color: hsl(var(--primary) / .6); background: hsl(var(--primary) / .1);
+  color: hsl(var(--primary));
+}
+.act-icon {
+  display: grid; place-items: center; width: 2rem; height: 2rem;
+  border-radius: 999px; background: hsl(var(--muted) / .5);
+}
+.act-btn[aria-pressed="true"] .act-icon { background: hsl(var(--primary) / .18); }
+.act-icon svg { width: 1.0625rem; height: 1.0625rem; }
+.act-label {
+  font-size: .625rem; line-height: 1.25; text-align: center;
+  overflow-wrap: anywhere;
+}
+/* The estimate answers no press: it is information about a title, and the only
+   thing a press could do is move the page. */
+.act-stat { cursor: default; }
+/* When the tracker's tile is pressed, MyAnimeList's own controls move out of
+   the side column and into this dock, right under the row that was pressed:
+   the control comes to the reader, because this client never scrolls to a
+   control. The slot keeps its own styling wherever it sits. */
+.manga-track { margin: -.75rem 0 1.25rem; }
+
 /* The chapter list — the spine of the title page. Rows, not cards with art:
    a title can have a thousand of them, and the number, name and date are the
    only things that tell two apart. */
@@ -1918,6 +1968,18 @@ select.filter-select.sort-select {
           </div>
           <div class="rail" id="read-rail" hidden></div>
           <p class="note" id="read-note" hidden></p>
+
+          <!-- What this device keeps on purpose, as against what it merely
+               opened: the rail above says where the reader was, this says what
+               they meant to come back to. -->
+          <div class="sec-head" id="saved-head" style="margin-top:1.75rem" hidden>
+            <div class="sec-head-l">
+              <h2>Saved</h2>
+              <span class="sec-count" id="saved-count">0</span>
+            </div>
+          </div>
+          <div class="grid" id="saved-grid" hidden></div>
+          <p class="note" id="saved-note" hidden></p>
 
           <div class="sec-head" style="margin-top:1.75rem">
             <div class="sec-head-l">
@@ -3205,6 +3267,170 @@ select.filter-select.sort-select {
   document.addEventListener("htv:sort", (e) => {
     var _a10;
     if (LOCAL_SORTS.has((_a10 = e.detail) == null ? void 0 : _a10.name)) renderLibrary();
+  });
+
+  // client/src/manga-eta.js
+  var HOUR = 36e5;
+  var DAY = 864e5;
+  var STOPPED = /* @__PURE__ */ new Set([
+    "finished",
+    "completed",
+    "complete",
+    "on_hiatus",
+    "hiatus",
+    "discontinued",
+    "cancelled",
+    "canceled",
+    "dropped",
+    "axed"
+  ]);
+  function dated(chapters, span) {
+    return (chapters ?? []).map((c) => Number(c == null ? void 0 : c.createdAt)).filter((t) => Number.isFinite(t) && t > 0).sort((a, b) => b - a).slice(0, span);
+  }
+  function median(values) {
+    const sorted2 = [...values].sort((a, b) => a - b);
+    const mid = Math.floor(sorted2.length / 2);
+    return sorted2.length % 2 ? sorted2[mid] : Math.round((sorted2[mid - 1] + sorted2[mid]) / 2);
+  }
+  function nextChapterEstimate(chapters, opts = {}) {
+    const { status = "", now = Date.now(), wanted = 3, span = 6 } = opts;
+    if (STOPPED.has(String(status ?? "").trim().toLowerCase())) return null;
+    const dates = dated(chapters, span);
+    if (dates.length < wanted + 1) return null;
+    const gaps = [];
+    for (let i = 0; i + 1 < dates.length; i += 1) {
+      const gap = dates[i] - dates[i + 1];
+      if (gap > 0) gaps.push(gap);
+    }
+    if (gaps.length < wanted) return null;
+    const cadence = median(gaps);
+    if (!(cadence >= 2 * 3600 && cadence <= 365 * DAY / 1e3)) return null;
+    const at = (dates[0] + cadence) * 1e3;
+    return { at, cadence: cadence * 1e3, late: now - at };
+  }
+  function estimateChip(est, now = Date.now()) {
+    if (!est) return "N/A";
+    const left = est.at - now;
+    if (left <= 0) return "Any day";
+    if (left < 90 * 6e4) return "\u22481h";
+    if (left < DAY) return `\u2248${Math.round(left / HOUR)}h`;
+    if (left < 60 * DAY) return `\u2248${Math.round(left / DAY)}d`;
+    return `\u2248${Math.round(left / (30 * DAY))}mo`;
+  }
+  function estimateDetail(est) {
+    if (!est) return "";
+    const day = new Date(est.at).toISOString().slice(0, 10);
+    const cycle = est.cadence >= 2 * DAY ? `about every ${Math.round(est.cadence / DAY)} days` : est.cadence >= DAY ? "about every day" : `about every ${Math.max(1, Math.round(est.cadence / HOUR))} hours`;
+    return `${day} \xB7 ${cycle}`;
+  }
+  function estimateTitle(est, now = Date.now()) {
+    if (!est) return "Next chapter: no estimate \u2014 this title has no chapter rhythm to read.";
+    const day = new Date(est.at).toISOString().slice(0, 10);
+    return `${estimateChip(est, now)} \u2014 the next chapter is estimated around ${day}, read off the gap between the chapters already posted.`;
+  }
+
+  // client/src/manga-saved.js
+  var MANGA_SAVED_KEY = "htv:manga-saved:v1";
+  var MAX2 = 200;
+  function load4() {
+    try {
+      const raw = localStorage.getItem(MANGA_SAVED_KEY);
+      const rows = raw ? JSON.parse(raw) : [];
+      return Array.isArray(rows) ? rows.filter((e) => e && e.id) : [];
+    } catch (e) {
+      return [];
+    }
+  }
+  function save4(rows) {
+    try {
+      localStorage.setItem(MANGA_SAVED_KEY, JSON.stringify(rows));
+    } catch (e) {
+    }
+  }
+  var savedList = () => load4();
+  var isSaved = (id) => !!id && load4().some((e) => String(e.id) === String(id));
+  function forgetSaved(id) {
+    const key = String(id ?? "");
+    if (!key) return;
+    save4(load4().filter((e) => String(e.id) !== key));
+  }
+  function toggleSaved(entry) {
+    const id = String((entry == null ? void 0 : entry.id) ?? "");
+    if (!id) return false;
+    if (isSaved(id)) {
+      forgetSaved(id);
+      savedFaces();
+      return false;
+    }
+    const record = {
+      id,
+      title: String(entry.title ?? ""),
+      cover: String(entry.cover ?? ""),
+      type: String(entry.type ?? ""),
+      year: String(entry.year ?? ""),
+      chapters: Number(entry.chapters) > 0 ? Number(entry.chapters) : 0,
+      at: Number(entry.at) > 0 ? Number(entry.at) : Date.now()
+    };
+    save4([record, ...load4()].slice(0, MAX2));
+    savedFaces();
+    return true;
+  }
+  function savedCardHtml(e) {
+    const meta = [e.type, e.year, e.chapters ? `${e.chapters} chapters` : ""].filter(Boolean).join(" \xB7 ");
+    return `<article class="card" data-manga="${esc(e.id)}" tabindex="0" role="button" aria-label="${esc(e.title)}">
+    <div class="card-frame">
+      <img loading="lazy" decoding="async" src="${esc(e.cover)}" alt="">
+      <div class="card-fallback" hidden>${esc(e.title)}</div>
+      <div class="card-scrim"></div>
+      ${e.chapters ? `<span class="card-badge">${esc(String(e.chapters))}</span>` : ""}
+      <button class="card-drop" type="button" data-saved-drop="${esc(e.id)}"
+        aria-label="Take ${esc(e.title)} off this shelf" title="Take off this shelf">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+      <div class="card-play"><span>
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H11v16H5.5A1.5 1.5 0 0 0 4 21.5zM20 5.5A1.5 1.5 0 0 0 18.5 4H13v16h5.5A1.5 1.5 0 0 1 20 21.5z"/></svg>
+      </span></div>
+    </div>
+    <div class="card-body">
+      <h3 class="card-title">${esc(e.title)}</h3>
+      <p class="card-meta">${esc(meta)}</p>
+    </div>
+  </article>`;
+  }
+  function renderSavedManga() {
+    const grid = document.getElementById("saved-grid");
+    if (!grid) return;
+    const rows = savedList();
+    grid.innerHTML = rows.map(savedCardHtml).join("");
+    grid.hidden = rows.length === 0;
+    const head = document.getElementById("saved-head");
+    if (head) head.hidden = rows.length === 0;
+    const count = document.getElementById("saved-count");
+    if (count) count.textContent = String(rows.length);
+    const note2 = document.getElementById("saved-note");
+    if (note2) {
+      note2.hidden = rows.length > 0;
+      note2.textContent = rows.length ? "" : "Nothing saved yet. The heart on a manga title page keeps a title here.";
+    }
+  }
+  function savedFaces() {
+    $$("[data-mangsave]").forEach((b) => {
+      const on = isSaved(b.dataset.mangsave);
+      b.setAttribute("aria-pressed", String(on));
+      const label2 = on ? "Remove from library" : "Add to library";
+      b.setAttribute("aria-label", label2);
+      b.title = label2;
+      const word = b.querySelector(".act-label");
+      if (word) word.textContent = on ? "In library" : "Add to library";
+    });
+    renderSavedManga();
+  }
+  document.addEventListener("click", (e) => {
+    const drop2 = e.target.closest("[data-saved-drop]");
+    if (!drop2) return;
+    e.preventDefault();
+    forgetSaved(drop2.dataset.savedDrop);
+    savedFaces();
   });
 
   // client/src/mangafire-polyfill.js
@@ -6181,6 +6407,9 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     const p = (item == null ? void 0 : item.poster) ?? {};
     return p[size] || p.medium || p.large || p.small || "";
   }
+  function sourceUrl(hid) {
+    return hid ? "https://mangafire.to/title/" + encodeURIComponent(hid) : "";
+  }
   function proxied(url) {
     return url ? "/api/manga/page?u=" + encodeURIComponent(url) : "";
   }
@@ -6263,6 +6492,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
   var detailCache = /* @__PURE__ */ new Map();
   var pagesCache = /* @__PURE__ */ new Map();
   var dState = { hid: null, detail: null, chapters: [] };
+  var slotHome = null;
   var rState = { idx: -1 };
   var rSeq = 0;
   function trimCache(map, max = 40) {
@@ -6280,15 +6510,18 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
   var label = (s) => String(s ?? "").replace(/_/g, " ");
   function renderDetail() {
     const d = dState.detail;
+    slotHome = null;
     const genres = (d.genres ?? []).map((g) => `<span class="hero-tag">${esc(g.title ?? g.name ?? String(g))}</span>`).join("");
-    const kicker = [d.type, d.year, label(d.status)].filter(Boolean).map(esc).join(" \xB7 ");
+    const kicker = [d.type, d.year, label(d.status), "Mangafire"].filter(Boolean).map(esc).join(" \xB7 ");
     const meta = [
       d.rating ? `\u2605 ${Number(d.rating).toFixed(1)}` : null,
       d.follows ? `${fmtCount(d.follows)} follows` : null,
       dState.chapters.length ? `${dState.chapters.length} chapters` : null
     ].filter(Boolean).map(esc).join(" \xB7 ");
+    const eta = nextChapterEstimate(dState.chapters, { status: d.status });
     const facts = [
       ["Status", label(d.status)],
+      ...eta ? [["Next chapter", estimateDetail(eta)]] : [],
       ["Type", d.type],
       ["Year", d.year],
       ["Languages", (d.languages ?? []).join(", ")],
@@ -6307,6 +6540,8 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
         <div class="detail-tags">${genres}</div>
       </div>
     </div>
+    ${mangaActionsHtml(dState.hid, eta)}
+    <div class="manga-track" id="manga-track" hidden></div>
     <div class="detail-grid">
       <div class="detail-main">
         <div class="detail-label">Synopsis</div>
@@ -6330,6 +6565,41 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
       </aside>
     </div>`;
     renderChapterList();
+  }
+  function mangaActionsHtml(hid, eta) {
+    const saved = isSaved(hid);
+    const word = saved ? "In library" : "Add to library";
+    const chip = estimateChip(eta);
+    const about = estimateTitle(eta);
+    return `<div class="detail-actions manga-actions">
+    <button class="act-btn" type="button" data-mangsave="${esc(hid)}" aria-pressed="${saved}"
+            aria-label="${esc(word)}" title="${esc(word)}">
+      <span class="act-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M12 20.4 4.9 14.1A5.3 5.3 0 0 1 12 6.3a5.3 5.3 0 0 1 7.1 7.8Z"/></svg>
+      </span>
+      <span class="act-label">${esc(word)}</span>
+    </button>
+    <span class="act-btn act-stat" role="note" aria-label="${esc(about)}" title="${esc(about)}">
+      <span class="act-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h10M7 21h10M7.5 3c0 4 4.5 5.2 4.5 9s-4.5 5-4.5 9M16.5 3c0 4-4.5 5.2-4.5 9s4.5 5 4.5 9"/></svg>
+      </span>
+      <span class="act-label">${esc(chip)}</span>
+    </span>
+    ${configured() ? `<button class="act-btn" type="button" data-maltrack aria-expanded="false"
+            aria-label="MyAnimeList \u2014 bring the list controls up here" title="MyAnimeList">
+      <span class="act-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11.5A8 8 0 1 0 12 20a8 8 0 0 0 6.9-3.9"/><path d="M20 5.5V11h-5.5"/></svg>
+      </span>
+      <span class="act-label">Tracking</span>
+    </button>` : ""}
+    <button class="act-btn act-btn--source" type="button" data-mangasrc="${esc(sourceUrl(hid))}"
+            aria-label="Open this title on mangafire.to" title="Open on mangafire.to">
+      <span class="act-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="2.5" y="4.5" width="19" height="15" rx="4"/><path d="M10.2 9.3v5.4l4.8-2.7z" fill="currentColor" stroke="none"/></svg>
+      </span>
+      <span class="act-label">WebView</span>
+    </button>
+  </div>`;
   }
   function renderChapterList() {
     const list = $("#manga-ch-list");
@@ -6491,6 +6761,8 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
   }
   bindMangaView();
   document.addEventListener("click", (e) => {
+    var _a10, _b, _c, _d;
+    if (e.target.closest("[data-saved-drop]")) return;
     const card = e.target.closest("[data-manga]");
     if (card) {
       e.preventDefault();
@@ -6501,6 +6773,49 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     if (ch && dState.hid) {
       e.preventDefault();
       openChapter(Number(ch.dataset.mfch));
+      return;
+    }
+    const keep = e.target.closest("[data-mangsave]");
+    if (keep) {
+      e.preventDefault();
+      toggleSaved({
+        id: keep.dataset.mangsave,
+        title: (_a10 = dState.detail) == null ? void 0 : _a10.title,
+        cover: posterFor(dState.detail, "medium"),
+        type: (_b = dState.detail) == null ? void 0 : _b.type,
+        year: (_c = dState.detail) == null ? void 0 : _c.year,
+        chapters: dState.chapters.length
+      });
+      return;
+    }
+    const track = e.target.closest("[data-maltrack]");
+    if (track) {
+      e.preventDefault();
+      const slot = $("#sheet-body .mal-slot");
+      const dock = $("#manga-track");
+      if (!slot || !dock) return;
+      if (dock.contains(slot)) {
+        if (slotHome == null ? void 0 : slotHome.parent) slotHome.parent.insertBefore(slot, slotHome.next);
+        else return;
+        dock.hidden = true;
+        track.setAttribute("aria-expanded", "false");
+        track.setAttribute("aria-label", "MyAnimeList \u2014 bring the list controls up here");
+      } else {
+        slotHome = { parent: slot.parentElement, next: slot.nextElementSibling };
+        dock.hidden = false;
+        dock.appendChild(slot);
+        track.setAttribute("aria-expanded", "true");
+        track.setAttribute("aria-label", "MyAnimeList \u2014 put the list controls back");
+      }
+      (_d = slot.querySelector("select, input, button")) == null ? void 0 : _d.focus({ preventScroll: true });
+      return;
+    }
+    const source = e.target.closest("[data-mangasrc]");
+    if (source) {
+      e.preventDefault();
+      const url = source.dataset.mangasrc;
+      if (shellCan("openSource")) shellCall("openSource", url);
+      else window.location.assign(url);
     }
   });
   document.addEventListener("keydown", (e) => {
@@ -6529,7 +6844,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
   });
 
   // client/src/mal-library.js
-  function load4(key, fallback) {
+  function load5(key, fallback) {
     try {
       const raw = localStorage.getItem(key);
       return raw ? JSON.parse(raw) : fallback;
@@ -6537,7 +6852,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
       return fallback;
     }
   }
-  function save4(key, value) {
+  function save5(key, value) {
     try {
       localStorage.setItem(key, JSON.stringify(value));
     } catch (e) {
@@ -6708,7 +7023,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
   async function openMalEntry(shelf, kind, title, card) {
     if (!TABS.includes(shelf) || !KINDS.includes(kind) || !title) return;
     const key = `${kind}:${normTitle(title)}`;
-    const seen = load4(OPEN_KEY, {});
+    const seen = load5(OPEN_KEY, {});
     if (seen[key]) {
       openTarget(kind, seen[key]);
       return;
@@ -6722,7 +7037,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
         return;
       }
       seen[key] = id;
-      save4(OPEN_KEY, seen);
+      save5(OPEN_KEY, seen);
       note(shelf, "");
       openTarget(kind, id);
     } catch (e) {
@@ -6782,6 +7097,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     });
     if (target.dataset.view === "library") {
       renderLibrary();
+      renderSavedManga();
       renderMalShelves();
     }
     if (changed) scrollTo({ top: 0 });
@@ -8824,6 +9140,10 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     } catch (e) {
       return void 0;
     }
+  }
+  function shellCan(name) {
+    const shell = shellApi();
+    return !!shell && typeof shell[name] === "function";
   }
   var backOpen = null;
   function menuIsOpen() {

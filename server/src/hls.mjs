@@ -49,7 +49,10 @@ function signatureFor(parts) {
 /** Upstream URL -> opaque, tamper-proof query pair for our own relay. */
 export function mangle(absoluteUrl) {
   const u = encode(absoluteUrl);
-  return `u=${u}&s=${signatureFor([u, '', ''])}`;
+  // The empty slots are the profile this link does not carry (referer, origin,
+  // key): one signature shape for every link, so `unmangleLink` has one thing to
+  // verify and a link without a profile can never be mistaken for one with.
+  return `u=${u}&s=${signatureFor([u, '', '', ''])}`;
 }
 
 /**
@@ -57,20 +60,26 @@ export function mangle(absoluteUrl) {
  * The film doors are like that: their CDN returns 403 unless the request
  * carries their referer, so the link has to carry it too — signed, because a
  * header the client can rewrite is not a header worth sending.
+ *
+ * `key` is the same idea for a body rather than a header: flixcloud wraps every
+ * playlist with a key that only its own page can derive, so the link that points
+ * at one has to carry the key, and be signed, or anyone holding the link could
+ * ask this server to unwrap whatever they liked.
  */
-export function mangleVia(absoluteUrl, { referer = null, origin = null } = {}) {
+export function mangleVia(absoluteUrl, { referer = null, origin = null, key = null } = {}) {
   const u = encode(absoluteUrl);
   const parts = [`u=${u}`];
   if (referer) parts.push(`r=${encode(referer)}`);
   if (origin) parts.push(`o=${encode(origin)}`);
-  parts.push(`s=${signatureFor([u, referer ?? '', origin ?? ''])}`);
+  if (key) parts.push(`k=${encode(key)}`);
+  parts.push(`s=${signatureFor([u, referer ?? '', origin ?? '', key ?? ''])}`);
   return parts.join('&');
 }
 
 /**
- * Verify and unwrap a relay link. Returns `{ url, referer, origin }`, or null
- * when the pair is not ours. Nothing about the caller's query is trusted: the
- * target and the headers both come out of the signed payload.
+ * Verify and unwrap a relay link. Returns `{ url, referer, origin, key }`, or
+ * null when it is not ours. Nothing about the caller's query is trusted: the
+ * target, the headers and the key all come out of the signed payload.
  */
 export function unmangleLink(query) {
   const u = query.get('u');
@@ -79,17 +88,19 @@ export function unmangleLink(query) {
 
   const referer = query.get('r') ? decode(query.get('r')) : null;
   const origin = query.get('o') ? decode(query.get('o')) : null;
+  const key = query.get('k') ? decode(query.get('k')) : null;
   if (query.get('r') && referer === null) return null;
   if (query.get('o') && origin === null) return null;
+  if (query.get('k') && key === null) return null;
 
-  const expect = signatureFor([u, referer ?? '', origin ?? '']);
+  const expect = signatureFor([u, referer ?? '', origin ?? '', key ?? '']);
   const a = Buffer.from(s);
   const b = Buffer.from(expect);
   if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
 
   const url = decode(u);
   if (!url || !url.startsWith('https://')) return null;
-  return { url, referer, origin };
+  return { url, referer, origin, key };
 }
 
 /** Just the target of a relay link, or null. */
@@ -159,6 +170,38 @@ export function rewritePlaylist(text, baseUrl, link) {
   }
 
   return out.join('\n');
+}
+
+/**
+ * The content type for a subtitle body, decided from the signed target's own
+ * extension — the file is the provider's, and the client never names it.
+ *
+ * This is not cosmetic: mpv picks a subtitle demuxer from the type before it
+ * looks at the bytes, and `application/octet-stream` on an .ass file is how a
+ * perfectly good track ends up in the "no subtitles" pile. A target that is
+ * not a subtitle is null, so a caller can fall back to its own sniffing.
+ */
+export function subtitleContentType(url, upstreamType = null) {
+  let path = String(url).toLowerCase();
+  try {
+    path = new URL(url).pathname.toLowerCase();
+  } catch {
+    // Not a URL: a path is all this needs.
+  }
+  if (path.endsWith('.ass') || path.endsWith('.ssa')) return 'text/x-ssa; charset=utf-8';
+  if (path.endsWith('.srt')) return 'application/x-subrip; charset=utf-8';
+  if (path.endsWith('.vtt')) return 'text/vtt; charset=utf-8';
+
+  // A subtitle whose URL names no file — an addon's download route
+  // (`…/subs5.strem.io/en/download/…/file/45899`) is one — still says what it
+  // is in its own content-type. That answer is the only one there is, and
+  // without it the body would be served as video transport stream and land in
+  // the player's "no subtitles" pile.
+  const type = String(upstreamType ?? '').toLowerCase();
+  if (/subrip/.test(type)) return 'application/x-subrip; charset=utf-8';
+  if (/x-ssa|text\/ssa/.test(type)) return 'text/x-ssa; charset=utf-8';
+  if (/text\/vtt|webvtt/.test(type)) return 'text/vtt; charset=utf-8';
+  return null;
 }
 
 export function isPlaylistResponse(res, body) {

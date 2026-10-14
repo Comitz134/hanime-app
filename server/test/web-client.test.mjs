@@ -175,6 +175,43 @@ test('the client never scrolls to a control, it moves the control to the reader'
   );
 });
 
+test('a manga title page carries its own controls, and its source goes through the shell', () => {
+  // The title page grew a row under its header: keep the title, when the next
+  // chapter is due, the account's own list, and the page the title came from.
+  // The estimate is the odd one of the four — a reading, not a control — so it
+  // is a note rather than a button, and pressing it moves nothing.
+  const script = inlineScripts(html)[0];
+  assert.ok(html.includes('.manga-actions'), 'no stylesheet rule draws the row');
+
+  // Keep it: the heart writes to the device's shelf, and every save control on
+  // screen is turned over with it, so two of them can never disagree.
+  assert.ok(/data-mangsave/.test(script), 'the title page has no way to keep a title');
+  assert.ok(/savedFaces\(\)/.test(script), 'the save controls are not kept in step');
+
+  // When the next chapter is due, read off the title's own rhythm.
+  assert.ok(/nextChapterEstimate\(/.test(script), 'no estimate is ever read');
+  assert.ok(script.includes('Next chapter'), 'the estimate is not in the details');
+  assert.ok(/act-stat/.test(script), 'the estimate is not its own kind of tile');
+
+  // Tracking lives in one place — the slot in the side column — and the tile
+  // brings that slot up to the reader rather than growing a second set of
+  // controls that could disagree with it.
+  assert.ok(script.includes('manga-track'), 'no dock for the tracker to bring its controls to');
+  assert.ok(/data-maltrack/.test(script), 'the tracker tile is not wired');
+
+  // The source tile is the one that cannot do its own walking: the app's own
+  // window swallows foreign navigation, which is what keeps an injected link
+  // from opening the browser over a player. So the URL is asked for through
+  // the shell's bridge, which holds the rule for what it may open.
+  assert.ok(/shellCan\(["']openSource["']\)/.test(script),
+    'the source tile walks the page itself, where the app swallows it');
+  assert.ok(/shellCall\(["']openSource["'], url\)/.test(script),
+    'the source URL never reaches the shell');
+  assert.ok(/data-mangasrc/.test(script), 'the source tile carries no address');
+  assert.ok(/window\.location\.assign/.test(script),
+    'a plain browser has no bridge and is left with no way to the source at all');
+});
+
 test('the library is stored under one guarded key', () => {
   // Favorites and history are the only state the app keeps. A storage that
   // refuses to write (private mode, a full quota) must degrade to a session
@@ -379,6 +416,84 @@ test('the committed bundle is up to date with its sources', async () => {
     fresh,
     'android/app/src/main/assets/index.html is stale — regenerate it: cd server && npm run build:client',
   );
+});
+
+// ---------------------------------------------------------------------------
+// The mark, outside the page: the browser tab, iOS's home screen, and the
+// install sheet. The manifest used to call the app "Library" and point its only
+// icon at /icon.svg, which no file in public/ ever answered — a 404 nobody saw,
+// because a missing install icon is invisible until someone installs.
+// ---------------------------------------------------------------------------
+
+test('the install manifest is SEKAI, and every icon it promises is on disk', () => {
+  const manifest = JSON.parse(fs.readFileSync(path.resolve(HERE, '../public/app.webmanifest'), 'utf8'));
+  assert.equal(manifest.name, 'SEKAI');
+  assert.equal(manifest.short_name, 'SEKAI');
+  assert.equal(manifest.start_url, '/');
+  assert.equal(manifest.display, 'standalone');
+  assert.ok(manifest.theme_color, 'nothing colours the browser chrome on install');
+
+  const promised = new Set();
+  for (const icon of manifest.icons) {
+    const file = path.resolve(HERE, '../public', icon.src.replace(/^\//, ''));
+    assert.ok(fs.existsSync(file), `${icon.src} is promised by the manifest and missing`);
+    assert.equal(icon.type, 'image/png');
+
+    // A PNG states its own size in its first chunk, so the manifest's claim is
+    // checked against the bytes rather than trusted: an icon that lies about
+    // its dimensions is one the install sheet renders wrong.
+    const bytes = fs.readFileSync(file);
+    assert.equal(bytes.subarray(1, 4).toString('latin1'), 'PNG', `${icon.src} is not a PNG`);
+    const size = `${bytes.readUInt32BE(16)}x${bytes.readUInt32BE(20)}`;
+    assert.equal(icon.sizes, size, `${icon.src} is ${size} but the manifest claims ${icon.sizes}`);
+    promised.add(`${size} ${icon.purpose}`);
+  }
+
+  // A 192 and a 512 are what the install prompt asks for; the maskable one is
+  // the only one a launcher is allowed to crop, so the mark has to be inside it.
+  assert.ok(promised.has('192x192 any'), 'no 192px icon to install with');
+  assert.ok(promised.has('512x512 any'), 'no 512px icon to install with');
+  assert.ok(promised.has('512x512 maskable'), 'no maskable icon, so launchers crop the mark');
+
+  // And the page has to name them, or the tab and iOS show nothing at all.
+  for (const name of ['favicon.ico', 'apple-touch-icon.png', 'app.webmanifest']) {
+    assert.ok(fs.existsSync(path.resolve(HERE, '../public', name)), `missing ${name}`);
+  }
+  assert.ok(/<link rel="icon" href="\/favicon\.ico"/.test(html), 'the tab has no icon');
+  assert.ok(/<link rel="apple-touch-icon" href="\/apple-touch-icon\.png"/.test(html),
+    'iPhone and iPad have no home-screen icon');
+});
+
+// The same name and the same mark, on the phone. The app bundles this exact
+// document and answers /app.webmanifest, /favicon.ico and the icons out of its
+// own assets — so its copies have to be the server's. They were not: the app
+// still installed itself as "Library" and named an /icon.svg no build ever
+// wrote. Nothing said so, because an unknown path there is answered with
+// index.html: the missing icon was not a 404, it was the whole page.
+
+test('the app carries the served manifest and icons, byte for byte', () => {
+  const served = path.resolve(HERE, '../public');
+  const bundled = path.resolve(HERE, '../../android/app/src/main/assets');
+  assert.ok(fs.existsSync(bundled), 'the android app has no assets directory');
+
+  const stale = (name) => `android/app/src/main/assets/${name} is stale — regenerate it: `
+    + 'cd server && npm run build:client';
+
+  const manifest = JSON.parse(fs.readFileSync(path.join(bundled, 'app.webmanifest'), 'utf8'));
+  assert.equal(manifest.name, 'SEKAI', 'the app still installs itself as something else');
+  assert.equal(manifest.short_name, 'SEKAI');
+  assert.ok(fs.readFileSync(path.join(bundled, 'app.webmanifest'))
+    .equals(fs.readFileSync(path.join(served, 'app.webmanifest'))), stale('app.webmanifest'));
+
+  // Every icon the manifest promises, and the two the page's own <link> tags
+  // name and no manifest lists.
+  const named = [...manifest.icons.map((i) => i.src.replace(/^\//, '')),
+    'favicon.ico', 'apple-touch-icon.png'];
+  for (const name of named) {
+    const inApp = path.join(bundled, name);
+    assert.ok(fs.existsSync(inApp), `the app promises ${name} and does not carry it`);
+    assert.ok(fs.readFileSync(inApp).equals(fs.readFileSync(path.join(served, name))), stale(name));
+  }
 });
 
 test('the client plays video through its own hls.js, not through a CDN', () => {
@@ -872,10 +987,12 @@ test('a shelf card opens in the area it belongs to, not in a browser', () => {
   assert.ok(script.includes('data-mal-kind'), 'a shelf card does not say which area it belongs to');
   assert.ok(/data-mal-open|openMalEntry/.test(script), 'a shelf card carries no target');
 
-  // The shelves refill on the way into the view, like the device's records.
+  // The shelves refill on the way into the view, like the device's records:
+  // the account's lists, and the titles this device keeps of its own.
   assert.ok(/renderMalShelves\(\)/.test(script), 'the shelves are never rendered');
-  assert.ok(/showView[\s\S]{0,80}?library[\s\S]{0,200}?renderMalShelves/.test(script) ||
-    /renderLibrary\(\);\s*renderMalShelves\(\);/.test(script),
+  assert.ok(/renderSavedManga\(\)/.test(script), 'the shelf of saved titles is never rendered');
+  assert.ok(
+    /if \(target\.dataset\.view === ["']library["']\) \{[\s\S]{0,200}?renderMalShelves\(\);/.test(script),
     'opening the Library does not fill its shelves');
   assert.ok(html.includes('.lib-tab'), 'no stylesheet rule draws the shelf tabs');
 });

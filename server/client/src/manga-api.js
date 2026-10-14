@@ -210,6 +210,19 @@ function posterFor(item, size = 'medium') {
   return p[size] || p.medium || p.large || p.small || '';
 }
 
+/**
+ * Where a title lives on their own site. Their API and their pages address a
+ * title by the same id, so the WebView tile on a title page needs no lookup and
+ * no translation — it is the id the page was already opened with.
+ *
+ * `/manga/<id>` also answers, by 301 into `/title/<id>` (measured), so the
+ * canonical path is used directly: a redirect is a second round trip and an
+ * address the reader never asked for.
+ */
+function sourceUrl(hid) {
+  return hid ? 'https://mangafire.to/title/' + encodeURIComponent(hid) : '';
+}
+
 /** Reader images as the app loads them: through the same-origin proxy. */
 function proxied(url) {
   return url ? '/api/manga/page?u=' + encodeURIComponent(url) : '';
@@ -217,5 +230,5 @@ function proxied(url) {
 
 export {
   mangaTrending, mangaSearch, mangaDetail, mangaChapters,
-  mangaPages, mangaFilterOptions, posterFor, proxied,
+  mangaPages, mangaFilterOptions, posterFor, proxied, sourceUrl,
 };

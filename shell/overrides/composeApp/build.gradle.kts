@@ -476,7 +476,10 @@ val desktopReleaseVersionCode = (
     ?.toIntOrNull()
     ?: 1
 val desktopReleasePackageVersion = jpackageCompatibleVersion(desktopReleaseVersionName)
-val windowsMsiUpgradeUuid = "395990ee-9b8a-3548-922c-e7a23a495b8d"
+// A fork's own upgrade identity: reusing upstream Nuvio's UUID would make
+// Windows Installer treat this package as an *upgrade of Nuvio* and remove the
+// user's existing install. A fresh UUID keeps SEKAI side by side with it.
+val windowsMsiUpgradeUuid = "5a922efa-2826-43c1-9e4e-66e174a7fa64"
 val iosDistribution = (
     providers.gradleProperty("nuvio.ios.distribution").orNull
         ?: System.getenv("NUVIO_IOS_DISTRIBUTION")
@@ -498,6 +501,38 @@ val fullPluginSourceDir = fullCommonSourceDir.resolve("com/nuvio/app/features/pl
 val fullTrailerSourceDir = fullCommonSourceDir.resolve("com/nuvio/app/features/trailer")
 val generatedRuntimeConfigDir = layout.buildDirectory.dir("generated/runtime-config/kotlin")
 val desktopSentryResourceDir = rootProject.layout.projectDirectory.dir("desktopSentry/build/generated/sentry")
+
+// The window is a frontend to `server/`: it boots the Node server itself when
+// nothing answers on the port. To make the installed app standalone — no repo
+// checkout, no working-directory luck — the server is bundled into the desktop
+// jar and materialised to a writable per-user folder on first launch (see
+// HanimeServer.kt). Only what the runtime needs travels: the sources, the web
+// client's assets, the bundled signer, and package.json (Node reads "type":
+// "module" from it). The writable state (data/, .session.json) never travels —
+// it is created per user, per machine.
+val hanimeServerSourceDir: File = rootProject.file("../../server")
+val generatedHanimeServerResourcesDir = layout.buildDirectory.dir("generated/hanime-server/resources")
+
+// Named `syncHanimeServer`, not `bundle…`: this build's Android guard rejects
+// any task whose name starts with "bundle" as an ambiguous bundle task.
+val syncHanimeServer by tasks.registering(Sync::class) {
+    from(hanimeServerSourceDir) {
+        include("src/**", "public/**", "vendor/**", "package.json")
+        exclude("data/**", ".session.json", "**/node_modules/**")
+    }
+    into(generatedHanimeServerResourcesDir.map { it.dir("hanime-server") })
+    doLast {
+        val root = generatedHanimeServerResourcesDir.get().asFile.resolve("hanime-server")
+        // A manifest of every bundled file, so the app can materialise them from
+        // the classpath without guessing (a jar offers no directory listing).
+        val manifest = root.walkTopDown()
+            .filter { it.isFile && it.name != "FILES.txt" }
+            .map { it.relativeTo(root).invariantSeparatorsPath }
+            .sorted()
+            .joinToString("\n")
+        root.resolve("FILES.txt").writeText(manifest + "\n")
+    }
+}
 val requestedGradleTasks = gradle.startParameter.taskNames.map { taskName ->
     taskName.substringAfterLast(':').lowercase()
 }
@@ -1167,6 +1202,10 @@ kotlin {
                 },
             )
             resources.srcDir(desktopSentryResourceDir)
+            // Bundled hanime server, on the classpath under hanime-server/**.
+            // builtBy wires the Sync task so it runs before the resources are
+            // packaged into the desktop jar.
+            resources.srcDir(files(generatedHanimeServerResourcesDir).builtBy(syncHanimeServer))
             dependencies {
                 implementation(compose.desktop.currentOs)
                 if (!isWindowsHost) {

@@ -49,6 +49,25 @@ JAVA_HOME=/path/to/jdk17 ./gradlew :composeApp:packageDistributionForCurrentOS
 # -> composeApp/build/compose/binaries/main/{msi,dmg,deb}/...
 ```
 
+On Windows without the **WiX toolset** installed, that installer step cannot run
+(jpackage needs `candle`/`light` for `msi`, and the same for an `exe`
+installer). The portable build needs neither — it produces the launcher itself,
+with the JVM, the player bridge and libmpv inside:
+
+```bash
+JAVA_HOME=/path/to/jdk17 ./gradlew :composeApp:createDistributable
+# -> composeApp/build/compose/binaries/main/app/SEKAI/SEKAI.exe   (246 MB, folder must stay together)
+```
+
+A Gradle build of this tree also needs a `local.properties` next to
+`settings.gradle.kts` — the runtime-config task declares it as an input, and
+without the file Gradle fails before compiling anything. An Android SDK path is
+enough:
+
+```properties
+sdk.dir=F:\atc\android-sdk
+```
+
 ### Smoke the player without clicking
 
 Upstream ships a harness that boots straight into the native player with one URL
@@ -57,6 +76,15 @@ fork:
 
 ```bash
 ./gradlew :composeApp:run -Pnuvio.desktop.smokePlayerUrl="http://127.0.0.1:8787/<a stream url>"
+```
+
+The same harness works on the built app, which is how the packaged exe is
+smoke-tested without a click: the property is read as a system property, so the
+bundled JVM takes it from `JAVA_TOOL_OPTIONS`.
+
+```bash
+cd composeApp/build/compose/binaries/main/app/SEKAI
+JAVA_TOOL_OPTIONS="-Dnuvio.desktop.smokePlayerUrl=http://127.0.0.1:8787/play/anime/<id>?ep=1&src=sv-2" ./SEKAI.exe
 ```
 
 ## What we changed (and what that costs)

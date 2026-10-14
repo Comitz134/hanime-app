@@ -7,6 +7,47 @@
    never wider than a thumb can use. */
 #manga-search-shell { margin-bottom: 1.25rem; max-width: 32rem; }
 
+/* A title page's own controls, in one row under its header: what can be done
+   with a title before the long read of its chapters. Four equal tiles that
+   share the width, the icon over the word, and the word free to take two
+   lines — "Add to library" is not a label that fits on one, and a row that
+   grows a scrollbar to say it is worse than one that wraps. */
+.manga-actions {
+  display: grid; grid-auto-flow: column; grid-auto-columns: 1fr;
+  gap: .5rem; margin-bottom: 1.25rem;
+}
+.act-btn {
+  display: flex; flex-direction: column; align-items: center; gap: .375rem;
+  padding: .625rem .25rem; border-radius: var(--radius);
+  border: 1px solid hsl(var(--border) / .7); background: hsl(var(--card) / .45);
+  color: hsl(var(--muted-foreground));
+  transition: border-color .2s, background .2s, color .2s;
+}
+.act-btn:hover { border-color: hsl(var(--input)); background: hsl(var(--card)); color: hsl(var(--foreground)); }
+.act-btn:active { border-color: hsl(var(--primary)); }
+.act-btn[aria-pressed="true"] {
+  border-color: hsl(var(--primary) / .6); background: hsl(var(--primary) / .1);
+  color: hsl(var(--primary));
+}
+.act-icon {
+  display: grid; place-items: center; width: 2rem; height: 2rem;
+  border-radius: 999px; background: hsl(var(--muted) / .5);
+}
+.act-btn[aria-pressed="true"] .act-icon { background: hsl(var(--primary) / .18); }
+.act-icon svg { width: 1.0625rem; height: 1.0625rem; }
+.act-label {
+  font-size: .625rem; line-height: 1.25; text-align: center;
+  overflow-wrap: anywhere;
+}
+/* The estimate answers no press: it is information about a title, and the only
+   thing a press could do is move the page. */
+.act-stat { cursor: default; }
+/* When the tracker's tile is pressed, MyAnimeList's own controls move out of
+   the side column and into this dock, right under the row that was pressed:
+   the control comes to the reader, because this client never scrolls to a
+   control. The slot keeps its own styling wherever it sits. */
+.manga-track { margin: -.75rem 0 1.25rem; }
+
 /* The chapter list — the spine of the title page. Rows, not cards with art:
    a title can have a thousand of them, and the number, name and date are the
    only things that tell two apart. */

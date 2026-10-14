@@ -13,10 +13,13 @@
 
 import { $, esc, fmtCount } from './core.js';
 import { noteOpen, renderActivity } from './activity.js';
-import { autoAdvance } from './mal.js';
+import { autoAdvance, configured } from './mal.js';
 import { goBack, pushNav } from './nav-history.js';
-import { mangaChapters, mangaDetail, mangaFilterOptions, mangaPages, mangaSearch, mangaTrending, posterFor, proxied } from './manga-api.js';
+import { estimateChip, estimateDetail, estimateTitle, nextChapterEstimate } from './manga-eta.js';
+import { isSaved, toggleSaved } from './manga-saved.js';
+import { mangaChapters, mangaDetail, mangaFilterOptions, mangaPages, mangaSearch, mangaTrending, posterFor, proxied, sourceUrl } from './manga-api.js';
 import { openSheet, setSheetOrigin } from './sheet.js';
+import { shellCall, shellCan } from './shell.js';
 
 /* ------------------------------------------------------------------ grid */
 
@@ -111,6 +114,9 @@ const detailCache = new Map();
 const pagesCache = new Map();
 
 const dState = { hid: null, detail: null, chapters: [] };
+/** Where the tracking slot sat before the title page moved it, so the tile can
+ *  put it back. Null until a title page is rendered. */
+let slotHome = null;
 /** Which chapter the reader is on, and a token so a slow fetch cannot land
  *  its pages on a chapter the reader has already left. */
 const rState = { idx: -1 };
@@ -134,16 +140,26 @@ const label = (s) => String(s ?? '').replace(/_/g, ' ');
 
 function renderDetail() {
   const d = dState.detail;
+  // A fresh page has the slot in the side column, whatever the last one did
+  // with it.
+  slotHome = null;
   const genres = (d.genres ?? [])
     .map((g) => `<span class="hero-tag">${esc(g.title ?? g.name ?? String(g))}</span>`).join('');
-  const kicker = [d.type, d.year, label(d.status)].filter(Boolean).map(esc).join(' · ');
+  // The source rides at the end of the kicker the way a series page names where
+  // it came from: the area is one shelf, but a title is mangafire's, and the
+  // WebView button below is what opens it there.
+  const kicker = [d.type, d.year, label(d.status), 'Mangafire'].filter(Boolean).map(esc).join(' · ');
   const meta = [
     d.rating ? `★ ${Number(d.rating).toFixed(1)}` : null,
     d.follows ? `${fmtCount(d.follows)} follows` : null,
     dState.chapters.length ? `${dState.chapters.length} chapters` : null,
   ].filter(Boolean).map(esc).join(' · ');
+  // Read once here, shown in three places: the tile under the header, the
+  // details row, and the sentence the tile is announced with.
+  const eta = nextChapterEstimate(dState.chapters, { status: d.status });
   const facts = [
     ['Status', label(d.status)],
+    ...(eta ? [['Next chapter', estimateDetail(eta)]] : []),
     ['Type', d.type],
     ['Year', d.year],
     ['Languages', (d.languages ?? []).join(', ')],
@@ -165,6 +181,8 @@ function renderDetail() {
         <div class="detail-tags">${genres}</div>
       </div>
     </div>
+    ${mangaActionsHtml(dState.hid, eta)}
+    <div class="manga-track" id="manga-track" hidden></div>
     <div class="detail-grid">
       <div class="detail-main">
         <div class="detail-label">Synopsis</div>
@@ -189,6 +207,55 @@ function renderDetail() {
     </div>`;
 
   renderChapterList();
+}
+
+/**
+ * The title page's own controls, in one row under the header — what can be done
+ * with a title before the long read of its chapters: keep it, see when the next
+ * chapter is due, track it, or walk to the site it came from.
+ *
+ * The estimate is a reading rather than a control, so it is a tile and not a
+ * button: there is nothing to press, and what it says is in its own label. The
+ * tracker is a button, and the one thing it does is bring MyAnimeList's own
+ * controls up to this row — this client never scrolls the reader to a control
+ * (see the guard in test/web-client.test.mjs), so the control comes to the
+ * reader instead, and a second press sends it back where it was. A build with
+ * no MyAnimeList client id gets three tiles, not a tracker that cannot answer.
+ */
+function mangaActionsHtml(hid, eta) {
+  const saved = isSaved(hid);
+  const word = saved ? 'In library' : 'Add to library';
+  const chip = estimateChip(eta);
+  const about = estimateTitle(eta);
+  return `<div class="detail-actions manga-actions">
+    <button class="act-btn" type="button" data-mangsave="${esc(hid)}" aria-pressed="${saved}"
+            aria-label="${esc(word)}" title="${esc(word)}">
+      <span class="act-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M12 20.4 4.9 14.1A5.3 5.3 0 0 1 12 6.3a5.3 5.3 0 0 1 7.1 7.8Z"/></svg>
+      </span>
+      <span class="act-label">${esc(word)}</span>
+    </button>
+    <span class="act-btn act-stat" role="note" aria-label="${esc(about)}" title="${esc(about)}">
+      <span class="act-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h10M7 21h10M7.5 3c0 4 4.5 5.2 4.5 9s-4.5 5-4.5 9M16.5 3c0 4-4.5 5.2-4.5 9s4.5 5 4.5 9"/></svg>
+      </span>
+      <span class="act-label">${esc(chip)}</span>
+    </span>
+    ${configured() ? `<button class="act-btn" type="button" data-maltrack aria-expanded="false"
+            aria-label="MyAnimeList — bring the list controls up here" title="MyAnimeList">
+      <span class="act-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11.5A8 8 0 1 0 12 20a8 8 0 0 0 6.9-3.9"/><path d="M20 5.5V11h-5.5"/></svg>
+      </span>
+      <span class="act-label">Tracking</span>
+    </button>` : ''}
+    <button class="act-btn act-btn--source" type="button" data-mangasrc="${esc(sourceUrl(hid))}"
+            aria-label="Open this title on mangafire.to" title="Open on mangafire.to">
+      <span class="act-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="2.5" y="4.5" width="19" height="15" rx="4"/><path d="M10.2 9.3v5.4l4.8-2.7z" fill="currentColor" stroke="none"/></svg>
+      </span>
+      <span class="act-label">WebView</span>
+    </button>
+  </div>`;
 }
 
 function renderChapterList() {
@@ -376,12 +443,83 @@ function bindMangaView() {
 }
 bindMangaView();
 
-// Cards in the manga grid, and chapters in the list under the detail.
+// Cards in the manga grid, chapters in the list under the detail, and the four
+// controls on a title page. All of them are delegated from the document: the
+// sheet is rewritten on every open, and handlers bound to its markup would go
+// with it.
 document.addEventListener('click', (e) => {
+  // A shelf's own removal cross sits inside a card that opens a title. Taking a
+  // title off a shelf is the cross's business and not the card's, whatever
+  // order the two listeners happen to be registered in.
+  if (e.target.closest('[data-saved-drop]')) return;
+
   const card = e.target.closest('[data-manga]');
   if (card) { e.preventDefault(); openManga(card.dataset.manga); return; }
   const ch = e.target.closest('[data-mfch]');
-  if (ch && dState.hid) { e.preventDefault(); openChapter(Number(ch.dataset.mfch)); }
+  if (ch && dState.hid) { e.preventDefault(); openChapter(Number(ch.dataset.mfch)); return; }
+
+  // Keep it: the sheet's own record of the title is what the shelf draws, so
+  // the card it makes is the same card the grid makes.
+  const keep = e.target.closest('[data-mangsave]');
+  if (keep) {
+    e.preventDefault();
+    toggleSaved({
+      id: keep.dataset.mangsave,
+      title: dState.detail?.title,
+      cover: posterFor(dState.detail, 'medium'),
+      type: dState.detail?.type,
+      year: dState.detail?.year,
+      chapters: dState.chapters.length,
+    });
+    return;
+  }
+
+  // The estimate names a date the chapter list is the evidence for, so the tile
+  // is read-only by design: this client never scrolls the reader to a section.
+
+  // Tracking lives in one place — the slot in the side column — so this tile
+  // brings that slot up to the row rather than growing a second set of controls
+  // that could disagree with it. A second press hands it back.
+  const track = e.target.closest('[data-maltrack]');
+  if (track) {
+    e.preventDefault();
+    const slot = $('#sheet-body .mal-slot');
+    const dock = $('#manga-track');
+    if (!slot || !dock) return;
+    if (dock.contains(slot)) {
+      if (slotHome?.parent) slotHome.parent.insertBefore(slot, slotHome.next);
+      else return;
+      dock.hidden = true;
+      track.setAttribute('aria-expanded', 'false');
+      track.setAttribute('aria-label', 'MyAnimeList — bring the list controls up here');
+    } else {
+      slotHome = { parent: slot.parentElement, next: slot.nextElementSibling };
+      dock.hidden = false;
+      dock.appendChild(slot);
+      track.setAttribute('aria-expanded', 'true');
+      track.setAttribute('aria-label', 'MyAnimeList — put the list controls back');
+    }
+    // preventScroll is the point of the guard in the test suite: the control is
+    // already in front of the reader, and a focus that scrolled would move the
+    // page out from under the press that put it there.
+    slot.querySelector('select, input, button')?.focus({ preventScroll: true });
+    return;
+  }
+
+  // The source page, in this app's own window. A press cannot walk there on
+  // its own: the shell swallows every foreign navigation an injected link could
+  // start, which is what keeps an ad from opening the browser over a player —
+  // so the URL is asked for through the bridge, which answers only for the
+  // source hosts and loads it in the app's own window (MainActivity.openSource,
+  // MangaSource). A plain browser has no bridge and is handed the URL the
+  // usual way.
+  const source = e.target.closest('[data-mangasrc]');
+  if (source) {
+    e.preventDefault();
+    const url = source.dataset.mangasrc;
+    if (shellCan('openSource')) shellCall('openSource', url);
+    else window.location.assign(url);
+  }
 });
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Enter' && e.key !== ' ') return;

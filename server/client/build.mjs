@@ -6,10 +6,17 @@
 // server, android/app/src/main/assets/index.html for the app — so the two can
 // never drift: both are regenerated from the same sources.
 //
+// The document's own outside-the-page files ride along in the same run: the
+// install manifest and the icons the manifest and the page's <link> tags name
+// are copied from public/ into the app's assets as bytes. They used to be
+// copied by hand, and the hand copy is exactly how the app came to install
+// itself as "Library" with an icon no build had ever written.
+//
 //   cd server && npm run build:client
 //
 // The suite (test/web-client.test.mjs) calls render() and fails if either
-// committed copy differs from it, so a stale bundle is caught before release.
+// committed copy differs from it — and fails on either stale icon — so a stale
+// bundle is caught before release.
 //
 // Determinism: same sources + same esbuild version (pinned in package.json)
 // produce byte-identical output; that is what makes the freshness guard sound.
@@ -25,6 +32,47 @@ const OUTPUTS = [
   path.resolve(HERE, '../public/index.html'),
   path.join(ROOT, 'android/app/src/main/assets/index.html'),
 ];
+
+/**
+ * The files beside the document that the page and the manifest name.
+ *
+ * Generated once into public/ by `_mf/make-sekai-icons.py` — one source image,
+ * one run — and copied from there rather than written twice: the phone app
+ * answers /app.webmanifest, /favicon.ico and the rest out of its own assets,
+ * so a copy that is not the server's is a second identity for the same app.
+ * An unknown path there is answered with index.html, so a missing icon is not
+ * even a 404 — it is the whole page.
+ */
+export const COPIED_ASSETS = [
+  'app.webmanifest',
+  'favicon.ico',
+  'icon-192.png',
+  'icon-512.png',
+  'icon-maskable-512.png',
+  'apple-touch-icon.png',
+];
+
+/** Copies those files from public/ into the app's assets, byte for byte. */
+export async function copyAssets() {
+  const from = path.resolve(HERE, '../public');
+  const to = path.join(ROOT, 'android/app/src/main/assets');
+  if (!fs.existsSync(to)) return []; // server-only checkout
+
+  const written = [];
+  for (const name of COPIED_ASSETS) {
+    const source = path.join(from, name);
+    if (!fs.existsSync(source)) {
+      throw new Error(`${name} is not in public/ — nothing to put in front of the app`);
+    }
+    const dest = path.join(to, name);
+    // A Buffer, not utf8: an .ico and a PNG have no line endings to convert,
+    // and the manifest's copy has to be the same bytes the test compares.
+    fs.writeFileSync(dest, fs.readFileSync(source));
+    written.push(name);
+    console.log(`wrote ${path.relative(ROOT, dest)} — ${fs.statSync(dest).size} bytes`);
+  }
+  return written;
+}
 
 /** Renders the complete index.html from the sources. */
 export async function render() {
@@ -73,6 +121,7 @@ async function main() {
     fs.writeFileSync(out, html);
     console.log(`wrote ${path.relative(ROOT, out)} — ${Buffer.byteLength(html)} bytes`);
   }
+  await copyAssets();
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

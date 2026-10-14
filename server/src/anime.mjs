@@ -21,6 +21,9 @@
 // good for as long as the embed host keeps it — none of them deserve a
 // request per page view.
 
+import { mangleVia } from './hls.mjs';
+import { resolveSubtitles } from './providers.mjs';
+
 const ANILIST = 'https://graphql.anilist.co';
 const LUNARX = 'https://api.lunarx.to';
 
@@ -139,6 +142,23 @@ function catalogQuery({ q, page, genre, format, status }) {
 const DETAILS_QUERY = `
   query ($id: Int) {
     Media(id: $id, type: ANIME) {
+      id idMal title { romaji } description(asHtml: false) episodes averageScore
+      startDate { year } format status genres
+      coverImage { large } bannerImage
+      recommendations(perPage: 10, sort: [RATING_DESC]) {
+        nodes { mediaRecommendation { id title { romaji } coverImage { large }
+                        averageScore episodes startDate { year } } }
+      }
+    }
+  }`;
+
+// The same record asked for by MAL's id instead of AniList's. AniList carries
+// `idMal` on every anime, so the mapping is one query — and it is the door the
+// desktop app's MyAnimeList tracker enters by: its library rows know a title
+// only as `mal:21`.
+const DETAILS_BY_MAL_QUERY = `
+  query ($idMal: Int) {
+    Media(idMal: $idMal, type: ANIME) {
       id idMal title { romaji } description(asHtml: false) episodes averageScore
       startDate { year } format status genres
       coverImage { large } bannerImage
@@ -271,6 +291,20 @@ async function handleDetails(id, res) {
 }
 
 /**
+ * GET /api/anime/by-mal/:malId — the same title asked for by its MyAnimeList
+ * id. The answer carries AniList's own id, so a client that entered through
+ * MAL leaves with the id every other route speaks. A MAL id AniList has no
+ * record of is a 404, not an error: the title is not in this catalogue.
+ */
+async function handleDetailsByMal(malId, res) {
+  const id = Number(malId);
+  if (!Number.isInteger(id) || id <= 0) return json(res, 404, { error: 'not_found', malId });
+  const data = await cached('details', `m:${id}`, () => anilist(DETAILS_BY_MAL_QUERY, { idMal: id }));
+  if (!data.Media) return json(res, 404, { error: 'not_found', malId: id });
+  json(res, 200, { details: shapeDetails(data.Media) });
+}
+
+/**
  * One series, every season of it, in air order — the answer to "these are the
  * same show, why does the app treat them as different titles?".
  *
@@ -381,10 +415,16 @@ async function handleEpisodes(id, res) {
   json(res, 200, { id, data });
 }
 
-/** GET /api/anime/:id/player?ep=N — the embed URL LunarX itself would use. */
-async function handlePlayer(id, ep, res) {
+/**
+ * The embed URLs LunarX itself would use, in its order.
+ *
+ * Exported because the in-app route (`/play/anime/…`) resolves the same list
+ * before deciding whether one of them can play here, and a second copy of this
+ * call would be a second thing to keep in step with LunarX.
+ */
+export async function playerSources(id, ep = 1) {
   const n = Math.max(1, Number(ep) | 0);
-  const list = await cached('player', `p:${id}:${n}`, async () => {
+  return cached('player', `p:${id}:${n}`, async () => {
     const body = await jget(
       `${LUNARX}/api/3rdprovider?anilist=${encodeURIComponent(id)}&episode=${n}`,
       LUNARX_HEADERS,
@@ -393,8 +433,47 @@ async function handlePlayer(id, ep, res) {
       .filter((row) => row.player_url)
       .map((row) => ({ label: row.server ?? 'auto', url: row.player_url }));
   });
+}
+
+/** GET /api/anime/:id/player?ep=N — the embed URL LunarX itself would use. */
+async function handlePlayer(id, ep, res) {
+  const n = Math.max(1, Number(ep) | 0);
+  const list = await playerSources(id, n);
   if (!list.length) return json(res, 404, { error: 'no_player', id, ep: n });
   json(res, 200, { id, ep: n, sources: list });
+}
+
+/**
+ * GET /api/anime/:id/subtitles?ep=N — the subtitle tracks the episode's embed
+ * names. Served as relay links, because the files live on the provider's CDN
+ * and the client that reads them has no business knowing whose CDN that is.
+ */
+async function handleSubtitles(id, ep, res, origin) {
+  const n = Math.max(1, Number(ep) | 0);
+  const sources = await playerSources(id, n);
+  for (const source of sources) {
+    const found = await resolveSubtitles(source.url);
+    if (!found.ok || !found.tracks.length) continue;
+    return json(res, 200, {
+      id,
+      ep: n,
+      tracks: found.tracks.map((track, i) => ({
+        id: `${found.provider}-${i}`,
+        url: `${origin}/relay?${mangleVia(track.url, { referer: found.referer })}`,
+        // The code, not the page's words: a picker matches a preferred language
+        // against a code, while the name is the descriptor next to it.
+        language: track.code ?? track.language,
+        // The words the page used, so a picker can tell one English track from
+        // another even before it has codes for any of them.
+        name: track.language,
+        format: track.format,
+        default: track.default === true,
+      })),
+    });
+  }
+  // An episode with no subtitles is an answer, not a 404: the player asks
+  // before it has anything, and an empty list is what "none" looks like.
+  json(res, 200, { id, ep: n, tracks: [] });
 }
 
 /**
@@ -404,6 +483,20 @@ async function handlePlayer(id, ep, res) {
 export async function handleAnime(url, res, pathname) {
   const searchMatch = /^\/api\/anime\/search$/.exec(pathname);
   if (searchMatch) return handleSearch(url, res);
+
+  // Before the numeric routes: `by-mal` is a word where they expect a number.
+  const byMalMatch = /^\/api\/anime\/by-mal\/(\d+)$/.exec(pathname);
+  if (byMalMatch) return handleDetailsByMal(byMalMatch[1], res);
+
+  const subtitlesMatch = /^\/api\/anime\/(\d+)\/subtitles$/.exec(pathname);
+  if (subtitlesMatch) {
+    return handleSubtitles(
+      subtitlesMatch[1],
+      url.searchParams.get('ep') ?? '1',
+      res,
+      `${url.protocol}//${url.host}`,
+    );
+  }
 
   const episodesMatch = /^\/api\/anime\/(\d+)\/episodes$/.exec(pathname);
   if (episodesMatch) return handleEpisodes(episodesMatch[1], res);

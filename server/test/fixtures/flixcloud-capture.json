@@ -1,0 +1,67 @@
+{
+ "note": "Captured from flixcloud.cc by _mf/make-flix-fixture.mjs — the payload the page hands its own client, and what that client produces from it. The subtitle array is the page's own text, captured by _mf/fixture-add-subs.mjs.",
+ "embed": {
+  "seed": "f3bed5b53251555e",
+  "keyField": "kf_c6f68bb8",
+  "ivField": "ivf_c842aeb0",
+  "containerName": "cd_f00de1a9",
+  "arrayName": "ad_9a56137b",
+  "objectName": "od_0906b79c",
+  "tokenField": "041b88e7f884f27c_f884f27c",
+  "keyFrag2Field": "a35ec482b414fb17_2b586a24",
+  "keyFieldValue": "GlJRih9MWtatS9EUKVh7hOQijeoNLXD6DHMJGx3ZbzA=",
+  "ivFieldValue": "LwKJBtJcG3GhYAjqNoMIYQ==",
+  "keyFrag2Value": "ZmxtuqmutrbsWsSFV3qzWH+dEOlkLCyHwWoNf1xJWgE=",
+  "token": "610b22e1fba0f495e9e9a726",
+  "wPayload": "AGFzbQEAAAABEQNgAX8AYAV/f39/fwBgAAF/AwQDAAECBQMBAAEGBgF/AUEACwcZBAZtZW1vcnkCAAJfcwAAAl9yAAECX2MAAgrSAQMGACAAJAALigEBA39BACEFA0ACQCAFIARPDQAgACAFai0AACABIAVqLQAAcyACIAVqLQAAcyEGIAZB0gBzIQYgBkEva0H/AXEhBiAGQcEAakH/AXEhBiAGQQN2IAZBBXRB/wFxciEGIAVB1wBsIwBqQf8BcSEHIAYgB3MhBiADIAVqIAY6AAAgBUEBaiEFDAELCws9AQF/QQAhAANAAkAgAEEgTw0AQZAQIABqQdAPIABqLQAAQfAPIABqLQAAczoAACAAQQFqIQAMAQsLQZAQCwtHAQBB0A8LQFPuBD2DRizBRa9b+o/8htD4U+ATgDt1X6h0rcuxIRDPDMsxs1Hdla+CPwzdeMwFNjOztk354tm1lkhm2v0ccYc=",
+  "source": "https://flixcloud.cc/e/bo2qdw3m3kjf?v=2",
+  "subtitlesRaw": "[{url:\"https://vault-93.negativestatuscdn.top/subtitles/09e32e55-0b53-41df-b46e-934dbafea437/09e32e55-0b53-41df-b46e-934dbafea437_eng_3.ass\",language:\"English ([SoM] English)\",format:\"ass\",default:true},{url:\"https://vault-93.negativestatuscdn.top/subtitles/09e32e55-0b53-41df-b46e-934dbafea437/09e32e55-0b53-41df-b46e-934dbafea437_eng_4.ass\",language:\"English ([SoM] Signs & Songs)\",format:\"ass\",default:false},{url:\"https://vault-93.negativestatuscdn.top/subtitles/09e32e55-0b53-41df-b46e-934dbafea437/09e32e55-0b53-41df-b46e-934dbafea437.srt\",language:\"English (Dubtitle(AI))\",format:\"srt\",default:false}]",
+  "subtitlesFrom": "https://flixcloud.cc/e/bo2qdw3m3kjf?v=2"
+ },
+ "api": {
+  "f8452c0361": "mn8NiflXFsmEadVde6x9YKv6mPVRHByTglj6d/aB7aXK+slY1/JBSa7MmzjS6VWv9bLmmqkvFIvTM+J9t43r4Bp9RJA/EhTm/KMUvv1KP+wfD+yje8i/3XNrSqeAdFhXHv59rJRthRCsZD5MigyynDb2vVbgSYlWhTG6Yv2HyHU623+NtDr6yRp0l7UjVX+/4cdiLaognR2EAKwJ/7Z2vSK8aWmivoKT31ry3XBDSU2X3d5GQNg1dLtaDfnEJ/ivAL8b7paAZ0cOKXmYi1KZUb3z2J7A80xEe/qbN4BZ30Y4lkKeKdSjeF/cdw61ALmvzcfzOupD+3zJybLNSQXO9v8YAc2fxa5BCPcEMQZxEQkK5pPa7S4q2ipCaXNxjf+bg675oNc8rCEUiJGu3i+LVtKwThGyBxGMyXdAm1/M+1CbwWYZXjShbZ5cw2sUPytvmZPIdji1xweU05FPlMOY2zd1uD0pHKUdBKKpHyYxxXKZVmg+O6BQWwSqkpeJMVnSYhr+fiqYzMTgGVOKcyPJmQ==",
+  "0712474961": "U7wdhi7N2rddkHQT2K3mmEoaxnsDHxiFoghQ5d8d8iY=",
+  "ia2irzapvkn": "0.o0ypm0oub3n",
+  "uiz1sg0p25f": "1791608680514",
+  "6tqdui4qxlp": "4bgwuimmr3c",
+  "metadata": {
+   "timestamp": 1791608680514,
+   "version": "2.1"
+  }
+ },
+ "expected": {
+  "masterUrl": "https://fetch8.flixcloud.cc/_v7/09e32e55-0b53-41df-b46e-934dbafea437/master.m3u8?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ2aWRlb19pZCI6IjA5ZTMyZTU1LTBiNTMtNDFkZi1iNDZlLTkzNGRiYWZlYTQzNyIsImNsaWVudF9pcCI6IjJhMDE6MTE6ZjIxOjdiMDA6NDkyNTozMTM1OjM0MWE6ZTdiMiIsImV4cCI6MTc5MTYzMDI4MCwiaWF0IjoxNzkxNjA4NjgwLCJpc3MiOiJ2aWRlby1ob3N0aW5nLXBsYXRmb3JtIn0.ne4TE1gggrGejnEzNPLXpZV-iSCFvbfcfsrk4Rs66IA",
+  "playlistKey": "5f25358ed29bb96ec7905727f73083e6cbe0565e79d9acea3e3ccb114c3d6148",
+  "masterBody": "fGBt2p+o7GTk1Q9z2miusI6yBRc2l5bZNB+OSRgQOWUSYHHHk6HtN5fVamaidMqp56cEESyJgaN6AelwOVkIJ30Jec+c3OwvgNVqBZ1A7cTnrhcTPOSOpF9IomcpH00MGmN0257PhDeCw3tmomTMtY6sEx0t5PWvbRCeQwUAQ2ZxClfnlcTOAbSnGhSVX/e1n6ceLzHp+tlVf4ZgfkRMcTBBDOKXtNgbo/k4CJlR94+9hXgzSqyUyDQfjkkYEDllEmBxx5Oh7TeX1WpmonTKqeenBBEsiYGjegHpcDlZCCd9CXnPnNzsL4DVagWSXuTE564XEzzkjq9QW6d4P1VDZBtgc8+H1+1Tid97ZqJkzLWOrBMdLeT1r20QnkMFAENmcQpX55XEzgG0pxoUlV/3tZ+nHi8x6frZVX+GYH5ETHEwQQzil7TYG6P5OAiSXuSKopM+cBTq2dIcNuhUFGlMEHJ2YdyX2vRDjt4RHbVxzaKcqRIKMeSU3goQmVQfci0dC2x6wO+siVq/pG8X23HWooKva3wYrMiDUR7nUgN5JAsMGBfvpPiIQPGkZxfGVq+Lu9Q3cE3pgtgcNuU/Y18IDwBSWv3l1ooMqOQEc7B48q77tmU1OpTd2EcR8n4oBA0NcFNc6rf0lwP05W8t",
+  "masterPlainHead": "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"audio\",LANGUAGE=\"jpn\",NAME=\"Native\",DEFAULT=YES,AUTOSELECT=YES,URI=\"../biG_wos7M3botSTGHqH0V3kCMq2y-9od9lE/audio/native.m3u8\"\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"audio\",LANGUAGE=\"eng\"",
+  "variantBodyHead": "fGBt2p+o7GTk1Q9z2miusI6yBRc2l5bcNB+OSRgQOWULZGfJl8/9O5XRA264frnX/up1GyGNgbITcY5VBXxMGxp0YMuc2PxU95p0Yq9krr7msBofIJXluWoR",
+  "segmentHead": "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",
+  "segmentUrl": "https://vault-92.plasmacdn.top/_v7/09e32e55-0b53-41df-b46e-934dbafea437/seg-0-f1-v1-a0.png",
+  "aesKey": "688576eea1d16650ba61910ed39101b5a48b61aaf10740dd4764c6a2957f3bbc"
+ },
+ "parsed": {
+  "subtitles": [
+   {
+    "url": "https://vault-93.negativestatuscdn.top/subtitles/09e32e55-0b53-41df-b46e-934dbafea437/09e32e55-0b53-41df-b46e-934dbafea437_eng_3.ass",
+    "language": "English ([SoM] English)",
+    "code": "en",
+    "format": "ass",
+    "default": true
+   },
+   {
+    "url": "https://vault-93.negativestatuscdn.top/subtitles/09e32e55-0b53-41df-b46e-934dbafea437/09e32e55-0b53-41df-b46e-934dbafea437_eng_4.ass",
+    "language": "English ([SoM] Signs & Songs)",
+    "code": "en",
+    "format": "ass",
+    "default": false
+   },
+   {
+    "url": "https://vault-93.negativestatuscdn.top/subtitles/09e32e55-0b53-41df-b46e-934dbafea437/09e32e55-0b53-41df-b46e-934dbafea437.srt",
+    "language": "English (Dubtitle(AI))",
+    "code": "en",
+    "format": "srt",
+    "default": false
+   }
+  ]
+ }
+}

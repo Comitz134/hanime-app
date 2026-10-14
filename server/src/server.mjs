@@ -16,20 +16,33 @@
 //   GET /api/app/apk/:file         the published APK itself
 //   GET /relay?u=&s=               signed HLS relay (playlists, segments, keys)
 
+// First, so every module below sees the same environment: the MAL secret and
+// the crawl knobs come from a .env that nothing else loads.
+import './env.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getCatalog, getSources, warm, SITE_BASE, USER_AGENT } from './hanime.mjs';
-import { mangle, mangleVia, unmangleLink, fetchUpstream, relayPlaylist, relayBinary } from './hls.mjs';
+import {
+  mangle,
+  mangleVia,
+  unmangleLink,
+  fetchUpstream,
+  relayPlaylist,
+  relayBinary,
+  subtitleContentType,
+} from './hls.mjs';
 import { account, setCookie, clear as clearSession, sessionInfo, raw as rawSession } from './session.mjs';
 import { buildIndex, searchPlaylists, allItems } from './playlists.mjs';
 import { crawl, crawlLock, loadIndex as loadCrawlIndex, indexStats as crawlStats } from './playlist-crawl.mjs';
 import { versionPayload, streamApk } from './app-release.mjs';
-import { handleAnime } from './anime.mjs';
+import { handleAnime, playerSources } from './anime.mjs';
 import { handleFmovies, resolveFilm } from './fmovies.mjs';
+import { decodePlaylist, unsealSegment } from './flixcloud.mjs';
+import { resolveEmbed } from './providers.mjs';
 import { handleAddon } from './addon.mjs';
-import { handleMalApi, handleMalToken } from './mal.mjs';
+import { handleDesktopLanding, handleMalApi, handleMalDesktopCallback, handleMalToken, stashDesktopCode } from './mal.mjs';
 import {
   searchPlaylists as searchPublicPlaylists,
   getPlaylist as getPublicPlaylist,
@@ -574,6 +587,33 @@ async function handleRelay(url, res, req) {
   // Decoding as text first would corrupt the payload: the body is encrypted
   // AES-128 CBC, and a UTF-8 round trip is lossy for arbitrary bytes.
   const bytes = Buffer.from(await upstream.arrayBuffer());
+
+  // A link carrying a playlist key came from flixcloud, where *nothing* arrives
+  // as itself: playlists are base64 over a keystream, and segments wear an image
+  // header. Both are undone here, before the plain-playlist check below, because
+  // their wrappers are what the sniffing would otherwise trip over.
+  if (link.key) {
+    const segment = unsealSegment(bytes);
+    if (segment) {
+      res.writeHead(200, {
+        'content-type': 'video/mp2t',
+        'content-length': segment.length,
+        'access-control-allow-origin': '*',
+        'cache-control': 'public, max-age=3600',
+      });
+      return res.end(segment);
+    }
+
+    const playlist = decodePlaylist(bytes, link.key);
+    if (playlist) {
+      const origin = baseUrl(req);
+      // Every nested URI inherits the key: the variant and the segments below it
+      // are wrapped the same way the master was.
+      const relink = (abs) => `${origin}/relay?${mangleVia(abs, link)}`;
+      return relayPlaylist(target, relink, res, playlist);
+    }
+  }
+
   const asText = bytes.subarray(0, 64).toString('latin1');
 
   if (asText.trimStart().startsWith('#EXTM3U')) {
@@ -586,8 +626,15 @@ async function handleRelay(url, res, req) {
     return relayPlaylist(target, relink, res, bytes.toString('latin1'));
   }
 
+  // A subtitle body: served as itself, with the type its own extension — or,
+  // when the URL names no file, its upstream content-type — claims. The CDN
+  // hands these out as octet-stream, and a player that trusts the type over the
+  // bytes (mpv does) reads that as "not subtitles".
+  const subtitleType = subtitleContentType(target, type);
+
   res.writeHead(200, {
-    'content-type': type.includes('octet-stream') ? 'application/octet-stream' : 'video/mp2t',
+    'content-type': subtitleType
+      ?? (type.includes('octet-stream') ? 'application/octet-stream' : 'video/mp2t'),
     'content-length': bytes.length,
     'access-control-allow-origin': '*',
     'cache-control': 'public, max-age=3600',
@@ -730,6 +777,37 @@ async function handleRequest(req, res) {
       return res.end();
     }
 
+    // The same in-app route for an anime episode. LunarX names the embeds and
+    // src/providers.mjs says which of them this server can open itself; the
+    // first that resolves is answered with a redirect into the relay, so the
+    // episode plays in the app's own player rather than a browser tab. Lazy for
+    // the same reason as films: opening an embed costs a request, and the reader
+    // may never ask.
+    //
+    // `src=<label>` names the source to try first — that is how the stream
+    // picker keeps its entries distinct when LunarX hands over more than one
+    // server. The label only reorders the list LunarX itself returned; no part
+    // of the client's query reaches the upstream, so a made-up label simply
+    // falls through to the rest.
+    const playAnime = /^\/play\/anime\/(\d+)$/.exec(pathname);
+    if (playAnime) {
+      const ep = Math.max(1, Number(url.searchParams.get('ep') ?? 1) | 0);
+      const wanted = url.searchParams.get('src');
+      const sources = await playerSources(playAnime[1], ep);
+      const ordered = wanted
+        ? [...sources.filter((s) => s.label === wanted), ...sources.filter((s) => s.label !== wanted)]
+        : sources;
+
+      for (const source of ordered) {
+        const found = await resolveEmbed(source.url);
+        if (!found.ok) continue;
+        const link = mangleVia(found.url, { referer: found.referer, key: found.key });
+        res.writeHead(302, { location: `/relay?${link}`, 'cache-control': 'no-store' });
+        return res.end();
+      }
+      return text(res, 404, 'nothing to play (no_resolvable_embed)');
+    }
+
     if (pathname === '/relay') return await handleRelay(url, res, req);
 
     // Optional shared-secret gate. Set API_TOKEN when the server is reachable
@@ -764,6 +842,7 @@ async function handleRequest(req, res) {
     // MyAnimeList: the PKCE exchange and the API pipe. MAL answers no
     // browser origin, so every tracking call crosses the server here.
     if (pathname === '/api/mal/token') return await handleMalToken(url, req, res);
+    if (pathname === '/api/mal/desktop-callback') return await handleMalDesktopCallback(url, res);
     if (pathname.startsWith('/api/mal/v2/')) return await handleMalApi(url, req, res, pathname);
 
     // Normal (non-adult) anime: AniList catalog + LunarX episodes/player.
@@ -790,6 +869,20 @@ async function handleRequest(req, res) {
     const videoMatch = /^\/api\/videos\/([^/]+)$/.exec(pathname);
     if (videoMatch) return await handleVideo(decodeURIComponent(videoMatch[1]), res);
 
+    // A browser redirected here by MyAnimeList after a login (this origin is
+    // the registration's redirect URI, shared by the desktop app and the web
+    // client). A desktop login carries the app's state marker: its code is
+    // stashed and it lands on the sign-in page, never on the web client —
+    // which would run its own callback against a state it never minted and
+    // report a mismatch. An unmarked redirect is the web client's own: its
+    // code is consumed from the address bar, and it is also stashed so an
+    // older desktop build still waiting on its poll is not stranded.
+    if (pathname === '/' && (req.method ?? 'GET').toUpperCase() === 'GET') {
+      if (handleDesktopLanding(url, res)) return;
+      const code = url.searchParams.get('code');
+      const state = url.searchParams.get('state');
+      if (code && state) stashDesktopCode(state, code);
+    }
     return serveStatic(pathname, res);
   } catch (err) {
     const status = err.status ?? 500;

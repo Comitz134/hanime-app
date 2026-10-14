@@ -28,6 +28,15 @@ function shellCall(name, ...args) {
   try { return shell[name](...args); } catch (e) { return undefined; }
 }
 
+/* Whether the shell can answer a call, asked before the call is made. The
+   return value of shellCall cannot answer it: a Java void method comes back as
+   undefined, exactly like a method that is not there, and the difference is
+   the whole question for anything with a second way of doing the same job. */
+function shellCan(name) {
+  const shell = shellApi();
+  return !!shell && typeof shell[name] === 'function';
+}
+
 /* Back belongs to whatever is on screen, and only this file knows what that is.
    The shell asks before it hands the press over: the flag below is set on a
    change of state rather than on every render, so typing does not talk to
@@ -72,4 +81,4 @@ window.__shellBack = () => {
    video in it. */
 window.__shellPip = (on) => { document.body.dataset.pip = String(!!on); };
 
-export { shellApi, shellCall, backOpen, menuIsOpen, updateBackState };
+export { shellApi, shellCall, shellCan, backOpen, menuIsOpen, updateBackState };

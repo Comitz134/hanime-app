@@ -6,7 +6,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { seal, open } from '../src/token.mjs';
-import { mangle, unmangle, rewritePlaylist } from '../src/hls.mjs';
+import { mangle, unmangle, rewritePlaylist, subtitleContentType } from '../src/hls.mjs';
 
 // --------------------------------------------------------------------------
 // handshake token envelope
@@ -82,6 +82,45 @@ test('relay links refuse non-https targets', () => {
 test('a missing query pair is not an error, just a refusal', () => {
   assert.equal(unmangle(new URLSearchParams('')), null);
   assert.equal(unmangle(new URLSearchParams('u=abc')), null);
+});
+
+// --------------------------------------------------------------------------
+// subtitle bodies
+// --------------------------------------------------------------------------
+
+test('a subtitle body is served as the kind of file it is', () => {
+  // The provider's CDN hands every one of these out as octet-stream. mpv picks
+  // a subtitle demuxer from the content type before it reads the bytes, so the
+  // type is the difference between a track and "no subtitles".
+  assert.equal(subtitleContentType('https://cdn/subtitles/ab/ab_eng_3.ass'), 'text/x-ssa; charset=utf-8');
+  assert.equal(subtitleContentType('https://cdn/subtitles/ab/ab.ssa'), 'text/x-ssa; charset=utf-8');
+  assert.equal(subtitleContentType('https://cdn/subtitles/ab/ab.srt'), 'application/x-subrip; charset=utf-8');
+  assert.equal(subtitleContentType('https://cdn/subtitles/ab/ab.vtt'), 'text/vtt; charset=utf-8');
+  // Case and query strings are the URL's business, not the type's.
+  assert.equal(subtitleContentType('https://cdn/x/B.SRT?token=abc'), 'application/x-subrip; charset=utf-8');
+  // Anything that is not a subtitle is left to the caller's own sniffing.
+  assert.equal(subtitleContentType('https://cdn/x/seg-1.png'), null);
+  assert.equal(subtitleContentType('not a url'), null);
+});
+
+test('a subtitle URL that names no file is typed by its upstream answer', () => {
+  // An addon's download route carries no extension — the file's identity is in
+  // the response, not the path — and the response is the only thing left to
+  // read the kind off.
+  const fileUrl = 'https://subs5.strem.io/en/download/subencoding-stremio-utf8/src-api/file/45899';
+  assert.equal(subtitleContentType(fileUrl), null);
+  assert.equal(subtitleContentType(fileUrl, 'application/x-subrip; charset=utf-8'),
+    'application/x-subrip; charset=utf-8');
+  assert.equal(subtitleContentType(fileUrl, 'text/x-ssa'), 'text/x-ssa; charset=utf-8');
+  assert.equal(subtitleContentType(fileUrl, 'text/vtt; charset=utf-8'), 'text/vtt; charset=utf-8');
+
+  // An extension still wins: a named file says what it is, and an upstream
+  // that mislabels it must not talk the player out of it.
+  assert.equal(subtitleContentType('https://cdn/x/ab.ass', 'application/octet-stream'),
+    'text/x-ssa; charset=utf-8');
+  // And the upstream type decides nothing when it is not a subtitle: a segment
+  // served as text/html stays a caller-sniffed body (`null` here).
+  assert.equal(subtitleContentType('https://cdn/x/seg-1', 'text/html'), null);
 });
 
 // --------------------------------------------------------------------------

@@ -8,6 +8,7 @@
 
 import { $$ } from './core.js';
 import { renderMalShelves } from './mal-library.js';
+import { renderSavedManga } from './manga-saved.js';
 import { pushNav } from './nav-history.js';
 import { renderLibrary } from './positions.js';
 
@@ -48,6 +49,7 @@ function showView(name) {
   // device first, so opening the view is never a wait.
   if (target.dataset.view === 'library') {
     renderLibrary();
+    renderSavedManga();
     renderMalShelves();
   }
   // Opening a different view starts at its top; pressing the tab you are

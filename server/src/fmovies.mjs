@@ -38,6 +38,14 @@ const SEARCH_PAGE_SIZE = 20;   // upstream's fixed `/api/search` limit
 const WATCH_PAGE = '/watch/index.html?type=tv&id=1&server=1&season=1&episode=1';
 
 import { browserAvailable, resolveDoor } from './browser.mjs';
+import { openSubtitlesTracks } from './opensubs.mjs';
+
+/**
+ * Where vidsrc.sh — the player the `embos` door frames — keeps the facts it
+ * shows beside a stream: the title's IMDb id and, sometimes, one subtitle of
+ * its own. Plain JSON, no key, no referer.
+ */
+const VIDSRC_DATA = 'https://data.vidsrc.sh/api.php';
 
 // The doors to fall back on when that page cannot be read, verified against
 // the live page on 2026-10-10 — in our own order, for the reason below.
@@ -99,6 +107,8 @@ const TTL = {
   episodes: 6 * 3600_000,
   servers: 30 * 60_000,    // the doors rotate, but not every minute
   health: 10 * 60_000,     // a host that is down is usually down for a while
+  imdb: 12 * 3600_000,     // a TMDB -> IMDb mapping never moves
+  subtitles: 6 * 3600_000, // a release's subtitle list moves with the release
 };
 const cache = new Map();
 
@@ -551,11 +561,148 @@ async function handleResolve(type, slug, url, res) {
   });
 }
 
+// ---------------------------------------------------------------- subtitles
+
+/**
+ * The IMDb id behind a slug's TMDB id, asked of the door chain's own data API.
+ *
+ * A film's slug carries its TMDB id and nothing else, and the subtitle addon is
+ * keyed by IMDb id; this is the one hop between them. It is also where the
+ * embos player gets its own `imdb_id`, so it is the same mapping the site uses.
+ */
+function imdbIdFor(type, tmdbId) {
+  const kind = type === 'tv' ? 'tv' : 'movie';
+  return memo('imdb', `imdb:${kind}:${tmdbId}`, async () => {
+    const res = await fetch(`${VIDSRC_DATA}?type=${kind}&tmdb=${tmdbId}`, {
+      headers: { 'user-agent': BROWSER_UA, accept: 'application/json' },
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    if (!res.ok) throw upstreamError(res.status);
+    const body = await res.json();
+    const id = body?.data?.imdb_id;
+    if (typeof id !== 'string' || !/^tt\d+$/.test(id)) throw upstreamError(404, 'no imdb id');
+    return id;
+  });
+}
+
+/**
+ * The player's own subtitle list — the one the embos door shows in its menu.
+ *
+ * It is thin: of thirteen popular titles sampled live on 2026-10-10, exactly
+ * one had a track. It is still read, because it costs one request and it is
+ * the only list that can name a track the bigger addon does not have.
+ */
+function vidsrcTracks(type, tmdbId, season, episode) {
+  const kind = type === 'tv' ? 'tv' : 'movie';
+  const ep = kind === 'tv' ? `&season=${season}&episode=${episode}` : '';
+  return memo('subtitles', `vidsrc:${kind}:${tmdbId}:${season}:${episode}`, async () => {
+    const res = await fetch(`${VIDSRC_DATA}?type=${kind}&tmdb=${tmdbId}${ep}`, {
+      headers: { 'user-agent': BROWSER_UA, accept: 'application/json' },
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    if (!res.ok) return [];
+    const body = await res.json();
+    const list = Array.isArray(body?.default_subs) ? body.default_subs : [];
+    return list
+      .filter((s) => typeof s?.url === 'string' && s.url.startsWith('https://'))
+      .map((s) => ({
+        id: `vidsrc-${s.code ?? 'x'}`,
+        url: s.url,
+        // The page spells a language twice ('English - eng'); the code is the
+        // half a picker can match a preference against, so it is preferred.
+        lang: s.code || String(s.lang ?? '').split(' - ').pop() || 'unknown',
+        label: String(s.lang ?? '').split(' - ')[0].trim() || undefined,
+        format: 'srt',
+      }));
+  });
+}
+
+/**
+ * Every subtitle track a film or an episode has, best source first.
+ *
+ * The OpenSubtitles addon answers nearly every title; the door player's own
+ * list fills in the rare track it alone knows. A title with no IMDb id has
+ * nothing to ask with, which is an empty list rather than a failure.
+ */
+export async function subtitleTracks(type, slug, { season = 1, episode = 1 } = {}) {
+  const idMatch = /-(\d+)$/.exec(slug);
+  if (!idMatch) return { ok: false, code: 'not_found', tracks: [] };
+  const tmdbId = Number(idMatch[1]);
+  const isEpisode = type === 'tv';
+
+  const tracks = [];
+  let imdbId = null;
+  try {
+    imdbId = await imdbIdFor(type, tmdbId);
+  } catch (e) {
+    imdbId = null;   // no mapping: the player's own list is still worth asking
+  }
+
+  if (imdbId) {
+    try {
+      tracks.push(...await openSubtitlesTracks({
+        imdbId,
+        season: isEpisode ? season : undefined,
+        episode: isEpisode ? episode : undefined,
+      }));
+    } catch (e) {
+      // A source that is down is not the whole answer.
+    }
+  }
+
+  if (!tracks.length) {
+    try {
+      tracks.push(...await vidsrcTracks(type, tmdbId, season, episode));
+    } catch (e) {
+      // Same again.
+    }
+  }
+
+  // One track per URL: the two sources can name the same file.
+  const seen = new Set();
+  const unique = tracks.filter((track) => {
+    if (seen.has(track.url)) return false;
+    seen.add(track.url);
+    return true;
+  });
+  return { ok: true, imdb_id: imdbId, tmdb_id: tmdbId, tracks: unique };
+}
+
+/**
+ * GET /api/fmovies/(movie|tv)/:slug/subtitles?season=&episode= — the tracks an
+ * episode has, in the same shape the anime area's route answers with, so one
+ * client can read both.
+ */
+async function handleSubtitles(type, slug, url, res) {
+  const season = Math.max(1, Number(url.searchParams.get('season') ?? 1) | 0);
+  const episode = Math.max(1, Number(url.searchParams.get('episode') ?? 1) | 0);
+  let found;
+  try {
+    found = await subtitleTracks(type, slug, { season, episode });
+  } catch (e) {
+    return json(res, 502, { error: 'upstream', detail: e.message });
+  }
+  if (!found.ok) return json(res, 404, { error: found.code, slug });
+  json(res, 200, {
+    slug,
+    season,
+    episode,
+    imdb_id: found.imdb_id,
+    tracks: found.tracks.map((track, i) => ({
+      id: track.id ?? String(i),
+      language: track.lang,
+      name: track.label ?? null,
+      format: track.format ?? 'srt',
+      url: track.url,
+    })),
+  });
+}
+
 /** One entry point for the whole /api/fmovies family. */
 export async function handleFmovies(url, res, pathname) {
   if (pathname === '/api/fmovies/search') return handleSearch(url, res);
 
-  const m = /^\/api\/fmovies\/(movie|tv)\/([a-z0-9.-]+)(?:\/(episodes|player|resolve))?$/.exec(pathname);
+  const m = /^\/api\/fmovies\/(movie|tv)\/([a-z0-9.-]+)(?:\/(episodes|player|resolve|subtitles))?$/.exec(pathname);
   if (m) {
     const [, type, slug, sub] = m;
     if (sub === 'episodes') {
@@ -564,6 +711,7 @@ export async function handleFmovies(url, res, pathname) {
     }
     if (sub === 'player') return handlePlayer(type, slug, url, res);
     if (sub === 'resolve') return handleResolve(type, slug, url, res);
+    if (sub === 'subtitles') return handleSubtitles(type, slug, url, res);
     return handleDetails(type, slug, res);
   }
   return json(res, 404, { error: 'not_found', pathname });
