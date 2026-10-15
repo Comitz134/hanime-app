@@ -916,10 +916,29 @@ test('a title MAL calls something else is found and picked by hand', () => {
   assert.ok(/class="mal-q"/.test(script), 'the picker has no search field');
   assert.ok(/start_date/.test(script), 'a hit says nothing about when it started');
   assert.ok(/data-malid="\$\{x\.id\}"/.test(script), 'a hit carries no entry to pick');
-  assert.ok(/searchMal\(kind, q\)/.test(script), 'nothing searches MAL');
+  assert.ok(/searchMal\(kind, query\)/.test(script), 'nothing searches MAL');
   assert.ok(/\/\$\{kind\}\?q=\$\{encodeURIComponent\(query\)\}/.test(script),
     'the search does not go through MAL\'s own query route');
   assert.ok(/await run\(appTitle\)/.test(script), 'the picker opens on nothing');
+
+  // A search bar, not a form: the list follows the field as it is typed. Three
+  // things make that work and each one is load-bearing — the pause that turns
+  // keystrokes into one request, the shortest query worth sending, and the
+  // stamp, because with a request per pause the answers can arrive out of
+  // order: the reply for "Bew" must not land on top of the reply for what is in
+  // the field now.
+  assert.ok(/clearTimeout\(typeTimer\)/.test(script),
+    'a keystroke does not cancel the pause before it');
+  assert.ok(/typeTimer = setTimeout\(\(\) => run\(input\.value\), TYPE_MS\)/.test(script),
+    'typing does not search MyAnimeList on its own');
+  assert.ok(/if \(mine !== seq\) return;/.test(script),
+    'a slow answer for an old query can land on a newer one');
+  // The bundler decides the keyword (var, here) — the names and the numbers are
+  // the part that means something.
+  assert.ok(/\bTYPE_MS = 250\b/.test(script) && /\bMIN_QUERY = 2\b/.test(script),
+    'the typing pause or the shortest query is gone');
+  assert.ok(/\.mal-hits\[data-busy\]/.test(css),
+    'the list is replaced rather than dimmed while an answer is out');
 
   // A pick outranks both guesses — that is the entire point of making it — and
   // it is kept under the app's title, so this title opens on it from now on.

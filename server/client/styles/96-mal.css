@@ -107,6 +107,10 @@
   max-height: 15rem;
   overflow-y: auto;
 }
+/* The box searches as the reader types, so an answer is usually in flight.
+   The list that is already there stays where it is and dims: a spinner on
+   every keystroke is what makes a live search flicker. */
+.mal-hits[data-busy] { opacity: .5; }
 .mal-hit {
   display: flex;
   flex-direction: column;

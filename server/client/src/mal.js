@@ -309,6 +309,15 @@ const SEARCH_FIELDS = {
   manga: 'id,title,media_type,start_date,num_chapters',
 };
 
+/** The box searches as the reader types. This is the pause that decides how
+ *  often: long enough not to spend a request per letter, short enough that the
+ *  list is already there when the typing stops. The manga shelf's own field
+ *  waits 240ms, so this is that pause, to the eye. */
+const TYPE_MS = 250;
+
+/** One letter matches half of MAL's catalogue and helps nobody. */
+const MIN_QUERY = 2;
+
 async function searchMal(kind, q, limit = 10) {
   const query = String(q ?? '').trim();
   if (!query) return [];
@@ -638,12 +647,12 @@ function slotSearchHtml(appTitle) {
   return `<div class="mal-box" data-state="search">
     <div class="mal-head"><span>MyAnimeList</span><span class="mal-entry">pick the right entry</span></div>
     <p class="mal-hint">This app calls it <b>${esc(appTitle)}</b> — MyAnimeList may call it
-      something else. Search, then pick the entry you mean.</p>
+      something else. Type, and pick the entry you mean.</p>
     <div class="mal-search">
       <input class="mal-q" type="search" enterkeyhint="search" autocapitalize="none"
-             autocomplete="off" spellcheck="false" placeholder="Title on MyAnimeList…"
+             autocomplete="off" spellcheck="false" placeholder="Search MyAnimeList…"
              value="${esc(appTitle)}" aria-label="Search MyAnimeList">
-      <button class="chip mal-go" type="button">Search</button>
+      <button class="chip mal-clear" type="button" aria-label="Clear the search">Clear</button>
     </div>
     <div class="mal-hits"></div>
     <p class="mal-msg" hidden></p>
@@ -794,44 +803,84 @@ async function renderSlotSearch(slot, kind, appTitle, onCancel) {
     if (tone) msg.dataset.tone = tone;
   };
 
-  const run = async (q) => {
-    hits.innerHTML = '<p class="mal-hint">searching…</p>';
+  // Two things a search bar needs that a one-shot form did not. Keystrokes are
+  // debounced into one request; and every request is stamped, because with a
+  // request per pause the answers can arrive out of order — the reply for "Bew"
+  // may land after the reply for "Beware the Villainess!" and put a list on
+  // screen that does not match what is in the field.
+  let typeTimer = null;
+  let seq = 0;
+
+  const render = (found) => {
+    const unit = kind === 'manga' ? 'chapters' : 'episodes';
+    hits.innerHTML = found.map((x) => `<button class="mal-hit" type="button"
+        data-malid="${x.id}" data-maltitle="${esc(x.title)}">
+        <b>${esc(x.title)}</b>
+        <span>${esc([x.kind, x.year,
+          x.length ? `${x.length} ${unit}` : ''].filter(Boolean).join(' · '))}</span>
+      </button>`).join('');
+    for (const hit of hits.querySelectorAll('.mal-hit')) {
+      hit.addEventListener('click', async () => {
+        const pick = { id: Number(hit.dataset.malid), title: hit.dataset.maltitle };
+        rememberPick(kind, appTitle, pick);
+        await showEntry(slot, kind, pick.id, pick.title, true);
+      });
+    }
+  };
+
+  const run = async (raw) => {
+    const query = String(raw ?? '').trim();
+    const mine = ++seq;
+    delete hits.dataset.busy;
     say('');
+    if (!query) {
+      hits.innerHTML = '<p class="mal-hint">Type a title — the name here and the name '
+        + 'on MyAnimeList are often two different names.</p>';
+      return;
+    }
+    if (query.length < MIN_QUERY) {
+      hits.innerHTML = `<p class="mal-hint">Keep typing — MyAnimeList is searched from
+        ${MIN_QUERY} letters.</p>`;
+      return;
+    }
+    // While the answer is out, the list that is already there stays, dimmed:
+    // replacing it with a spinner on every keystroke is what makes a live
+    // search flicker.
+    hits.dataset.busy = '1';
     try {
-      const found = await searchMal(kind, q);
+      const found = await searchMal(kind, query);
+      if (mine !== seq) return;                        // a newer keystroke won
       if (!slot.isConnected || !hits.isConnected) return;
+      delete hits.dataset.busy;
       if (!found.length) {
-        hits.innerHTML = '<p class="mal-hint">Nothing on MyAnimeList for that. Try '
-          + 'the name you know it by there, or a word from it.</p>';
+        hits.innerHTML = `<p class="mal-hint">Nothing on MyAnimeList for “${esc(query)}”. `
+          + 'Try the name you know it by there, or a word from it.</p>';
         return;
       }
-      const unit = kind === 'manga' ? 'chapters' : 'episodes';
-      hits.innerHTML = found.map((x) => `<button class="mal-hit" type="button"
-          data-malid="${x.id}" data-maltitle="${esc(x.title)}">
-          <b>${esc(x.title)}</b>
-          <span>${esc([x.kind, x.year,
-            x.length ? `${x.length} ${unit}` : ''].filter(Boolean).join(' · '))}</span>
-        </button>`).join('');
-      for (const hit of hits.querySelectorAll('.mal-hit')) {
-        hit.addEventListener('click', async () => {
-          const pick = { id: Number(hit.dataset.malid), title: hit.dataset.maltitle };
-          rememberPick(kind, appTitle, pick);
-          await showEntry(slot, kind, pick.id, pick.title, true);
-        });
-      }
+      render(found);
     } catch (e) {
-      if (!slot.isConnected) return;
+      if (mine !== seq || !slot.isConnected) return;
+      delete hits.dataset.busy;
       hits.innerHTML = '';
       say(`Could not search MyAnimeList — ${e.message}`, 'bad');
     }
   };
 
-  slot.querySelector('.mal-go').addEventListener('click', () => run(input.value));
+  input.addEventListener('input', () => {
+    clearTimeout(typeTimer);
+    typeTimer = setTimeout(() => run(input.value), TYPE_MS);
+  });
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      run(input.value);
-    }
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    clearTimeout(typeTimer);
+    run(input.value);
+  });
+  slot.querySelector('.mal-clear').addEventListener('click', () => {
+    input.value = '';
+    clearTimeout(typeTimer);
+    input.focus({ preventScroll: true });
+    run('');
   });
   slot.querySelector('.mal-cancel').addEventListener('click', () => onCancel());
   input.focus({ preventScroll: true });

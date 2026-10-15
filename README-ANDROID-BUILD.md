@@ -158,19 +158,25 @@ sha256sum "$APK"
 Current build:
 
 ```
-package: name='app.hanime.shell' versionCode='28' versionName='1.0.27'
+package: name='app.hanime.shell' versionCode='29' versionName='1.0.28'
 sdkVersion:'26'   targetSdkVersion:'34'
 launchable-activity: name='app.hanime.shell.MainActivity'
 permissions: INTERNET, ACCESS_NETWORK_STATE, REQUEST_INSTALL_PACKAGES, POST_NOTIFICATIONS
 Verifies / v2 scheme: true / signer CN=hanime shell (unchanged)  [cert sha256 13c01040…]
-2,073,995 bytes / sha256 3f0435ed1c79d12e6d4115402bfddc4539407501dc7aaaf0a3a3fa0b1515db69
-  assets/index.html 482,574 bytes sha256 c149bdf96d3bdf3ab095ef188db59ec6b7ec74a7c5a988adb812d173fd5abc18
+2,074,367 bytes / sha256 aaf4440eed27e30309a66fa841ba9bcade4480f29c12c3ccd7bbeb0d47118efe
+  assets/index.html 483,836 bytes sha256 d60afbb9d620c829366641b8ef8878715ccc8cbaa8b2b81169d563a86b64c3b9
   assets/hls.min.js 413,952 bytes sha256 484054e8cd03d3f6d1781fb7f402bdc318d8a4c527f933a95c624e27cc9a9470
 ```
 
 The bundled client's digest above is the one read back out of the APK built
 from this tree — not assumed — and it is byte-identical to
 `server/public/index.html` in this tree.
+
+1.0.28 turns the tracking row's search into a search bar: the picker searched
+when it opened and when a button was pressed, and now the list follows the field
+as it is typed — debounced into one request per pause, from two letters, with
+every answer stamped so a slow reply for an earlier spelling cannot land on top
+of a newer one (measured on the device, §8.0.5).
 
 1.0.27 is two things the phone asked for. The reader no longer puts empty space
 between its pages: the strip was a framed, padded, rounded box with a `.5rem`
@@ -566,8 +572,12 @@ MAL's names: a title that reads `Beware the Villainess! (Official)` here is
 can still be the same book under a different translation. So the row says which
 entry it is attached to — MAL's own title, read back with the status in the same
 request — and offers **Search MyAnimeList…**: a field pre-filled with this app's
-title, searched as the box opens, with the hits under it carrying what tells two
-same-named entries apart (manga or anime, the year it started, how long it is).
+title that searches as it is typed — one request per pause (250ms), nothing sent
+for a single letter, the list already on screen dimmed rather than replaced
+while an answer is out, and every answer stamped so a slow reply for an earlier
+spelling cannot land on top of a newer one — with the hits under it carrying
+what tells two same-named entries apart (manga or anime, the year it started,
+how long it is).
 Pressing one makes it *the* entry for that title: the pick is stored in
 `mal.ids` under the app's own title as `{ id, title, picked: true }`, it outranks
 both guesses from then on — including a `malId` the sheet arrived with — the row
@@ -1261,6 +1271,42 @@ asked about again — the row resolves to the picked one from storage, not by
 searching. The picker also pre-filled the app's own title and searched as it
 opened (`limit=6` for the quiet resolution, `limit=10` for the picker's list),
 which is what puts candidates in front of the reader before they type.
+
+### 8.0.5 The tracking search bar, typed into (v29 / 1.0.28)
+
+Measured in the **installed release APK** on `shell35` (`dumpsys` → versionCode
+29, versionName 1.0.28), driven through the WebView's DevTools socket, with MAL
+stubbed in the page and answering *deliberately out of order*: a short query is
+held for 2.5s, a long one comes back in 120ms. The reader's own input events are
+what the probe dispatches — six `input` events with no pause between them is
+what typing a word looks like to this code.
+
+```json
+{ "openedOn": { "value": "All-Class Awakening: God Slayer", "hits": ["Beware the Villainess!"] },
+  "burst": { "letters": 6, "requests": 1, "asked": ["Beware"] },
+  "afterBurstHits": ["Beware the Villainess!"],
+  "busyWhileWaiting": true,
+  "race": { "asked": ["Bew", "Beware the Villainess"] },
+  "hitsAfterFastAnswer": ["Beware the Villainess!"],
+  "hitsAfterSlowAnswerLanded": ["Beware the Villainess!"],
+  "singleLetter": { "requests": 0, "hint": "Keep typing — MyAnimeList is searched from 2 letters." },
+  "cleared": { "value": "", "hint": "Type a title — the name here and the name on MyAnimeList are often two different names." },
+  "pick": { "state": "ready", "attached": "Beware the Villainess!your pick" },
+  "searches": [ { "q": "All-Class Awakening: God Slayer", "slow": false, "askedAt": 772 },
+                { "q": "All-Class Awakening: God Slayer", "slow": false, "askedAt": 1210 },
+                { "q": "Beware", "slow": false, "askedAt": 1616 },
+                { "q": "Bew", "slow": true, "askedAt": 2518 },
+                { "q": "Beware the Villainess", "slow": false, "askedAt": 3021 },
+                { "q": "Beware the Villainess", "slow": false, "askedAt": 7431 } ] }
+```
+
+What those numbers are for, in order: the six letters became **one** request;
+the list was on screen *while* the answer was still out (`busyWhileWaiting`,
+dimmed by `.mal-hits[data-busy]` and not replaced by a spinner); the reply for
+`Beware the Villainess` rendered at 3.1s and was **still** the list at 5.5s,
+after the 2.5s reply for `Bew` had landed — the stale answer was dropped rather
+than drawn; and a single letter spends no request at all. The pick itself still
+works on this build, which is the row the whole feature exists for.
 
 ### 8.1 What is not verified here
 
