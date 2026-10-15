@@ -7,6 +7,10 @@
    head, one line of controls. An empty .mal-slot renders nothing at all —
    that is what an unconfigured build shows, and a slot still waiting on MAL
    shows a head with no controls rather than a layout that jumps.
+
+   The box has three more shapes than it used to, and they are the ones the
+   reader picks from: which MAL entry this row tracks, and the search for a
+   different one when the app's name and MAL's are not the same name.
    -------------------------------------------------------------------------- */
 
 .mal-slot:empty { display: none; }
@@ -53,6 +57,74 @@
 }
 .mal-prog { width: 7.5rem; }
 .mal-controls .chip { font-size: .8125rem; padding: .3rem .6rem; }
+
+/* Which entry this row is attached to. The app's title for a book and MAL's
+   are often two different names, so the one that is tracked is named here —
+   that line is the answer to "is this the right manga?". */
+.mal-attached {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: .375rem;
+  margin: 0;
+  font-size: .8125rem;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.mal-tag {
+  flex: 0 0 auto;
+  font-size: .625rem;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: hsl(var(--primary));
+}
+
+/* The picker: a search field, the hits under it, and the way back out. */
+.mal-search { display: flex; gap: .4rem; }
+.mal-q {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: inherit;
+  font-size: .8125rem;
+  padding: .3rem .45rem;
+  color: hsl(var(--foreground));
+  background: hsl(var(--background));
+  border: 1px solid hsl(var(--border));
+  border-radius: calc(var(--radius) - .1rem);
+}
+.mal-hint {
+  margin: 0;
+  font-size: .75rem;
+  line-height: 1.35;
+  color: hsl(var(--muted-foreground));
+}
+.mal-hint b { color: hsl(var(--foreground)); font-weight: 600; }
+.mal-hits {
+  display: flex;
+  flex-direction: column;
+  gap: .3rem;
+  /* A title can match a dozen entries. The list scrolls; the page does not. */
+  max-height: 15rem;
+  overflow-y: auto;
+}
+.mal-hit {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: .1rem;
+  width: 100%;
+  text-align: left;
+  padding: .4rem .5rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: calc(var(--radius) - .1rem);
+  background: hsl(var(--card) / .6);
+  color: inherit;
+  transition: border-color .2s, background .2s;
+}
+.mal-hit:hover { border-color: hsl(var(--input)); background: hsl(var(--accent) / .4); }
+.mal-hit:active { border-color: hsl(var(--primary)); }
+.mal-hit b { font-size: .8125rem; font-weight: 600; overflow-wrap: anywhere; }
+.mal-hit span { font-size: .6875rem; color: hsl(var(--muted-foreground)); }
 
 .mal-msg {
   margin: 0;

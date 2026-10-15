@@ -22,6 +22,12 @@
 //     mangafire's malId for manga) or, when there is none, by searching the
 //     title once and remembering the answer.
 //
+//   * Both of those are somebody else's guess about which MAL entry a title
+//     is, and this app's names are not MAL's names. So the row can be pointed
+//     elsewhere by hand: it searches MAL, shows what came back with enough of
+//     each hit to tell two apart, and the reader picks. That pick outranks
+//     every guess above, and it is kept for that title.
+//
 //   * A build with no client id is honest about it: the slots stay empty,
 //     Settings says the feature is not configured, and nothing pretends.
 
@@ -266,22 +272,84 @@ async function mal(path, { method = 'GET' } = {}, retry = true) {
   return res.status === 204 ? null : res.json();
 }
 
+/* ------------------------------------------------------- which MAL entry */
+
+/** The MAL id kept under one app title, in whichever shape it was stored. */
+function storedPick(kind, title) {
+  const key = `${kind}:${String(title ?? '').toLowerCase()}`;
+  const hit = load(IDS_KEY, {})[key];
+  if (hit == null) return null;
+  // Older builds kept the bare number. A pick made by hand is an object
+  // instead, because MAL's own name for that entry has to survive beside it —
+  // the name is what the row shows back, and what tells the reader which of
+  // MAL's entries this app is now tracking.
+  return typeof hit === 'object'
+    ? { id: Number(hit.id), title: hit.title ?? '', picked: !!hit.picked }
+    : { id: Number(hit), title: '', picked: false };
+}
+
+/** The reader said this is the one. Kept under the app's own title, so the
+ *  same pick answers the next time this title is opened. */
+function rememberPick(kind, title, item) {
+  const cache = load(IDS_KEY, {});
+  cache[`${kind}:${String(title ?? '').toLowerCase()}`] = {
+    id: Number(item.id), title: item.title ?? '', picked: true,
+  };
+  save(IDS_KEY, cache);
+}
+
+/**
+ * MAL's own search — the way to a title this app calls something else. Every
+ * hit carries what tells two same-named entries apart: the kind, the year it
+ * started, and how long it is. None of those can be guessed for the reader,
+ * which is the whole reason the choice is theirs.
+ */
+const SEARCH_FIELDS = {
+  anime: 'id,title,media_type,start_date,num_episodes',
+  manga: 'id,title,media_type,start_date,num_chapters',
+};
+
+async function searchMal(kind, q, limit = 10) {
+  const query = String(q ?? '').trim();
+  if (!query) return [];
+  const body = await mal(`/${kind}?q=${encodeURIComponent(query)}&limit=${limit}&fields=${SEARCH_FIELDS[kind]}`);
+  return (body?.data ?? []).map((x) => ({
+    id: Number(x.id),
+    title: x.title ?? '',
+    kind: x.media_type ? String(x.media_type).replace(/_/g, ' ') : '',
+    year: String(x.start_date ?? '').slice(0, 4),
+    length: Number(kind === 'manga' ? x.num_chapters : x.num_episodes) || 0,
+  }));
+}
+
 /* ------------------------------------------------------------ list ops */
 
+/**
+ * Which MyAnimeList entry an app title is, in three answers and in this order:
+ *
+ *   1. what the reader picked by hand — the one answer nobody has to check,
+ *      and therefore the one that outranks the rest;
+ *   2. the id the sheet arrived with (AniList's idMal, mangafire's malId),
+ *      which is somebody else's guess;
+ *   3. a title search, whose answer is remembered.
+ *
+ * A miss is null rather than the first row of a search: the slot says so and
+ * offers the picker, which beats attaching a title to the wrong entry.
+ */
 async function resolveMalId(kind, id, title) {
+  const stored = storedPick(kind, title);
+  if (stored && stored.picked) return stored.id;
   if (id) return Number(id);
-  const cache = load(IDS_KEY, {});
-  const key = `${kind}:${String(title ?? '').toLowerCase()}`;
-  if (cache[key]) return cache[key];
+  if (stored && stored.id) return stored.id;
 
-  const found = await mal(`/${kind}?q=${encodeURIComponent(title)}&limit=6&fields=id,title`);
-  const items = (found.data ?? []).map((x) => ({ id: Number(x.id), title: x.title ?? '' }));
+  const found = await searchMal(kind, title, 6);
   const wanted = String(title ?? '').toLowerCase();
-  const exact = items.find((x) => x.title.toLowerCase() === wanted);
-  const starts = items.find((x) => x.title.toLowerCase().startsWith(wanted));
-  const hit = exact || starts || items[0];
+  const exact = found.find((x) => x.title.toLowerCase() === wanted);
+  const starts = found.find((x) => x.title.toLowerCase().startsWith(wanted));
+  const hit = exact || starts || found[0];
   if (!hit || !hit.id) return null;
-  cache[key] = hit.id;
+  const cache = load(IDS_KEY, {});
+  cache[`${kind}:${String(title ?? '').toLowerCase()}`] = { id: hit.id, title: hit.title };
   save(IDS_KEY, cache);
   return hit.id;
 }
@@ -297,12 +365,21 @@ async function resolveMalId(kind, id, title) {
  * and answers `404 {"error":"not_found"}`, which is what this client used to
  * ask for. An entry that is not on the list is simply absent from the answer.
  */
-async function getEntry(kind, id) {
+async function getTitleEntry(kind, id) {
   const total = kind === 'manga' ? 'num_chapters' : 'num_episodes';
-  const body = await mal(`/${kind}/${id}?fields=my_list_status,${total}`);
+  // MAL's own name for the entry rides along with the status: the app's title
+  // and MAL's are often two different names, and a row that tracks an entry
+  // should say which one it is attached to.
+  const body = await mal(`/${kind}/${id}?fields=title,my_list_status,${total}`);
   const status = body?.my_list_status ?? null;
-  return status ? { ...status, [total]: Number(body?.[total]) || 0 } : null;
+  return {
+    malTitle: body?.title ?? '',
+    entry: status ? { ...status, [total]: Number(body?.[total]) || 0 } : null,
+  };
 }
+
+/** Just the list status — what auto-advance reads to decide what to write. */
+const getEntry = async (kind, id) => (await getTitleEntry(kind, id)).entry;
 
 function setEntry(kind, id, { status, score, progress }) {
   const params = new URLSearchParams({ status });
@@ -514,13 +591,14 @@ function slotLinkHtml() {
     + '</div>';
 }
 
-function slotFormHtml(kind, entry) {
+function slotFormHtml(kind, entry, malTitle, picked) {
   const progress = PROGRESS[kind];
   const score = entry && entry.score ? String(entry.score) : '';
   const current = entry && entry.status ? entry.status : '';
   const read = entry ? String(entry[progress.get] ?? '') : '';
   return `<div class="mal-box" data-state="ready" data-entry="${entry ? '1' : '0'}">
     <div class="mal-head"><span>MyAnimeList</span><span class="mal-entry">${entry ? 'on your list' : 'not on your list'}</span></div>
+    ${malTitle ? `<p class="mal-attached">${esc(malTitle)}${picked ? '<span class="mal-tag">your pick</span>' : ''}</p>` : ''}
     <div class="mal-controls">
       <select class="mal-status" aria-label="MyAnimeList status">
         <option value=""${current ? '' : ' selected'} disabled>Choose status…</option>
@@ -537,7 +615,41 @@ function slotFormHtml(kind, entry) {
       <button class="chip mal-save" type="button">Save</button>
       <button class="chip mal-remove" type="button"${entry ? '' : ' hidden'}>Remove</button>
     </div>
+    <div class="mal-controls">
+      <button class="chip mal-find" type="button"
+              title="This app's title and MyAnimeList's may not be the same one">Search MyAnimeList…</button>
+    </div>
     <p class="mal-msg" hidden></p>
+  </div>`;
+}
+
+/**
+ * The picker: MAL's search, with the app's own title already in the field.
+ *
+ * This is the one place a title's identity is decided by the reader instead
+ * of by a rule, because it has to be: these names come from mangafire and
+ * AniList, MAL keeps its own, and no automatic match can be trusted to tell
+ * "Beware the Villainess!" from whatever else shares its words. The search
+ * runs as the box opens — candidates on screen before anything is typed, the
+ * way MAL's own site behaves — and each hit says enough to choose between
+ * same-named entries: what kind it is, the year it started, how long it is.
+ */
+function slotSearchHtml(appTitle) {
+  return `<div class="mal-box" data-state="search">
+    <div class="mal-head"><span>MyAnimeList</span><span class="mal-entry">pick the right entry</span></div>
+    <p class="mal-hint">This app calls it <b>${esc(appTitle)}</b> — MyAnimeList may call it
+      something else. Search, then pick the entry you mean.</p>
+    <div class="mal-search">
+      <input class="mal-q" type="search" enterkeyhint="search" autocapitalize="none"
+             autocomplete="off" spellcheck="false" placeholder="Title on MyAnimeList…"
+             value="${esc(appTitle)}" aria-label="Search MyAnimeList">
+      <button class="chip mal-go" type="button">Search</button>
+    </div>
+    <div class="mal-hits"></div>
+    <p class="mal-msg" hidden></p>
+    <div class="mal-controls">
+      <button class="chip mal-cancel" type="button">Cancel</button>
+    </div>
   </div>`;
 }
 
@@ -549,8 +661,27 @@ function slotMessage(slot, text, tone) {
   if (tone) msg.dataset.tone = tone;
 }
 
+/** The chip that opens the picker, wherever the box happens to be drawn. */
+function openPick(slot, kind, title) {
+  const button = slot.querySelector('.mal-find');
+  if (!button) return;
+  button.addEventListener('click', () => {
+    renderSlotSearch(slot, kind, title, () => fillMalSlot(slot));
+  });
+}
+
+/** One entry, drawn: the reader's status on it, the controls, and MAL's own
+ *  name for it — which is what says *which* entry this row is tracking. */
+async function showEntry(slot, kind, id, malTitle, picked) {
+  const { entry, malTitle: name } = await getTitleEntry(kind, id);
+  if (!slot.isConnected) return;
+  renderSlotForm(slot, kind, id, entry, name || malTitle || '', picked);
+}
+
 async function fillMalSlot(slot) {
   if (!configured() || filling.has(slot)) return;
+  const kind = slot.dataset.malKind === 'manga' ? 'manga' : 'anime';
+  const title = slot.dataset.malTitle ?? '';
   filling.add(slot);
   try {
     if (!linked()) {
@@ -559,8 +690,7 @@ async function fillMalSlot(slot) {
       return;
     }
 
-    const kind = slot.dataset.malKind === 'manga' ? 'manga' : 'anime';
-    const title = slot.dataset.malTitle ?? '';
+    const stored = storedPick(kind, title);
     slot.innerHTML = '<div class="mal-box" data-state="loading">'
       + '<div class="mal-head"><span>MyAnimeList</span><span class="mal-entry">looking this up…</span></div>'
       + '</div>';
@@ -568,15 +698,18 @@ async function fillMalSlot(slot) {
     const id = await resolveMalId(kind, slot.dataset.malId || '', title);
     if (!slot.isConnected) return;
     if (!id) {
+      // Nothing came back that this app could be sure of. The search is the
+      // reader's way out, so it is offered in the same breath as the miss.
       slot.innerHTML = '<div class="mal-box" data-state="none">'
         + '<div class="mal-head"><span>MyAnimeList</span>'
-        + '<span class="mal-entry">no match for this title</span></div></div>';
+        + '<span class="mal-entry">no match for this title</span></div>'
+        + '<div class="mal-controls"><button class="chip mal-find" type="button">Search MyAnimeList…</button></div>'
+        + '</div>';
+      openPick(slot, kind, title);
       return;
     }
 
-    const entry = await getEntry(kind, id);
-    if (!slot.isConnected) return;
-    renderSlotForm(slot, kind, id, entry);
+    await showEntry(slot, kind, id, '', !!stored?.picked);
   } catch (e) {
     if (!slot.isConnected) return;
     slot.innerHTML = '';
@@ -584,18 +717,25 @@ async function fillMalSlot(slot) {
     box.className = 'mal-box';
     box.dataset.state = 'error';
     box.innerHTML = `<div class="mal-head"><span>MyAnimeList</span>`
-      + `<span class="mal-entry">${esc(e.message)}</span></div>`;
+      + `<span class="mal-entry">${esc(e.message)}</span></div>`
+      + '<div class="mal-controls"><button class="chip mal-find" type="button">Search MyAnimeList…</button></div>';
     slot.appendChild(box);
+    openPick(slot, kind, title);
   } finally {
     filling.delete(slot);
   }
 }
 
-function renderSlotForm(slot, kind, id, entry) {
-  slot.innerHTML = slotFormHtml(kind, entry);
+function renderSlotForm(slot, kind, id, entry, malTitle, picked) {
+  // Save and Remove redraw this box without the name to hand, so the two facts
+  // that survive a redraw ride on the slot itself.
+  if (malTitle !== undefined) slot.dataset.malName = malTitle;
+  if (picked !== undefined) slot.dataset.malPicked = picked ? '1' : '0';
+  slot.innerHTML = slotFormHtml(kind, entry, slot.dataset.malName ?? '', slot.dataset.malPicked === '1');
   const status = slot.querySelector('.mal-status');
   const score = slot.querySelector('.mal-score');
   const prog = slot.querySelector('.mal-prog');
+  openPick(slot, kind, slot.dataset.malTitle ?? '');
 
   slot.querySelector('.mal-save').addEventListener('click', async () => {
     if (!status.value) {
@@ -632,6 +772,70 @@ function renderSlotForm(slot, kind, id, entry) {
       }
     });
   }
+}
+
+/**
+ * The picker, live: search MAL, show what came back, and let a hit be pressed.
+ *
+ * A press is the whole point — it writes the pick under this app's title (so
+ * this title opens on that entry from now on, ahead of every guess) and draws
+ * the entry's own row, which is where the reader sees MAL's name for what they
+ * just picked. Cancelling goes back to the row as it was.
+ */
+async function renderSlotSearch(slot, kind, appTitle, onCancel) {
+  slot.innerHTML = slotSearchHtml(appTitle);
+  const input = slot.querySelector('.mal-q');
+  const hits = slot.querySelector('.mal-hits');
+  const msg = slot.querySelector('.mal-msg');
+  const say = (text, tone) => {
+    if (!msg) return;
+    msg.hidden = !text;
+    msg.textContent = text || '';
+    if (tone) msg.dataset.tone = tone;
+  };
+
+  const run = async (q) => {
+    hits.innerHTML = '<p class="mal-hint">searching…</p>';
+    say('');
+    try {
+      const found = await searchMal(kind, q);
+      if (!slot.isConnected || !hits.isConnected) return;
+      if (!found.length) {
+        hits.innerHTML = '<p class="mal-hint">Nothing on MyAnimeList for that. Try '
+          + 'the name you know it by there, or a word from it.</p>';
+        return;
+      }
+      const unit = kind === 'manga' ? 'chapters' : 'episodes';
+      hits.innerHTML = found.map((x) => `<button class="mal-hit" type="button"
+          data-malid="${x.id}" data-maltitle="${esc(x.title)}">
+          <b>${esc(x.title)}</b>
+          <span>${esc([x.kind, x.year,
+            x.length ? `${x.length} ${unit}` : ''].filter(Boolean).join(' · '))}</span>
+        </button>`).join('');
+      for (const hit of hits.querySelectorAll('.mal-hit')) {
+        hit.addEventListener('click', async () => {
+          const pick = { id: Number(hit.dataset.malid), title: hit.dataset.maltitle };
+          rememberPick(kind, appTitle, pick);
+          await showEntry(slot, kind, pick.id, pick.title, true);
+        });
+      }
+    } catch (e) {
+      if (!slot.isConnected) return;
+      hits.innerHTML = '';
+      say(`Could not search MyAnimeList — ${e.message}`, 'bad');
+    }
+  };
+
+  slot.querySelector('.mal-go').addEventListener('click', () => run(input.value));
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      run(input.value);
+    }
+  });
+  slot.querySelector('.mal-cancel').addEventListener('click', () => onCancel());
+  input.focus({ preventScroll: true });
+  await run(appTitle);
 }
 
 /** Fill every slot already on screen, and every slot that lands later. */

@@ -1183,7 +1183,7 @@ h2 .area-chip { font-size: .5625rem; }
 }
 
 /* The reader: a heading that says where you are, one row of stepping stones,
-   then the pages — full width, one under the other, nothing around them. */
+   then the pages — full width, one under the other, nothing between them. */
 .rd-head { margin-bottom: .875rem; }
 .rd-title {
   font-size: .9375rem; font-weight: 700; line-height: 1.3;
@@ -1195,16 +1195,23 @@ h2 .area-chip { font-size: .5625rem; }
   margin: .875rem 0;
 }
 .rd-nav .page-btn { flex: 1 1 0; }
+/* The pages, and *only* the pages. This list used to be a framed, padded box
+   with a .5rem gap between its images: every seam was a band of empty page
+   background, so a chapter read as pages with holes punched between them. The
+   column is now gapless and unpadded, and the panel behind it is the page's
+   own colour, so a page that has not arrived yet is a page's worth of nothing
+   rather than a visible strip. A <img> is block-level here for the same
+   reason: an inline one is laid out on a text baseline, which adds a few
+   pixels of its own below every single page. */
 .rd-pages {
-  display: flex; flex-direction: column; gap: .5rem;
-  background: rgb(0 0 0 / .35);
-  border: 1px solid hsl(var(--border) / .5);
-  border-radius: .75rem; overflow: hidden;
-  padding: .5rem;
+  display: flex; flex-direction: column; gap: 0;
+  background: hsl(var(--background));
+  overflow: hidden;
+  padding: 0;
 }
 .rd-page {
-  display: block; width: 100%; height: auto; margin: 0 auto;
-  background: hsl(var(--muted) / .2);
+  display: block; width: 100%; height: auto; margin: 0;
+  background: hsl(var(--muted) / .12);
 }
 
 /* --------------------------------------------------------------------------
@@ -1216,6 +1223,10 @@ h2 .area-chip { font-size: .5625rem; }
    head, one line of controls. An empty .mal-slot renders nothing at all —
    that is what an unconfigured build shows, and a slot still waiting on MAL
    shows a head with no controls rather than a layout that jumps.
+
+   The box has three more shapes than it used to, and they are the ones the
+   reader picks from: which MAL entry this row tracks, and the search for a
+   different one when the app's name and MAL's are not the same name.
    -------------------------------------------------------------------------- */
 
 .mal-slot:empty { display: none; }
@@ -1262,6 +1273,74 @@ h2 .area-chip { font-size: .5625rem; }
 }
 .mal-prog { width: 7.5rem; }
 .mal-controls .chip { font-size: .8125rem; padding: .3rem .6rem; }
+
+/* Which entry this row is attached to. The app's title for a book and MAL's
+   are often two different names, so the one that is tracked is named here —
+   that line is the answer to "is this the right manga?". */
+.mal-attached {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: .375rem;
+  margin: 0;
+  font-size: .8125rem;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.mal-tag {
+  flex: 0 0 auto;
+  font-size: .625rem;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: hsl(var(--primary));
+}
+
+/* The picker: a search field, the hits under it, and the way back out. */
+.mal-search { display: flex; gap: .4rem; }
+.mal-q {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: inherit;
+  font-size: .8125rem;
+  padding: .3rem .45rem;
+  color: hsl(var(--foreground));
+  background: hsl(var(--background));
+  border: 1px solid hsl(var(--border));
+  border-radius: calc(var(--radius) - .1rem);
+}
+.mal-hint {
+  margin: 0;
+  font-size: .75rem;
+  line-height: 1.35;
+  color: hsl(var(--muted-foreground));
+}
+.mal-hint b { color: hsl(var(--foreground)); font-weight: 600; }
+.mal-hits {
+  display: flex;
+  flex-direction: column;
+  gap: .3rem;
+  /* A title can match a dozen entries. The list scrolls; the page does not. */
+  max-height: 15rem;
+  overflow-y: auto;
+}
+.mal-hit {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: .1rem;
+  width: 100%;
+  text-align: left;
+  padding: .4rem .5rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: calc(var(--radius) - .1rem);
+  background: hsl(var(--card) / .6);
+  color: inherit;
+  transition: border-color .2s, background .2s;
+}
+.mal-hit:hover { border-color: hsl(var(--input)); background: hsl(var(--accent) / .4); }
+.mal-hit:active { border-color: hsl(var(--primary)); }
+.mal-hit b { font-size: .8125rem; font-weight: 600; overflow-wrap: anywhere; }
+.mal-hit span { font-size: .6875rem; color: hsl(var(--muted-foreground)); }
 
 .mal-msg {
   margin: 0;
@@ -2703,28 +2782,63 @@ select.filter-select.sort-select {
     }
     return res.status === 204 ? null : res.json();
   }
-  async function resolveMalId(kind, id, title) {
-    if (id) return Number(id);
-    const cache = load2(IDS_KEY, {});
+  function storedPick(kind, title) {
     const key = `${kind}:${String(title ?? "").toLowerCase()}`;
-    if (cache[key]) return cache[key];
-    const found = await mal(`/${kind}?q=${encodeURIComponent(title)}&limit=6&fields=id,title`);
-    const items = (found.data ?? []).map((x) => ({ id: Number(x.id), title: x.title ?? "" }));
+    const hit = load2(IDS_KEY, {})[key];
+    if (hit == null) return null;
+    return typeof hit === "object" ? { id: Number(hit.id), title: hit.title ?? "", picked: !!hit.picked } : { id: Number(hit), title: "", picked: false };
+  }
+  function rememberPick(kind, title, item) {
+    const cache = load2(IDS_KEY, {});
+    cache[`${kind}:${String(title ?? "").toLowerCase()}`] = {
+      id: Number(item.id),
+      title: item.title ?? "",
+      picked: true
+    };
+    save2(IDS_KEY, cache);
+  }
+  var SEARCH_FIELDS = {
+    anime: "id,title,media_type,start_date,num_episodes",
+    manga: "id,title,media_type,start_date,num_chapters"
+  };
+  async function searchMal(kind, q, limit = 10) {
+    const query = String(q ?? "").trim();
+    if (!query) return [];
+    const body = await mal(`/${kind}?q=${encodeURIComponent(query)}&limit=${limit}&fields=${SEARCH_FIELDS[kind]}`);
+    return ((body == null ? void 0 : body.data) ?? []).map((x) => ({
+      id: Number(x.id),
+      title: x.title ?? "",
+      kind: x.media_type ? String(x.media_type).replace(/_/g, " ") : "",
+      year: String(x.start_date ?? "").slice(0, 4),
+      length: Number(kind === "manga" ? x.num_chapters : x.num_episodes) || 0
+    }));
+  }
+  async function resolveMalId(kind, id, title) {
+    const stored = storedPick(kind, title);
+    if (stored && stored.picked) return stored.id;
+    if (id) return Number(id);
+    if (stored && stored.id) return stored.id;
+    const found = await searchMal(kind, title, 6);
     const wanted = String(title ?? "").toLowerCase();
-    const exact = items.find((x) => x.title.toLowerCase() === wanted);
-    const starts = items.find((x) => x.title.toLowerCase().startsWith(wanted));
-    const hit = exact || starts || items[0];
+    const exact = found.find((x) => x.title.toLowerCase() === wanted);
+    const starts = found.find((x) => x.title.toLowerCase().startsWith(wanted));
+    const hit = exact || starts || found[0];
     if (!hit || !hit.id) return null;
-    cache[key] = hit.id;
+    const cache = load2(IDS_KEY, {});
+    cache[`${kind}:${String(title ?? "").toLowerCase()}`] = { id: hit.id, title: hit.title };
     save2(IDS_KEY, cache);
     return hit.id;
   }
-  async function getEntry(kind, id) {
+  async function getTitleEntry(kind, id) {
     const total = kind === "manga" ? "num_chapters" : "num_episodes";
-    const body = await mal(`/${kind}/${id}?fields=my_list_status,${total}`);
+    const body = await mal(`/${kind}/${id}?fields=title,my_list_status,${total}`);
     const status = (body == null ? void 0 : body.my_list_status) ?? null;
-    return status ? { ...status, [total]: Number(body == null ? void 0 : body[total]) || 0 } : null;
+    return {
+      malTitle: (body == null ? void 0 : body.title) ?? "",
+      entry: status ? { ...status, [total]: Number(body == null ? void 0 : body[total]) || 0 } : null
+    };
   }
+  var getEntry = async (kind, id) => (await getTitleEntry(kind, id)).entry;
   function setEntry(kind, id, { status, score, progress }) {
     const params = new URLSearchParams({ status });
     if (score !== "" && score != null) params.set("score", String(Number(score)));
@@ -2844,13 +2958,14 @@ select.filter-select.sort-select {
   function slotLinkHtml() {
     return '<div class="mal-box" data-state="idle"><div class="mal-head"><span>MyAnimeList</span></div><button class="chip mal-link" type="button">Link account to track</button></div>';
   }
-  function slotFormHtml(kind, entry) {
+  function slotFormHtml(kind, entry, malTitle, picked) {
     const progress = PROGRESS[kind];
     const score = entry && entry.score ? String(entry.score) : "";
     const current = entry && entry.status ? entry.status : "";
     const read = entry ? String(entry[progress.get] ?? "") : "";
     return `<div class="mal-box" data-state="ready" data-entry="${entry ? "1" : "0"}">
     <div class="mal-head"><span>MyAnimeList</span><span class="mal-entry">${entry ? "on your list" : "not on your list"}</span></div>
+    ${malTitle ? `<p class="mal-attached">${esc(malTitle)}${picked ? '<span class="mal-tag">your pick</span>' : ""}</p>` : ""}
     <div class="mal-controls">
       <select class="mal-status" aria-label="MyAnimeList status">
         <option value=""${current ? "" : " selected"} disabled>Choose status\u2026</option>
@@ -2865,7 +2980,29 @@ select.filter-select.sort-select {
       <button class="chip mal-save" type="button">Save</button>
       <button class="chip mal-remove" type="button"${entry ? "" : " hidden"}>Remove</button>
     </div>
+    <div class="mal-controls">
+      <button class="chip mal-find" type="button"
+              title="This app's title and MyAnimeList's may not be the same one">Search MyAnimeList\u2026</button>
+    </div>
     <p class="mal-msg" hidden></p>
+  </div>`;
+  }
+  function slotSearchHtml(appTitle) {
+    return `<div class="mal-box" data-state="search">
+    <div class="mal-head"><span>MyAnimeList</span><span class="mal-entry">pick the right entry</span></div>
+    <p class="mal-hint">This app calls it <b>${esc(appTitle)}</b> \u2014 MyAnimeList may call it
+      something else. Search, then pick the entry you mean.</p>
+    <div class="mal-search">
+      <input class="mal-q" type="search" enterkeyhint="search" autocapitalize="none"
+             autocomplete="off" spellcheck="false" placeholder="Title on MyAnimeList\u2026"
+             value="${esc(appTitle)}" aria-label="Search MyAnimeList">
+      <button class="chip mal-go" type="button">Search</button>
+    </div>
+    <div class="mal-hits"></div>
+    <p class="mal-msg" hidden></p>
+    <div class="mal-controls">
+      <button class="chip mal-cancel" type="button">Cancel</button>
+    </div>
   </div>`;
   }
   function slotMessage(slot, text, tone) {
@@ -2875,8 +3012,22 @@ select.filter-select.sort-select {
     msg.textContent = text || "";
     if (tone) msg.dataset.tone = tone;
   }
+  function openPick(slot, kind, title) {
+    const button = slot.querySelector(".mal-find");
+    if (!button) return;
+    button.addEventListener("click", () => {
+      renderSlotSearch(slot, kind, title, () => fillMalSlot(slot));
+    });
+  }
+  async function showEntry(slot, kind, id, malTitle, picked) {
+    const { entry, malTitle: name } = await getTitleEntry(kind, id);
+    if (!slot.isConnected) return;
+    renderSlotForm(slot, kind, id, entry, name || malTitle || "", picked);
+  }
   async function fillMalSlot(slot) {
     if (!configured() || filling.has(slot)) return;
+    const kind = slot.dataset.malKind === "manga" ? "manga" : "anime";
+    const title = slot.dataset.malTitle ?? "";
     filling.add(slot);
     try {
       if (!linked()) {
@@ -2884,35 +3035,37 @@ select.filter-select.sort-select {
         slot.querySelector(".mal-link").addEventListener("click", startLogin);
         return;
       }
-      const kind = slot.dataset.malKind === "manga" ? "manga" : "anime";
-      const title = slot.dataset.malTitle ?? "";
+      const stored = storedPick(kind, title);
       slot.innerHTML = '<div class="mal-box" data-state="loading"><div class="mal-head"><span>MyAnimeList</span><span class="mal-entry">looking this up\u2026</span></div></div>';
       const id = await resolveMalId(kind, slot.dataset.malId || "", title);
       if (!slot.isConnected) return;
       if (!id) {
-        slot.innerHTML = '<div class="mal-box" data-state="none"><div class="mal-head"><span>MyAnimeList</span><span class="mal-entry">no match for this title</span></div></div>';
+        slot.innerHTML = '<div class="mal-box" data-state="none"><div class="mal-head"><span>MyAnimeList</span><span class="mal-entry">no match for this title</span></div><div class="mal-controls"><button class="chip mal-find" type="button">Search MyAnimeList\u2026</button></div></div>';
+        openPick(slot, kind, title);
         return;
       }
-      const entry = await getEntry(kind, id);
-      if (!slot.isConnected) return;
-      renderSlotForm(slot, kind, id, entry);
+      await showEntry(slot, kind, id, "", !!(stored == null ? void 0 : stored.picked));
     } catch (e) {
       if (!slot.isConnected) return;
       slot.innerHTML = "";
       const box = document.createElement("div");
       box.className = "mal-box";
       box.dataset.state = "error";
-      box.innerHTML = `<div class="mal-head"><span>MyAnimeList</span><span class="mal-entry">${esc(e.message)}</span></div>`;
+      box.innerHTML = `<div class="mal-head"><span>MyAnimeList</span><span class="mal-entry">${esc(e.message)}</span></div><div class="mal-controls"><button class="chip mal-find" type="button">Search MyAnimeList\u2026</button></div>`;
       slot.appendChild(box);
+      openPick(slot, kind, title);
     } finally {
       filling.delete(slot);
     }
   }
-  function renderSlotForm(slot, kind, id, entry) {
-    slot.innerHTML = slotFormHtml(kind, entry);
+  function renderSlotForm(slot, kind, id, entry, malTitle, picked) {
+    if (malTitle !== void 0) slot.dataset.malName = malTitle;
+    if (picked !== void 0) slot.dataset.malPicked = picked ? "1" : "0";
+    slot.innerHTML = slotFormHtml(kind, entry, slot.dataset.malName ?? "", slot.dataset.malPicked === "1");
     const status = slot.querySelector(".mal-status");
     const score = slot.querySelector(".mal-score");
     const prog = slot.querySelector(".mal-prog");
+    openPick(slot, kind, slot.dataset.malTitle ?? "");
     slot.querySelector(".mal-save").addEventListener("click", async () => {
       if (!status.value) {
         slotMessage(slot, "Pick a status first.", "bad");
@@ -2947,6 +3100,61 @@ select.filter-select.sort-select {
         }
       });
     }
+  }
+  async function renderSlotSearch(slot, kind, appTitle, onCancel) {
+    slot.innerHTML = slotSearchHtml(appTitle);
+    const input = slot.querySelector(".mal-q");
+    const hits = slot.querySelector(".mal-hits");
+    const msg = slot.querySelector(".mal-msg");
+    const say = (text, tone) => {
+      if (!msg) return;
+      msg.hidden = !text;
+      msg.textContent = text || "";
+      if (tone) msg.dataset.tone = tone;
+    };
+    const run = async (q) => {
+      hits.innerHTML = '<p class="mal-hint">searching\u2026</p>';
+      say("");
+      try {
+        const found = await searchMal(kind, q);
+        if (!slot.isConnected || !hits.isConnected) return;
+        if (!found.length) {
+          hits.innerHTML = '<p class="mal-hint">Nothing on MyAnimeList for that. Try the name you know it by there, or a word from it.</p>';
+          return;
+        }
+        const unit = kind === "manga" ? "chapters" : "episodes";
+        hits.innerHTML = found.map((x) => `<button class="mal-hit" type="button"
+          data-malid="${x.id}" data-maltitle="${esc(x.title)}">
+          <b>${esc(x.title)}</b>
+          <span>${esc([
+          x.kind,
+          x.year,
+          x.length ? `${x.length} ${unit}` : ""
+        ].filter(Boolean).join(" \xB7 "))}</span>
+        </button>`).join("");
+        for (const hit of hits.querySelectorAll(".mal-hit")) {
+          hit.addEventListener("click", async () => {
+            const pick = { id: Number(hit.dataset.malid), title: hit.dataset.maltitle };
+            rememberPick(kind, appTitle, pick);
+            await showEntry(slot, kind, pick.id, pick.title, true);
+          });
+        }
+      } catch (e) {
+        if (!slot.isConnected) return;
+        hits.innerHTML = "";
+        say(`Could not search MyAnimeList \u2014 ${e.message}`, "bad");
+      }
+    };
+    slot.querySelector(".mal-go").addEventListener("click", () => run(input.value));
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        run(input.value);
+      }
+    });
+    slot.querySelector(".mal-cancel").addEventListener("click", () => onCancel());
+    input.focus({ preventScroll: true });
+    await run(appTitle);
   }
   function watchSlots() {
     document.querySelectorAll(".mal-slot").forEach(fillMalSlot);
@@ -8155,7 +8363,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     } catch (e) {
     }
   }
-  function showEntry() {
+  function showEntry2() {
     var _a10, _b, _c;
     return {
       ref: dState3.ref,
@@ -8179,7 +8387,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     if (!dState3.ref || !dState3.details) return;
     const i = showsLib.favorites.findIndex((e) => e.ref === dState3.ref);
     if (i >= 0) showsLib.favorites.splice(i, 1);
-    else showsLib.favorites.unshift(showEntry());
+    else showsLib.favorites.unshift(showEntry2());
     showsLibWrite();
     renderShowsLib();
     const pill = document.querySelector("[data-show-fav]");
@@ -8192,7 +8400,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
   }
   function noteShowOpen() {
     if (!dState3.ref || !dState3.details) return;
-    const entry = showEntry();
+    const entry = showEntry2();
     showsLib.history = [entry, ...showsLib.history.filter((e) => e.ref !== entry.ref)].slice(0, SHOWS_MAX);
     showsLibWrite();
   }

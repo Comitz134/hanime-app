@@ -158,19 +158,28 @@ sha256sum "$APK"
 Current build:
 
 ```
-package: name='app.hanime.shell' versionCode='27' versionName='1.0.26'
+package: name='app.hanime.shell' versionCode='28' versionName='1.0.27'
 sdkVersion:'26'   targetSdkVersion:'34'
 launchable-activity: name='app.hanime.shell.MainActivity'
 permissions: INTERNET, ACCESS_NETWORK_STATE, REQUEST_INSTALL_PACKAGES, POST_NOTIFICATIONS
 Verifies / v2 scheme: true / signer CN=hanime shell (unchanged)  [cert sha256 13c01040…]
-2,072,107 bytes / sha256 659062515ca9bd1a306b0dbc68d8499becdf2c3d6d777c06c5f914e630ac5dcc
-  assets/index.html 473,957 bytes sha256 e073962be747e4cd6ed4b696246708cad77783f1291e46c374bb39ddb7292b2f
+2,073,995 bytes / sha256 3f0435ed1c79d12e6d4115402bfddc4539407501dc7aaaf0a3a3fa0b1515db69
+  assets/index.html 482,574 bytes sha256 c149bdf96d3bdf3ab095ef188db59ec6b7ec74a7c5a988adb812d173fd5abc18
   assets/hls.min.js 413,952 bytes sha256 484054e8cd03d3f6d1781fb7f402bdc318d8a4c527f933a95c624e27cc9a9470
 ```
 
 The bundled client's digest above is the one read back out of the APK built
 from this tree — not assumed — and it is byte-identical to
 `server/public/index.html` in this tree.
+
+1.0.27 is two things the phone asked for. The reader no longer puts empty space
+between its pages: the strip was a framed, padded, rounded box with a `.5rem`
+gap, so every seam was 8px of page background — it is now gapless, unpadded and
+unframed (measured on the device, §8.0.4). And the tracking row can be pointed
+at another MyAnimeList entry by hand, because this app's names and MAL's are
+often two different names: the row names the entry it is attached to, offers a
+search, and the entry the reader picks outranks both the app's own guesses and
+is kept for that title (§7.3).
 
 1.0.26 is the release that gives the app its own face and fills in the manga
 area, and it is the first build whose page carries the title page's own row of
@@ -550,6 +559,22 @@ inside a detail sheet, and all of them write to the same MyAnimeList list.
 Settings → MyAnimeList holds the account: link, unlink, and the reason when
 something failed.
 
+**Which entry a title is, when the two names disagree.** `idMal` and `malId` are
+other people's guesses at a MyAnimeList entry, and this app's names are not
+MAL's names: a title that reads `Beware the Villainess! (Official)` here is
+`Beware the Villainess!` there, and a title the site names after its scanlation
+can still be the same book under a different translation. So the row says which
+entry it is attached to — MAL's own title, read back with the status in the same
+request — and offers **Search MyAnimeList…**: a field pre-filled with this app's
+title, searched as the box opens, with the hits under it carrying what tells two
+same-named entries apart (manga or anime, the year it started, how long it is).
+Pressing one makes it *the* entry for that title: the pick is stored in
+`mal.ids` under the app's own title as `{ id, title, picked: true }`, it outranks
+both guesses from then on — including a `malId` the sheet arrived with — the row
+shows it as **your pick**, and re-opening the title asks MAL about that entry
+and no other. A resolution that finds nothing no longer just says so: it offers
+the same search in the same breath.
+
 **Two credentials, and only one of them is a secret.**
 
 | Piece | Where it lives | Why there |
@@ -618,9 +643,11 @@ Measured against the live endpoints, no account needed:
   page even though the page's own `history.length` is 2, so the shell walks the
   history when there is one and reloads its own page when there is not.
 
-Not verified here: a completed sign-in and a written list entry. Both need the
-reader's MAL account, so the last mile is theirs — everything up to the login
-page, and both pipes, are what is measured above.
+Not verified here: a completed sign-in, a written list entry, and a pick taken
+from MAL's live search. All three need the reader's MAL account, so the last
+mile is theirs — everything up to the login page, both pipes, and the picker
+driven end to end against a stubbed MAL, are what is measured above and in
+§8.0.4.
 
 ### 7.4 The Library's three shelves
 
@@ -1158,10 +1185,90 @@ for — was checked on the same build: `location.assign('https://example.com/')`
 from the page logged `suppressed external navigation: https://example.com/` and
 left the WebView where it was.
 
+### 8.0.4 Gapless pages, and picking the MAL entry by hand (v28 / 1.0.27)
+
+Both measured inside the installed APK on the `shell35` emulator, driven through
+the WebView's own DevTools socket (`tools/webview-probe.mjs`), on a live 120-page
+chapter of *All-Class Awakening: God Slayer* — not in a browser, and not from the
+sources.
+
+**The seams are gone.** A chapter used to render its images into a framed,
+padded, rounded box with a `.5rem` gap between them, so every seam read as a band
+of empty page background. Same chapter, same probe, before → after:
+
+| as the reader sees it | 1.0.26 | 1.0.27 |
+|---|---|---|
+| distance from page *n*'s bottom to page *n+1*'s top | 8px, every page | **0px, every page** |
+| the strip's own padding | 8px | **0** |
+| frame | 1px border, 12px radius | **none** |
+| what shows behind the pages | `rgba(0, 0, 0, 0.35)` | the page's own `hsl(var(--background))` |
+
+```json
+{ "strip": { "display": "flex", "flexDirection": "column", "columnGap": "0px", "rowGap": "0px",
+             "padding": "0px", "borderWidth": "0px", "borderRadius": "0px",
+             "background": "rgb(17, 17, 17)", "overflow": "hidden" },
+  "pagesInChapter": 120, "pageImagesLoaded": 120,
+  "pageImage": { "display": "block", "margin": "0px", "cssHeight": "526.659px",
+                 "boxWidth": 360.7, "natural": [1400, 2044] },
+  "seams": [ { "betweenPages": [1, 2], "gapPx": 0, "sideOffsetPx": 0 },
+             { "betweenPages": [2, 3], "gapPx": 0, "sideOffsetPx": 0 },
+             { "betweenPages": [3, 4], "gapPx": 0, "sideOffsetPx": 0 },
+             { "betweenPages": [4, 5], "gapPx": 0, "sideOffsetPx": 0 },
+             { "betweenPages": [5, 6], "gapPx": 0, "sideOffsetPx": 0 },
+             { "betweenPages": [6, 7], "gapPx": 0, "sideOffsetPx": 0 },
+             { "betweenPages": [7, 8], "gapPx": 0, "sideOffsetPx": 0 },
+             { "betweenPages": [8, 9], "gapPx": 0, "sideOffsetPx": 0 } ] }
+```
+
+The page keeps its aspect ratio through the change — a 1400×2044 image laid out
+343.3 × 501.2 in 1.0.26 and 360.7 × 526.7 now, the same ratio both times (the
+width grew by exactly the 8px of padding that used to sit on each side) — so the
+seam was closed by removing the strip's own spacing, not by cropping or
+overlapping anything. (`gap` on a flex container is also a Chrome 84 API; the
+1.0.26 rule was simply ignored on the WebView-83 floor, and the 0 does nothing
+different there.)
+
+**The tracking row, driven end to end.** The phone's device here has no
+MyAnimeList account, so MAL itself is stubbed in the page (a `window.fetch`
+wrapper answering `/api/mal/v2/…`), and what is measured is the app: which entry
+it resolves to on its own, what the picker draws, what a pick does, and what the
+app asks for afterwards. The title's own `malId` is absent, so the app falls back
+to its own search and lands on the **wrong** entry — which is the case this
+feature exists for:
+
+```json
+{ "appTitle": "All-Class Awakening: God Slayer", "sheetMalId": "(none)",
+  "entryBefore": "not on your list", "attachedBefore": "Guessed Entry 999001",
+  "hasFindChip": true,
+  "callsBeforePick": ["GET /api/mal/v2/manga?q=All-Class%20Awakening%3A%20God%20Slayer&limit=6&fields=…",
+                      "GET /api/mal/v2/manga/999001?fields=title,my_list_status,num_chapters"],
+  "searchPrefill": "All-Class Awakening: God Slayer",
+  "hits": [ { "title": "Wrong Volume (search hit)", "meta": "manga · 2019 · 12 chapters" },
+            { "title": "Beware the Villainess!",     "meta": "manga · 2019 · 105 chapters" } ],
+  "attachedAfter": "Beware the Villainess!your pick", "pickedTag": "your pick",
+  "entryAfter": "on your list",
+  "ids": "{\"manga:all-class awakening: god slayer\":{\"id\":111222,\"title\":\"Beware the Villainess!\",\"picked\":true}}",
+  "callsAtPick": ["GET /api/mal/v2/manga?q=…&limit=10&fields=…",
+                  "GET /api/mal/v2/manga/111222?fields=title,my_list_status,num_chapters"],
+  "attachedOnReopen": "Beware the Villainess!your pick",
+  "callsAfterReopen": ["GET /api/mal/v2/manga/111222?fields=title,my_list_status,num_chapters"],
+  "askedForTheGuessedOneAfterThePick": 0,
+  "askedForThePickedOneAfterThePick": 1 }
+```
+
+That last pair is the whole point: after the pick, the guessed entry is never
+asked about again — the row resolves to the picked one from storage, not by
+searching. The picker also pre-filled the app's own title and searched as it
+opened (`limit=6` for the quiet resolution, `limit=10` for the picker's list),
+which is what puts candidates in front of the reader before they type.
+
 ### 8.1 What is not verified here
 
 Stated plainly, because the rest of this section is measured:
 
+- **A real search and pick against MyAnimeList's live API**, and the list write
+  that follows one. Both need the reader's account (§8.0.4 drives the picker
+  against a stubbed MAL).
 - **The import half of the file round trip.** The picker opens on both sides; the
   bytes were not carried through a Save tap and back.
 - **In-app update install completing.** Download, verification and the installer's

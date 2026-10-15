@@ -391,6 +391,33 @@ test('the manga area has its own view, shelf and reader', () => {
 });
 
 // ---------------------------------------------------------------------------
+// The reader, which is nothing but pages. It used to be a framed, padded box
+// with a .5rem gap between its images, so every seam between two pages was a
+// band of empty page background — the one thing a reader never wants to see.
+// ---------------------------------------------------------------------------
+
+test('the reader stacks its pages with nothing between them', () => {
+  const css = stylesheets(html).join('\n');
+  const strip = /\.rd-pages\s*\{([^}]*)\}/.exec(css);
+  assert.ok(strip, 'no .rd-pages rule — did the reader move?');
+  assert.ok(/gap:\s*0/.test(strip[1]), `the pages are still separated: ${strip[1]}`);
+  assert.ok(/padding:\s*0/.test(strip[1]), `the strip has padding of its own: ${strip[1]}`);
+  assert.ok(!/border/.test(strip[1]), `the pages are still framed: ${strip[1]}`);
+  assert.ok(!/border-radius/.test(strip[1]), `the strip is still rounded: ${strip[1]}`);
+  // What shows through between one page and the next is the page's own colour,
+  // not a lighter strip of page background.
+  assert.ok(/background:\s*hsl\(var\(--background\)\)/.test(strip[1]),
+    `the strip still paints its own background: ${strip[1]}`);
+
+  // And a page image is block-level, with no margin: an inline one is laid out
+  // on a text baseline, which leaves a few pixels below every single page.
+  const page = /\.rd-page\s*\{([^}]*)\}/.exec(css);
+  assert.ok(page, 'no .rd-page rule');
+  assert.ok(/display:\s*block/.test(page[1]), `a page is not block-level: ${page[1]}`);
+  assert.ok(/margin:\s*0/.test(page[1]), `a page carries a margin of its own: ${page[1]}`);
+});
+
+// ---------------------------------------------------------------------------
 // The client is generated: client/{template.html,styles/,src/} are the source
 // of truth, and both served copies are outputs of client/build.mjs. This guard
 // replaces the old byte-identity test — instead of checking that two hand-kept
@@ -860,8 +887,54 @@ test('MyAnimeList tracking reaches every area without leaving the app', () => {
     'the list-status route is missing its underscores — MAL does not serve it');
   assert.ok(/\/\$\{kind\}\/\$\{id\}\/my_list_status/.test(script),
     'nothing writes list status on MAL\'s own path');
-  assert.ok(/fields=my_list_status/.test(script),
+  assert.ok(/\?fields=[a-z_,]*my_list_status/.test(script),
     'the reader\'s own status is never read back (the status route has no GET)');
+});
+
+// ---------------------------------------------------------------------------
+// Which entry a title is, when the app and MyAnimeList disagree about the
+// name. mangafire's malId and AniList's idMal are other people's guesses —
+// the app cannot check either — so the row can be pointed at another entry by
+// hand: it searches MAL, shows what came back, and remembers the pick.
+// ---------------------------------------------------------------------------
+
+test('a title MAL calls something else is found and picked by hand', () => {
+  const script = inlineScripts(html)[0];
+  const css = stylesheets(html).join('\n');
+
+  // The row names the entry it is tracking: the app's name for a title and
+  // MAL's are often two different names, and "is this the right manga?" is
+  // answered by MAL's own, not by the app's.
+  assert.ok(/mal-attached/.test(script), 'the row never names the entry it tracks');
+  assert.ok(/\?fields=title,my_list_status/.test(script),
+    'MAL\'s own name for the entry is never asked for');
+  assert.ok(script.includes('your pick'), 'a hand-picked entry is not marked as one');
+
+  // The way out of a wrong guess: MAL's own search, pre-filled with the app's
+  // title and run as the box opens, with each hit carrying what tells two
+  // same-named entries apart.
+  assert.ok(/class="mal-q"/.test(script), 'the picker has no search field');
+  assert.ok(/start_date/.test(script), 'a hit says nothing about when it started');
+  assert.ok(/data-malid="\$\{x\.id\}"/.test(script), 'a hit carries no entry to pick');
+  assert.ok(/searchMal\(kind, q\)/.test(script), 'nothing searches MAL');
+  assert.ok(/\/\$\{kind\}\?q=\$\{encodeURIComponent\(query\)\}/.test(script),
+    'the search does not go through MAL\'s own query route');
+  assert.ok(/await run\(appTitle\)/.test(script), 'the picker opens on nothing');
+
+  // A pick outranks both guesses — that is the entire point of making it — and
+  // it is kept under the app's title, so this title opens on it from now on.
+  const pickAt = script.indexOf('stored.picked) return stored.id');
+  const guessAt = script.indexOf('if (id) return Number(id)');
+  assert.ok(pickAt > -1, 'a pick has no path of its own');
+  assert.ok(guessAt > -1, 'the sheet\'s own id is no longer trusted');
+  assert.ok(pickAt < guessAt, 'the app\'s own guess outranks the entry the reader picked');
+  assert.ok(/rememberPick\(kind, appTitle, pick\)/.test(script),
+    'a pressed hit is not kept for this title');
+
+  // And it draws: a search row, a scrolling list of hits, one button each.
+  for (const rule of ['.mal-search', '.mal-hits', '.mal-hit', '.mal-attached']) {
+    assert.ok(css.includes(rule), `no stylesheet rule draws ${rule}`);
+  }
 });
 
 // ---------------------------------------------------------------------------
