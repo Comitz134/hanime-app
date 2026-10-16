@@ -6,6 +6,7 @@
 // mechanically once — they are ordinary code now, not something a tool
 // rebuilds.
 
+import { accountPosition } from './account-sync.js';
 import { cardHtml } from './cards.js';
 import { $, esc } from './core.js';
 import { isFav, lib, libQuery, libSaved, libWrite } from './library.js';
@@ -27,12 +28,18 @@ function savePosition(slug, vid) {
   if (t < 5) return;                                  // nothing worth keeping
   lib.positions[slug] = { t: Math.round(t), d: Math.round(d), at: Date.now() };
   libWrite();
+  // The account is told where this title stands as it stands, which is also
+  // what puts the title at the right second in the desktop window.
+  accountPosition(slug, lib.positions[slug]);
 }
 
 function clearPosition(slug) {
   if (!lib.positions[slug]) return;
   delete lib.positions[slug];
   libWrite();
+  // Finished here is finished on the account: leaving its row behind would put
+  // the title straight back into "continue watching" on the next pull.
+  accountPosition(slug, null);
 }
 
 /** How far through a title is, as a percentage, or 0 when there is nothing. */

@@ -775,6 +775,37 @@
           </div>
         </div>
 
+        <!-- The account, above the tracker because it is the reader's own: what
+             they favorite and where they left off, kept for this phone and the
+             desktop window at once. Signing in is what turns it on; a device
+             that never signs in is the same app it was before. -->
+        <div class="settings-card" id="acct-card">
+          <div class="settings-card-head">
+            <h3>SEKAI account</h3>
+            <p class="settings-hint">One account for this phone and the desktop window: a favorite is the window's library too, and where you left off travels with the title.</p>
+          </div>
+          <div class="settings-card-body">
+            <div class="settings-row"><span>Signed in as</span><span class="settings-val" id="acct-who">…</span></div>
+            <form class="settings-form" id="acct-form">
+              <label class="settings-field" for="acct-email">Email
+                <input type="email" id="acct-email" name="email" autocomplete="username" inputmode="email" spellcheck="false" placeholder="you@example.com">
+              </label>
+              <label class="settings-field" for="acct-pass">Password
+                <input type="password" id="acct-pass" name="password" autocomplete="current-password" placeholder="Password">
+              </label>
+              <div class="settings-actions">
+                <button class="chip" id="acct-signin" type="submit">Sign in</button>
+                <button class="chip" id="acct-signup" type="button">Create account</button>
+              </div>
+            </form>
+            <div class="settings-actions">
+              <button class="chip" id="acct-sync" type="button" hidden>Sync now</button>
+              <button class="chip" id="acct-signout" type="button" hidden>Sign out</button>
+            </div>
+            <p class="note" id="acct-note" hidden></p>
+          </div>
+        </div>
+
         <div class="settings-card" id="mal-card">
           <div class="settings-card-head">
             <h3>MyAnimeList</h3>

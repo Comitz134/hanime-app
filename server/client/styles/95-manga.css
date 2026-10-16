@@ -66,6 +66,11 @@
   font-size: .75rem; font-weight: 700; color: hsl(var(--primary));
   font-variant-numeric: tabular-nums;
 }
+/* A chapter already read: the number stops being the loudest thing on the row,
+   so what is left bright in a long list is what has not been read yet. The
+   colour is the whole signal — the row also carries the word, for a reader
+   using a screen reader. */
+.ch-num--read { color: hsl(var(--muted-foreground)); font-weight: 600; }
 .ch-title {
   flex: 1 1 auto; min-width: 0; font-size: .75rem;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;

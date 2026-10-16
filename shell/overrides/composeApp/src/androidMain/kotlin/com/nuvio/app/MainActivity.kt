@@ -54,6 +54,8 @@ import com.nuvio.app.features.trakt.TraktCommentsStorage
 import com.nuvio.app.features.trakt.TraktLibraryStorage
 import com.nuvio.app.features.trakt.TraktSettingsStorage
 import com.nuvio.app.features.mal.PlatformMalAuthPersistence
+import com.nuvio.app.features.mal.PlatformMalJournalPersistence
+import com.nuvio.app.features.nsfw.PlatformNsfwPreference
 import com.nuvio.app.features.mdblist.PlatformMdbListAuthPersistence
 import com.nuvio.app.features.mdblist.PlatformMdbListSyncStorage
 import com.nuvio.app.features.simkl.SimklAuthStorage
@@ -124,6 +126,8 @@ open class MainActivity : AppCompatActivity() {
         TraktSettingsStorage.initialize(applicationContext)
         PlatformMdbListAuthPersistence.initialize(applicationContext)
         PlatformMalAuthPersistence.initialize(applicationContext)
+        PlatformMalJournalPersistence.initialize(applicationContext)
+        PlatformNsfwPreference.initialize(applicationContext)
         PlatformMdbListSyncStorage.initialize(applicationContext)
         SimklAuthStorage.initialize(applicationContext)
         SimklSyncStorage.initialize(applicationContext)

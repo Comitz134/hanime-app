@@ -18,8 +18,9 @@
 // committed copy differs from it — and fails on either stale icon — so a stale
 // bundle is caught before release.
 //
-// Determinism: same sources + same esbuild version (pinned in package.json)
-// produce byte-identical output; that is what makes the freshness guard sound.
+// Determinism: same sources + same esbuild version (pinned in package.json) +
+// the same account configuration (the two variables below, defaulted) produce
+// byte-identical output; that is what makes the freshness guard sound.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -43,6 +44,31 @@ const OUTPUTS = [
  * An unknown path there is answered with index.html, so a missing icon is not
  * even a 404 — it is the whole page.
  */
+/**
+ * The account backend this build of the client talks to.
+ *
+ * Same story as the desktop's: the account is one Supabase project shared with
+ * the window, and both values are *publishable* — the URL and the publishable
+ * key ship inside every client and carry no privileges of their own, which is
+ * why row-level security rather than key secrecy is what protects a reader's
+ * library. The desktop build carries the same pair (`SupabaseDefaultUrl` in
+ * shell/overrides/composeApp/build.gradle.kts), and `accounts/probe.mjs` reads
+ * the same two environment variables this does, so all three can be pointed at
+ * a project of one's own with one name each.
+ *
+ * They are baked at build time, not fetched at run time: the app serves this
+ * client out of its own assets, with no server of ours in front of it to ask.
+ */
+export const SUPABASE_DEFAULT_URL = 'https://hijiurhppikjgammgdmg.supabase.co';
+export const SUPABASE_DEFAULT_KEY = 'sb_publishable_nr-W-nQRbUEg7pJ3ipMUxA_fwqw6t5e';
+
+/** The pair as `build` and `render` substitute it, environment first. */
+function accountConfig() {
+  const url = (process.env.SEKAI_SUPABASE_URL ?? SUPABASE_DEFAULT_URL).trim().replace(/\/+$/, '');
+  const key = (process.env.SEKAI_SUPABASE_KEY ?? SUPABASE_DEFAULT_KEY).trim();
+  return { url, key };
+}
+
 export const COPIED_ASSETS = [
   'app.webmanifest',
   'favicon.ico',
@@ -84,12 +110,20 @@ export async function render() {
     .map((f) => fs.readFileSync(path.join(HERE, 'styles', f), 'utf8'))
     .join('\n');
 
+  const account = accountConfig();
   const js = (await esbuild.build({
     entryPoints: [path.join(HERE, 'src/main.js')],
     bundle: true,
     write: false,
     format: 'iife',
     platform: 'browser',
+    // account.js reads these two names; a build with no project at all (both
+    // empty) is a client that says so on its Settings card rather than one that
+    // cannot compile.
+    define: {
+      __SEKAI_SUPABASE_URL__: JSON.stringify(account.url),
+      __SEKAI_SUPABASE_KEY__: JSON.stringify(account.key),
+    },
     // The floor this client ships to: Android 11's bundled WebView. Anything
     // newer in the sources gets downleveled here instead of breaking there.
     target: ['chrome83'],

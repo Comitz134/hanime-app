@@ -962,6 +962,20 @@ button.pp-tag em {
 
 .settings-actions { display: flex; flex-wrap: wrap; gap: .5rem; padding-top: .75rem; }
 
+/* The account's two fields are the only typing in Settings, so they take the
+   page's own input look — the background/border pair `#cookie-input` uses —
+   rather than inventing a second one. */
+.settings-form { display: grid; gap: .625rem; max-width: 24rem; padding-top: .5rem; }
+.settings-field { display: grid; gap: .25rem; font-size: .75rem; color: hsl(var(--muted-foreground)); }
+.settings-field input {
+  width: 100%; height: 2.5rem; padding: 0 .875rem; font-size: .8125rem;
+  border-radius: calc(var(--radius) - .125rem);
+  background: hsl(var(--background)); border: 1px solid hsl(var(--border) / .8);
+}
+.settings-field input:focus { border-color: hsl(var(--primary) / .5); outline: none; }
+#acct-card .settings-form .settings-actions { padding-top: .25rem; }
+#acct-card .settings-actions { justify-content: flex-start; }
+
 /* --------------------------------------------------------------------------
    Themes, accents and motion
 
@@ -1158,6 +1172,11 @@ h2 .area-chip { font-size: .5625rem; }
   font-size: .75rem; font-weight: 700; color: hsl(var(--primary));
   font-variant-numeric: tabular-nums;
 }
+/* A chapter already read: the number stops being the loudest thing on the row,
+   so what is left bright in a long list is what has not been read yet. The
+   colour is the whole signal — the row also carries the word, for a reader
+   using a screen reader. */
+.ch-num--read { color: hsl(var(--muted-foreground)); font-weight: 600; }
 .ch-title {
   flex: 1 1 auto; min-width: 0; font-size: .75rem;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -2227,6 +2246,37 @@ select.filter-select.sort-select {
           </div>
         </div>
 
+        <!-- The account, above the tracker because it is the reader's own: what
+             they favorite and where they left off, kept for this phone and the
+             desktop window at once. Signing in is what turns it on; a device
+             that never signs in is the same app it was before. -->
+        <div class="settings-card" id="acct-card">
+          <div class="settings-card-head">
+            <h3>SEKAI account</h3>
+            <p class="settings-hint">One account for this phone and the desktop window: a favorite is the window's library too, and where you left off travels with the title.</p>
+          </div>
+          <div class="settings-card-body">
+            <div class="settings-row"><span>Signed in as</span><span class="settings-val" id="acct-who">…</span></div>
+            <form class="settings-form" id="acct-form">
+              <label class="settings-field" for="acct-email">Email
+                <input type="email" id="acct-email" name="email" autocomplete="username" inputmode="email" spellcheck="false" placeholder="you@example.com">
+              </label>
+              <label class="settings-field" for="acct-pass">Password
+                <input type="password" id="acct-pass" name="password" autocomplete="current-password" placeholder="Password">
+              </label>
+              <div class="settings-actions">
+                <button class="chip" id="acct-signin" type="submit">Sign in</button>
+                <button class="chip" id="acct-signup" type="button">Create account</button>
+              </div>
+            </form>
+            <div class="settings-actions">
+              <button class="chip" id="acct-sync" type="button" hidden>Sync now</button>
+              <button class="chip" id="acct-signout" type="button" hidden>Sign out</button>
+            </div>
+            <p class="note" id="acct-note" hidden></p>
+          </div>
+        </div>
+
         <div class="settings-card" id="mal-card">
           <div class="settings-card-head">
             <h3>MyAnimeList</h3>
@@ -2423,7 +2473,7 @@ select.filter-select.sort-select {
 
   // client/src/prefs.js
   var PREFS_KEY = "htv:prefs:v1";
-  var DEFAULT_PREFS = { theme: "dark", accent: "amber", motion: "full" };
+  var DEFAULT_PREFS = { theme: "dark", accent: "amber", motion: "full", hideDuplicates: false };
   var prefs = Object.assign({}, DEFAULT_PREFS);
   function loadPrefs() {
     try {
@@ -2769,10 +2819,10 @@ select.filter-select.sort-select {
     return a;
   }
   async function mal(path, { method = "GET" } = {}, retry = true) {
-    const session = await currentAccess();
+    const session2 = await currentAccess();
     const res = await fetch(`/api/mal/v2${path}`, {
       method,
-      headers: { authorization: `Bearer ${session.access}` }
+      headers: { authorization: `Bearer ${session2.access}` }
     });
     if (res.status === 401 && retry) {
       await refreshAccess();
@@ -2802,22 +2852,47 @@ select.filter-select.sort-select {
     save2(IDS_KEY, cache);
   }
   var SEARCH_FIELDS = {
-    anime: "id,title,media_type,start_date,num_episodes",
-    manga: "id,title,media_type,start_date,num_chapters"
+    anime: "id,title,alternative_titles,media_type,start_date,num_episodes",
+    manga: "id,title,alternative_titles,media_type,start_date,num_chapters"
   };
   var TYPE_MS = 250;
   var MIN_QUERY = 2;
+  var MIN_PREFIX = 6;
   async function searchMal(kind, q, limit = 10) {
     const query = String(q ?? "").trim();
     if (!query) return [];
     const body = await mal(`/${kind}?q=${encodeURIComponent(query)}&limit=${limit}&fields=${SEARCH_FIELDS[kind]}`);
-    return ((body == null ? void 0 : body.data) ?? []).map((x) => ({
-      id: Number(x.id),
-      title: x.title ?? "",
-      kind: x.media_type ? String(x.media_type).replace(/_/g, " ") : "",
-      year: String(x.start_date ?? "").slice(0, 4),
-      length: Number(kind === "manga" ? x.num_chapters : x.num_episodes) || 0
+    return ((body == null ? void 0 : body.data) ?? []).map((item) => {
+      var _a10;
+      const x = (item == null ? void 0 : item.node) ?? item ?? {};
+      return {
+        id: Number(x.id),
+        title: x.title ?? "",
+        kind: x.media_type ? String(x.media_type).replace(/_/g, " ") : "",
+        year: String(x.start_date ?? "").slice(0, 4),
+        length: Number(kind === "manga" ? x.num_chapters : x.num_episodes) || 0,
+        // MAL's own other names for the entry — the way a title this app spells
+        // one way is still recognisably the same book.
+        synonyms: (((_a10 = x.alternative_titles) == null ? void 0 : _a10.synonyms) ?? []).map((s) => String(s))
+      };
+    }).filter((x) => Number.isFinite(x.id) && x.id > 0);
+  }
+  function titleKey(value) {
+    return String(value ?? "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim().replace(/^the /, "").trim();
+  }
+  function matchTitle(items, title) {
+    if (!items.length) return null;
+    const want = titleKey(title);
+    if (!want) return items[0];
+    const keysOf = (x) => [x.title, ...x.synonyms ?? []].map(titleKey).filter(Boolean);
+    const same = items.find((x) => keysOf(x).includes(want));
+    if (same) return same;
+    const extended = items.find((x) => keysOf(x).some((k) => {
+      const small = want.length <= k.length ? want : k;
+      const big = small === want ? k : want;
+      return small.length >= MIN_PREFIX && big.startsWith(small);
     }));
+    return extended ?? items[0];
   }
   async function resolveMalId(kind, id, title) {
     const stored = storedPick(kind, title);
@@ -2825,10 +2900,7 @@ select.filter-select.sort-select {
     if (id) return Number(id);
     if (stored && stored.id) return stored.id;
     const found = await searchMal(kind, title, 6);
-    const wanted = String(title ?? "").toLowerCase();
-    const exact = found.find((x) => x.title.toLowerCase() === wanted);
-    const starts = found.find((x) => x.title.toLowerCase().startsWith(wanted));
-    const hit = exact || starts || found[0];
+    const hit = matchTitle(found, title);
     if (!hit || !hit.id) return null;
     const cache = load2(IDS_KEY, {});
     cache[`${kind}:${String(title ?? "").toLowerCase()}`] = { id: hit.id, title: hit.title };
@@ -2957,6 +3029,20 @@ select.filter-select.sort-select {
       throw e;
     }
   }
+  var progressWatchers = /* @__PURE__ */ new Set();
+  function onTrackedProgress(fn) {
+    progressWatchers.add(fn);
+    return () => progressWatchers.delete(fn);
+  }
+  function announceProgress(kind, slot, entry) {
+    const appId = slot.dataset.malFor ?? "";
+    for (const fn of progressWatchers) {
+      try {
+        fn(kind, appId, entry ?? null);
+      } catch (e) {
+      }
+    }
+  }
   var filling = /* @__PURE__ */ new WeakSet();
   function statusOptions(kind, selected) {
     return STATUSES[kind].map(([value, label2]) => `<option value="${value}"${value === selected ? " selected" : ""}>${label2}</option>`).join("");
@@ -3068,6 +3154,7 @@ select.filter-select.sort-select {
     if (malTitle !== void 0) slot.dataset.malName = malTitle;
     if (picked !== void 0) slot.dataset.malPicked = picked ? "1" : "0";
     slot.innerHTML = slotFormHtml(kind, entry, slot.dataset.malName ?? "", slot.dataset.malPicked === "1");
+    announceProgress(kind, slot, entry);
     const status = slot.querySelector(".mal-status");
     const score = slot.querySelector(".mal-score");
     const prog = slot.querySelector(".mal-prog");
@@ -3432,6 +3519,646 @@ select.filter-select.sort-select {
     open(card.dataset.actId, card.dataset.actRef || card.dataset.actNum);
   });
 
+  // client/src/account-model.js
+  var AREA = "ad";
+  var ID_PREFIX = `ha:${AREA}:`;
+  var CONTENT_TYPE = "movie";
+  var PROFILE_ID = 1;
+  function accountIdFor(slug) {
+    const key = String(slug ?? "").trim();
+    return key ? ID_PREFIX + key : "";
+  }
+  function slugFromAccountId(id) {
+    const value = String(id ?? "");
+    if (!value.startsWith(ID_PREFIX)) return null;
+    const key = value.slice(ID_PREFIX.length);
+    return key && !key.includes(":") ? key : null;
+  }
+  var millis = (seconds2) => Math.round(Number(seconds2) * 1e3);
+  var seconds = (millis2) => Math.round(Number(millis2) / 1e3);
+  function libraryPayload(entry) {
+    const contentId = accountIdFor(entry == null ? void 0 : entry.slug);
+    if (!contentId) return null;
+    const addedAt = Number(entry == null ? void 0 : entry.at);
+    return {
+      content_id: contentId,
+      content_type: CONTENT_TYPE,
+      name: String((entry == null ? void 0 : entry.name) ?? (entry == null ? void 0 : entry.slug) ?? ""),
+      poster: (entry == null ? void 0 : entry.cover) ? String(entry.cover) : null,
+      poster_shape: "POSTER",
+      added_at: Number.isFinite(addedAt) && addedAt > 0 ? Math.round(addedAt) : 0
+    };
+  }
+  function progressPayload(slug, position) {
+    const contentId = accountIdFor(slug);
+    if (!contentId || !position || typeof position !== "object") return null;
+    const t = Number(position.t);
+    const d = Number(position.d);
+    if (!Number.isFinite(t) || !Number.isFinite(d) || d <= 0 || t < 0 || t >= d) return null;
+    const at = Number(position.at);
+    return {
+      progress_key: contentId,
+      content_id: contentId,
+      content_type: CONTENT_TYPE,
+      video_id: "",
+      season: null,
+      episode: null,
+      position: millis(t),
+      duration: millis(d),
+      last_watched: Number.isFinite(at) && at > 0 ? Math.round(at) : Date.now()
+    };
+  }
+  function historyPayload(entry) {
+    const contentId = accountIdFor(entry == null ? void 0 : entry.slug);
+    if (!contentId) return null;
+    const openedAt = Number(entry == null ? void 0 : entry.at);
+    return {
+      content_id: contentId,
+      content_type: CONTENT_TYPE,
+      name: String((entry == null ? void 0 : entry.name) ?? (entry == null ? void 0 : entry.slug) ?? ""),
+      poster: (entry == null ? void 0 : entry.cover) ? String(entry.cover) : null,
+      brand: (entry == null ? void 0 : entry.brand) ? String(entry.brand) : null,
+      opened_at: Number.isFinite(openedAt) && openedAt > 0 ? Math.round(openedAt) : 0
+    };
+  }
+  function reconcileHistory(local, remote, limit) {
+    var _a10, _b, _c;
+    const rows = /* @__PURE__ */ new Map();
+    for (const row of Array.isArray(remote) ? remote : []) {
+      const slug = slugFromAccountId(row == null ? void 0 : row.content_id);
+      if (!slug) continue;
+      const openedAt = Number(row == null ? void 0 : row.opened_at) || 0;
+      const held = rows.get(slug);
+      if (held && held.openedAt >= openedAt) continue;
+      rows.set(slug, { slug, row, openedAt });
+    }
+    const history = [];
+    const push = [];
+    const seen = /* @__PURE__ */ new Set();
+    for (const entry of Array.isArray(local) ? local : []) {
+      if (!entry || !entry.slug || seen.has(entry.slug)) continue;
+      seen.add(entry.slug);
+      const remoteRow = rows.get(entry.slug);
+      if (!remoteRow) {
+        if (entry.from === "account") continue;
+        history.push(entry);
+        push.push(entry);
+        continue;
+      }
+      const fresh = remoteRow.openedAt > (Number(entry.at) || 0);
+      history.push({
+        ...entry,
+        from: "account",
+        at: Math.max(Number(entry.at) || 0, remoteRow.openedAt),
+        ...fresh && ((_a10 = remoteRow.row) == null ? void 0 : _a10.name) ? { name: String(remoteRow.row.name) } : {},
+        ...fresh && ((_b = remoteRow.row) == null ? void 0 : _b.poster) ? { cover: String(remoteRow.row.poster) } : {},
+        ...fresh && ((_c = remoteRow.row) == null ? void 0 : _c.brand) ? { brand: String(remoteRow.row.brand) } : {}
+      });
+    }
+    for (const { slug, row, openedAt } of rows.values()) {
+      if (seen.has(slug)) continue;
+      seen.add(slug);
+      history.push({
+        slug,
+        name: String((row == null ? void 0 : row.name) ?? slug),
+        cover: (row == null ? void 0 : row.poster) ? String(row.poster) : "",
+        brand: (row == null ? void 0 : row.brand) ? String(row.brand) : "",
+        at: openedAt,
+        from: "account"
+      });
+    }
+    history.sort((a, b) => (Number(b.at) || 0) - (Number(a.at) || 0));
+    const capped = Number.isFinite(limit) && limit > 0 ? history.slice(0, limit) : history;
+    return { history: capped, push };
+  }
+  function remoteFavorites(rows) {
+    const out = /* @__PURE__ */ new Map();
+    for (const row of Array.isArray(rows) ? rows : []) {
+      const slug = slugFromAccountId(row == null ? void 0 : row.content_id);
+      if (!slug) continue;
+      const addedAt = Number(row == null ? void 0 : row.added_at) || 0;
+      const held = out.get(slug);
+      if (!held || addedAt > held.addedAt) out.set(slug, { slug, row, addedAt });
+    }
+    return out;
+  }
+  function reconcileFavorites(local, remote) {
+    var _a10, _b;
+    const rows = remoteFavorites(remote);
+    const favorites = [];
+    const push = [];
+    const seen = /* @__PURE__ */ new Set();
+    for (const entry of Array.isArray(local) ? local : []) {
+      if (!entry || !entry.slug || seen.has(entry.slug)) continue;
+      seen.add(entry.slug);
+      const fromAccount = entry.from === "account";
+      const remoteRow = rows.get(entry.slug);
+      if (!remoteRow) {
+        if (fromAccount) continue;
+        favorites.push(entry);
+        push.push(entry);
+        continue;
+      }
+      const at = Math.max(Number(entry.at) || 0, remoteRow.addedAt);
+      const fresh = remoteRow.addedAt > (Number(entry.at) || 0);
+      favorites.push({
+        ...entry,
+        from: "account",
+        at,
+        ...fresh && ((_a10 = remoteRow.row) == null ? void 0 : _a10.name) ? { name: String(remoteRow.row.name) } : {},
+        ...fresh && ((_b = remoteRow.row) == null ? void 0 : _b.poster) ? { cover: String(remoteRow.row.poster) } : {}
+      });
+    }
+    for (const { slug, row, addedAt } of rows.values()) {
+      if (seen.has(slug)) continue;
+      seen.add(slug);
+      favorites.push({
+        slug,
+        name: String((row == null ? void 0 : row.name) ?? slug),
+        cover: (row == null ? void 0 : row.poster) ? String(row.poster) : "",
+        brand: "",
+        at: addedAt,
+        from: "account"
+      });
+    }
+    favorites.sort((a, b) => (Number(b.at) || 0) - (Number(a.at) || 0));
+    return { favorites, push };
+  }
+  function mergePositions(local, remote) {
+    const positions = {};
+    for (const slug of Object.keys(local && typeof local === "object" ? local : {})) {
+      const p = local[slug];
+      if (p && typeof p === "object") positions[slug] = p;
+    }
+    const known2 = /* @__PURE__ */ new Map();
+    for (const row of Array.isArray(remote) ? remote : []) {
+      const slug = slugFromAccountId(row == null ? void 0 : row.content_id);
+      if (!slug) continue;
+      const lastWatched = Number(row == null ? void 0 : row.last_watched) || 0;
+      const held = known2.get(slug);
+      if (held && held.lastWatched >= lastWatched) continue;
+      known2.set(slug, { row, lastWatched });
+    }
+    const push = [];
+    for (const [slug, { row, lastWatched }] of known2) {
+      const held = positions[slug];
+      const heldAt = Number(held == null ? void 0 : held.at) || 0;
+      if (held && heldAt > lastWatched) {
+        push.push({ slug, position: held });
+        continue;
+      }
+      if (held && heldAt === lastWatched) continue;
+      if ((row == null ? void 0 : row.position) == null || (row == null ? void 0 : row.duration) == null) continue;
+      const t = seconds(row.position);
+      const d = seconds(row.duration);
+      if (!Number.isFinite(d) || d <= 0 || !Number.isFinite(t) || t < 0 || t >= d) continue;
+      positions[slug] = { t, d, at: lastWatched };
+    }
+    for (const slug of Object.keys(positions)) {
+      if (known2.has(slug)) continue;
+      if (!progressPayload(slug, positions[slug])) continue;
+      push.push({ slug, position: positions[slug] });
+    }
+    return { positions, push };
+  }
+
+  // client/src/account-queue.js
+  function createAccountQueue({
+    send: send3,
+    schedule = (fn, ms) => setTimeout(fn, ms),
+    cancel: cancel2 = (handle) => clearTimeout(handle),
+    // How long the first change waits for company. Shorter than the five seconds
+    // between a player's position writes, so watching a video is a request per
+    // write at most and a burst of them is one call.
+    holdMs = 2e3,
+    // A failed attempt waits longer each time, and stops growing here: a phone
+    // that comes back to signal should not have to wait five minutes for it to
+    // notice, and one that has not should not be knocking every second.
+    retryDelays = [5e3, 15e3, 6e4, 3e5],
+    onError = () => {
+    }
+  } = {}) {
+    if (typeof send3 !== "function") throw new Error("createAccountQueue needs a send");
+    const pending = /* @__PURE__ */ new Map();
+    let timer = null;
+    let inflight = null;
+    let failures = 0;
+    const bucket = (kind) => {
+      let held = pending.get(kind);
+      if (!held) {
+        held = /* @__PURE__ */ new Map();
+        pending.set(kind, held);
+      }
+      return held;
+    };
+    const sizeOf = (kind) => {
+      var _a10;
+      if (kind) return ((_a10 = pending.get(kind)) == null ? void 0 : _a10.size) ?? 0;
+      let total = 0;
+      for (const held of pending.values()) total += held.size;
+      return total;
+    };
+    function take() {
+      const taken = /* @__PURE__ */ new Map();
+      for (const [kind, held] of pending) {
+        if (held.size) taken.set(kind, held);
+      }
+      pending.clear();
+      return taken;
+    }
+    function restore(taken) {
+      for (const [kind, held] of taken) {
+        const bucketNow = bucket(kind);
+        for (const [key, payload] of held) {
+          if (!bucketNow.has(key)) bucketNow.set(key, payload);
+        }
+      }
+    }
+    function hold() {
+      if (timer !== null || inflight) return;
+      timer = schedule(() => {
+        timer = null;
+        run().catch(() => {
+        });
+      }, holdMs);
+    }
+    async function run() {
+      if (inflight) return inflight;
+      if (timer !== null) {
+        cancel2(timer);
+        timer = null;
+      }
+      const taken = take();
+      if (!taken.size) return { sent: 0 };
+      let count = 0;
+      for (const held of taken.values()) count += held.size;
+      inflight = (async () => {
+        const kinds = [...taken.entries()];
+        try {
+          await Promise.all(kinds.map(([kind, held]) => send3(kind, [...held.entries()].map(([key, payload]) => ({ key, payload })))));
+        } catch (e) {
+          restore(taken);
+          const wait = retryDelays[Math.min(failures, retryDelays.length - 1)];
+          failures += 1;
+          try {
+            onError(e);
+          } catch (ignored) {
+          }
+          timer = schedule(() => {
+            timer = null;
+            run().catch(() => {
+            });
+          }, wait);
+          throw e;
+        }
+        failures = 0;
+        return { sent: count };
+      })();
+      try {
+        return await inflight;
+      } finally {
+        inflight = null;
+        if (sizeOf()) hold();
+      }
+    }
+    return {
+      /** Records one change: `payload` is what to send, or null to delete the key. */
+      set(kind, key, payload) {
+        if (!kind || !key) return;
+        bucket(kind).set(key, payload ?? null);
+        hold();
+      },
+      /** Forgets entries nobody should send any more — a sign-out, a cleared list. */
+      clear(kind) {
+        if (kind) pending.delete(kind);
+        else pending.clear();
+      },
+      /** True when there is anything to send. */
+      pending: sizeOf,
+      /**
+       * Sends what is pending now, and answers when it is acknowledged. A failure
+       * rejects (the caller reports it) and the entries stay queued for the retry
+       * that has already been scheduled.
+       */
+      async flush() {
+        for (let attempt = 0; attempt < 50; attempt += 1) {
+          if (inflight) {
+            await inflight.catch(() => {
+            });
+            continue;
+          }
+          if (!sizeOf()) return { sent: 0 };
+          return run();
+        }
+        return { sent: 0 };
+      },
+      /** The same, but the caller has already decided nothing is in flight. */
+      flushNow: run
+    };
+  }
+
+  // client/src/account.js
+  var SUPABASE_URL = "https://hijiurhppikjgammgdmg.supabase.co";
+  var SUPABASE_KEY = "sb_publishable_nr-W-nQRbUEg7pJ3ipMUxA_fwqw6t5e";
+  var ACCOUNT_KEY = "htv:account:v1";
+  var RENEW_MARGIN_MS = 6e4;
+  function load4() {
+    try {
+      const raw = localStorage.getItem(ACCOUNT_KEY);
+      const session2 = raw ? JSON.parse(raw) : null;
+      if (!session2 || typeof session2 !== "object" || !session2.access) return null;
+      return session2;
+    } catch (e) {
+      return null;
+    }
+  }
+  function save4(session2) {
+    try {
+      if (session2) localStorage.setItem(ACCOUNT_KEY, JSON.stringify(session2));
+      else localStorage.removeItem(ACCOUNT_KEY);
+    } catch (e) {
+    }
+  }
+  var session = load4();
+  var configured2 = () => !!(SUPABASE_URL && SUPABASE_KEY);
+  var signedIn = () => !!(session == null ? void 0 : session.access);
+  var accountEmail = () => String((session == null ? void 0 : session.email) ?? "");
+  function reasonOf(status, text) {
+    let body = null;
+    try {
+      body = text ? JSON.parse(text) : null;
+    } catch (e) {
+      body = null;
+    }
+    const detail = (body == null ? void 0 : body.error_description) ?? (body == null ? void 0 : body.msg) ?? (body == null ? void 0 : body.message) ?? (body == null ? void 0 : body.error);
+    return String(detail || `HTTP ${status}`);
+  }
+  async function send(path, { method = "GET", body, token, headers = {} } = {}) {
+    const response = await fetch(`${SUPABASE_URL}${path}`, {
+      method,
+      headers: {
+        apikey: SUPABASE_KEY,
+        accept: "application/json",
+        ...body === void 0 ? {} : { "content-type": "application/json" },
+        ...token ? { authorization: `Bearer ${token}` } : {},
+        ...headers
+      },
+      ...body === void 0 ? {} : { body: JSON.stringify(body) }
+    });
+    const text = await response.text();
+    return { status: response.status, text };
+  }
+  function sessionFrom(body, previous) {
+    var _a10, _b;
+    const access = body == null ? void 0 : body.access_token;
+    if (!access) return null;
+    const expiresIn = Number(body == null ? void 0 : body.expires_in);
+    return {
+      access,
+      // Rotation: a refresh may hand back a new refresh token, and the old one is
+      // spent the moment it does.
+      refresh: String((body == null ? void 0 : body.refresh_token) ?? (previous == null ? void 0 : previous.refresh) ?? ""),
+      expiresAt: Date.now() + (Number.isFinite(expiresIn) && expiresIn > 0 ? expiresIn * 1e3 : 36e5),
+      email: String(((_a10 = body == null ? void 0 : body.user) == null ? void 0 : _a10.email) ?? (previous == null ? void 0 : previous.email) ?? ""),
+      userId: String(((_b = body == null ? void 0 : body.user) == null ? void 0 : _b.id) ?? (previous == null ? void 0 : previous.userId) ?? "")
+    };
+  }
+  async function renew() {
+    if (!(session == null ? void 0 : session.refresh)) return false;
+    let result;
+    try {
+      result = await send("/auth/v1/token?grant_type=refresh_token", {
+        method: "POST",
+        body: { refresh_token: session.refresh }
+      });
+    } catch (e) {
+      return false;
+    }
+    if (result.status >= 300) {
+      session = null;
+      save4(null);
+      fire("signedOut");
+      fillAccountSettings();
+      return false;
+    }
+    let body = null;
+    try {
+      body = JSON.parse(result.text);
+    } catch (e) {
+      body = null;
+    }
+    const next = sessionFrom(body, session);
+    if (!next) return false;
+    session = next;
+    save4(session);
+    return true;
+  }
+  async function authed(path, { body } = {}) {
+    if (!signedIn()) throw new Error("not signed in");
+    if (Date.now() > session.expiresAt - RENEW_MARGIN_MS) await renew();
+    let result = await send(path, { method: "POST", body, token: session == null ? void 0 : session.access });
+    if (result.status === 401 && session) {
+      if (await renew()) result = await send(path, { method: "POST", body, token: session == null ? void 0 : session.access });
+    }
+    if (result.status >= 300) throw new Error(reasonOf(result.status, result.text));
+    return result;
+  }
+  async function accountRpc(name, params) {
+    const result = await authed(`/rest/v1/rpc/${name}`, { body: params ?? {} });
+    try {
+      return result.text ? JSON.parse(result.text) : null;
+    } catch (e) {
+      return null;
+    }
+  }
+  async function signIn(email, password) {
+    if (!configured2()) throw new Error("this build has no account backend");
+    const result = await send("/auth/v1/token?grant_type=password", {
+      method: "POST",
+      body: { email, password }
+    });
+    if (result.status >= 300) throw new Error(reasonOf(result.status, result.text));
+    let body = null;
+    try {
+      body = JSON.parse(result.text);
+    } catch (e) {
+      body = null;
+    }
+    const next = sessionFrom(body, null);
+    if (!next) throw new Error("the server sent no session");
+    session = next;
+    save4(session);
+    fire("signedIn");
+    return session;
+  }
+  async function signUp(email, password) {
+    if (!configured2()) throw new Error("this build has no account backend");
+    const result = await send("/auth/v1/signup", { method: "POST", body: { email, password } });
+    if (result.status >= 300) throw new Error(reasonOf(result.status, result.text));
+    let body = null;
+    try {
+      body = JSON.parse(result.text);
+    } catch (e) {
+      body = null;
+    }
+    const next = sessionFrom(body, null);
+    if (!next) return false;
+    session = next;
+    save4(session);
+    fire("signedIn");
+    return true;
+  }
+  async function signOut() {
+    const token = session == null ? void 0 : session.access;
+    session = null;
+    save4(null);
+    fire("signedOut");
+    if (token) {
+      try {
+        await send("/auth/v1/logout", { method: "POST", token });
+      } catch (e) {
+      }
+    }
+  }
+  var hooks = { signedIn: [], signedOut: [], sync: [] };
+  function onAccountEvent(kind, fn) {
+    if (!hooks[kind] || typeof fn !== "function") return;
+    hooks[kind].push(fn);
+  }
+  function fire(kind) {
+    const results = (hooks[kind] ?? []).map((fn) => {
+      try {
+        return Promise.resolve(fn());
+      } catch (e) {
+        return Promise.reject(e);
+      }
+    });
+    return Promise.allSettled(results);
+  }
+  function plainReason(message) {
+    const text = String(message ?? "");
+    if (/invalid login credentials|invalid_grant|invalid email or password/i.test(text)) {
+      return "That email and password were not accepted.";
+    }
+    if (/email not confirmed/i.test(text)) {
+      return "That account's email address has not been confirmed yet.";
+    }
+    if (/already registered|already been registered/i.test(text)) {
+      return "That email already has an account \u2014 sign in instead.";
+    }
+    if (/fetch|network|failed to fetch/i.test(text)) {
+      return "The account server could not be reached.";
+    }
+    return text || "That did not work.";
+  }
+  var notice2 = "";
+  var IDLE_NOTE = "Sign in with the account the desktop window uses. Favorites, history and where you left off are kept for the account, not for this phone.";
+  function accountNote(text) {
+    notice2 = text ?? "";
+    paintNote();
+  }
+  function paintNote() {
+    const note2 = $("#acct-note");
+    if (!note2) return;
+    const text = notice2 || IDLE_NOTE;
+    note2.hidden = false;
+    note2.textContent = text;
+  }
+  function fillAccountSettings() {
+    const who = $("#acct-who");
+    const form = $("#acct-form");
+    const out = $("#acct-signout");
+    const now = $("#acct-sync");
+    if (!who || !form || !out || !now) return;
+    if (!configured2()) {
+      who.textContent = "not configured";
+      form.hidden = true;
+      out.hidden = true;
+      now.hidden = true;
+      accountNote("This build has no account backend, so nothing can be synced from here.");
+      return;
+    }
+    const on = signedIn();
+    who.textContent = on ? accountEmail() || "signed in" : "Not signed in";
+    form.hidden = on;
+    out.hidden = !on;
+    now.hidden = !on;
+    paintNote();
+  }
+  function credentials() {
+    var _a10, _b;
+    const email = String(((_a10 = $("#acct-email")) == null ? void 0 : _a10.value) ?? "").trim();
+    const password = String(((_b = $("#acct-pass")) == null ? void 0 : _b.value) ?? "");
+    if (!email || !password) {
+      accountNote("Enter the account's email and password.");
+      return null;
+    }
+    return { email, password };
+  }
+  function busy(on) {
+    for (const id of ["acct-signin", "acct-signup"]) {
+      const button = $(`#${id}`);
+      if (button) button.disabled = on;
+    }
+  }
+  document.addEventListener("click", (e) => {
+    const go = e.target.closest("[data-go]");
+    if (go && go.dataset.go === "settings") fillAccountSettings();
+  });
+  (() => {
+    var _a10, _b, _c;
+    const form = $("#acct-form");
+    if (!form) return;
+    fillAccountSettings();
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const creds = credentials();
+      if (!creds) return;
+      busy(true);
+      accountNote("Signing in\u2026");
+      try {
+        await signIn(creds.email, creds.password);
+        const passwordField = $("#acct-pass");
+        if (passwordField) passwordField.value = "";
+        notice2 = `Signed in as ${accountEmail()}.`;
+        fillAccountSettings();
+      } catch (err) {
+        busy(false);
+        accountNote(plainReason(err.message));
+      }
+    });
+    (_a10 = $("#acct-signup")) == null ? void 0 : _a10.addEventListener("click", async () => {
+      const creds = credentials();
+      if (!creds) return;
+      busy(true);
+      accountNote("Creating the account\u2026");
+      try {
+        const inNow = await signUp(creds.email, creds.password);
+        notice2 = inNow ? `Signed in as ${accountEmail()}.` : `Account created. Confirm the address sent to ${creds.email}, then sign in here.`;
+        fillAccountSettings();
+      } catch (err) {
+        busy(false);
+        accountNote(plainReason(err.message));
+      }
+    });
+    (_b = $("#acct-signout")) == null ? void 0 : _b.addEventListener("click", async () => {
+      await signOut();
+      notice2 = "Signed out on this device. Nothing was removed from the account.";
+      fillAccountSettings();
+    });
+    (_c = $("#acct-sync")) == null ? void 0 : _c.addEventListener("click", async () => {
+      var _a11, _b2, _c2;
+      const button = $("#acct-sync");
+      if (button) button.disabled = true;
+      accountNote("Syncing\u2026");
+      const results = await fire("sync");
+      if (button) button.disabled = false;
+      const failed = results.find((r) => r.status === "rejected");
+      const said = (_b2 = (_a11 = results.find((r) => r.status === "fulfilled")) == null ? void 0 : _a11.value) == null ? void 0 : _b2.note;
+      accountNote(failed ? `Sync failed \u2014 ${plainReason(((_c2 = failed.reason) == null ? void 0 : _c2.message) ?? failed.reason)}` : typeof said === "string" && said ? said : "Favorites, watch positions and history are up to date.");
+    });
+  })();
+
   // client/src/positions.js
   function savePosition(slug, vid) {
     if (!slug || !vid) return;
@@ -3445,11 +4172,13 @@ select.filter-select.sort-select {
     if (t < 5) return;
     lib.positions[slug] = { t: Math.round(t), d: Math.round(d), at: Date.now() };
     libWrite();
+    accountPosition(slug, lib.positions[slug]);
   }
   function clearPosition(slug) {
     if (!lib.positions[slug]) return;
     delete lib.positions[slug];
     libWrite();
+    accountPosition(slug, null);
   }
   function progressOf(slug) {
     const p = lib.positions[slug];
@@ -3512,6 +4241,244 @@ select.filter-select.sort-select {
     if (LOCAL_SORTS.has((_a10 = e.detail) == null ? void 0 : _a10.name)) renderLibrary();
   });
 
+  // client/src/account-sync.js
+  var PAGE = 500;
+  var MAX_PAGES = 20;
+  var CLIENT_KEY = "htv:account-client:v1";
+  function clientId() {
+    const held = (() => {
+      try {
+        return localStorage.getItem(CLIENT_KEY);
+      } catch (e) {
+        return null;
+      }
+    })();
+    if (held) return held;
+    const alphabet = "abcdef0123456789";
+    let tail = "";
+    try {
+      const buf = new Uint8Array(8);
+      window.crypto.getRandomValues(buf);
+      for (let i = 0; i < 8; i += 1) tail += alphabet[buf[i] % alphabet.length];
+    } catch (e) {
+      for (let i = 0; i < 8; i += 1) tail += alphabet[Math.floor(Math.random() * alphabet.length)];
+    }
+    const id = `sekai-phone-${tail}`;
+    try {
+      localStorage.setItem(CLIENT_KEY, id);
+    } catch (e) {
+    }
+    return id;
+  }
+  async function pullLibrary() {
+    const rows = [];
+    for (let page = 0; page < MAX_PAGES; page += 1) {
+      const chunk = await accountRpc("sync_pull_library", {
+        p_profile_id: PROFILE_ID,
+        p_limit: PAGE,
+        p_offset: page * PAGE
+      });
+      const list = Array.isArray(chunk) ? chunk : [];
+      rows.push(...list);
+      if (list.length < PAGE) break;
+    }
+    return rows;
+  }
+  async function pullPositions() {
+    const rows = await accountRpc("sync_pull_watch_progress", { p_profile_id: PROFILE_ID });
+    return Array.isArray(rows) ? rows : [];
+  }
+  async function pullHistory() {
+    const rows = [];
+    for (let page = 0; page < MAX_PAGES; page += 1) {
+      const chunk = await accountRpc("sync_pull_history", {
+        p_profile_id: PROFILE_ID,
+        p_limit: PAGE,
+        p_offset: page * PAGE
+      });
+      const list = Array.isArray(chunk) ? chunk : [];
+      rows.push(...list);
+      if (list.length < PAGE) break;
+    }
+    return rows;
+  }
+  async function pushLibrary(items) {
+    if (!items.length) return;
+    await accountRpc("sync_push_library_items", {
+      p_profile_id: PROFILE_ID,
+      p_items: items,
+      p_origin_client_id: clientId()
+    });
+  }
+  async function deleteLibrary(keys) {
+    if (!keys.length) return;
+    await accountRpc("sync_delete_library_items", {
+      p_profile_id: PROFILE_ID,
+      p_keys: keys,
+      p_origin_client_id: clientId()
+    });
+  }
+  async function pushPositions(entries) {
+    if (!entries.length) return;
+    await accountRpc("sync_push_watch_progress", {
+      p_profile_id: PROFILE_ID,
+      p_entries: entries,
+      p_origin_client_id: clientId()
+    });
+  }
+  async function deletePositions(keys) {
+    if (!keys.length) return;
+    await accountRpc("sync_delete_watch_progress", {
+      p_profile_id: PROFILE_ID,
+      p_keys: keys,
+      p_origin_client_id: clientId()
+    });
+  }
+  async function pushHistory(entries) {
+    if (!entries.length) return;
+    await accountRpc("sync_push_history", {
+      p_profile_id: PROFILE_ID,
+      p_entries: entries,
+      p_origin_client_id: clientId()
+    });
+  }
+  async function deleteHistory(keys) {
+    if (!keys.length) return;
+    await accountRpc("sync_delete_history", {
+      p_profile_id: PROFILE_ID,
+      p_keys: keys,
+      p_origin_client_id: clientId()
+    });
+  }
+  async function clearHistory() {
+    await accountRpc("sync_clear_history", {
+      p_profile_id: PROFILE_ID,
+      p_origin_client_id: clientId()
+    });
+  }
+  function isMissingFunction(e) {
+    return /could not find the function|PGRST202|HTTP 404/i.test(String((e == null ? void 0 : e.message) ?? e ?? ""));
+  }
+  var historyState = "unknown";
+  async function send2(kind, entries) {
+    if (kind === "library") {
+      const rows = entries.filter((e) => e.payload).map((e) => e.payload);
+      const keys = entries.filter((e) => !e.payload).map((e) => ({ content_id: e.key, content_type: CONTENT_TYPE }));
+      await Promise.all([pushLibrary(rows), deleteLibrary(keys)]);
+      return;
+    }
+    if (kind === "progress") {
+      const rows = entries.filter((e) => e.payload).map((e) => e.payload);
+      const keys = entries.filter((e) => !e.payload).map((e) => e.key);
+      await Promise.all([pushPositions(rows), deletePositions(keys)]);
+      return;
+    }
+    if (kind === "history") {
+      const rows = entries.filter((e) => e.payload).map((e) => e.payload);
+      const keys = entries.filter((e) => !e.payload).map((e) => ({ content_id: e.key, content_type: CONTENT_TYPE }));
+      try {
+        await Promise.all([pushHistory(rows), deleteHistory(keys)]);
+        historyState = "ready";
+      } catch (e) {
+        if (!isMissingFunction(e)) throw e;
+        historyState = "missing";
+      }
+    }
+  }
+  var queue = createAccountQueue({ send: send2 });
+  async function syncAccount() {
+    if (!signedIn()) throw new Error("not signed in");
+    let historyRows = [];
+    try {
+      historyRows = await pullHistory();
+      historyState = "ready";
+    } catch (e) {
+      if (!isMissingFunction(e)) throw e;
+      historyState = "missing";
+    }
+    const [rows, progress] = await Promise.all([pullLibrary(), pullPositions()]);
+    const favourites = reconcileFavorites(lib.favorites, rows);
+    const positions = mergePositions(lib.positions, progress);
+    const past2 = historyState === "missing" ? { history: lib.history, push: [] } : reconcileHistory(lib.history, historyRows, LIB_MAX_HISTORY);
+    lib.favorites = favourites.favorites;
+    lib.positions = positions.positions;
+    lib.history = past2.history;
+    for (const entry of [...favourites.favorites, ...past2.history]) {
+      if (entry.from === "account") keepCover(entry);
+    }
+    for (const entry of favourites.push) {
+      const row = libraryPayload(entry);
+      if (row) queue.set("library", row.content_id, row);
+    }
+    for (const { slug, position } of positions.push) {
+      const row = progressPayload(slug, position);
+      if (row) queue.set("progress", row.progress_key, row);
+    }
+    for (const entry of past2.push) {
+      const row = historyPayload(entry);
+      if (row) queue.set("history", row.content_id, row);
+    }
+    await queue.flush();
+    const sentFavourites = new Set(favourites.push.map((e) => e.slug));
+    for (const entry of lib.favorites) {
+      if (sentFavourites.has(entry.slug)) entry.from = "account";
+    }
+    const sentOpenings = new Set(past2.push.map((e) => e.slug));
+    for (const entry of lib.history) {
+      if (sentOpenings.has(entry.slug)) entry.from = "account";
+    }
+    libWrite();
+    renderLibrary();
+    return { note: historyState === "missing" ? "Favorites and watch positions are up to date. History is not kept in this project yet \u2014 run accounts/sql/0007_history.sql, then sync again." : "Favorites, watch positions and history are up to date." };
+  }
+  function accountFavorite(slug, on, entry) {
+    if (!signedIn() || !slug) return;
+    const contentId = accountIdFor(slug);
+    if (!contentId) return;
+    if (!on) {
+      queue.set("library", contentId, null);
+      return;
+    }
+    const row = libraryPayload(entry ?? { slug });
+    if (!row) return;
+    queue.set("library", row.content_id, row);
+  }
+  function accountOpened(entry) {
+    if (!signedIn() || !(entry == null ? void 0 : entry.slug)) return;
+    const row = historyPayload(entry);
+    if (!row) return;
+    queue.set("history", row.content_id, row);
+  }
+  function accountHistoryCleared() {
+    if (!signedIn()) return;
+    queue.clear("history");
+    queue.clear("progress");
+    const keys = Object.keys(lib.positions).map(accountIdFor).filter(Boolean);
+    Promise.all([clearHistory(), deletePositions(keys)]).catch(() => {
+    });
+  }
+  function accountPosition(slug, position) {
+    if (!signedIn() || !slug) return;
+    const contentId = accountIdFor(slug);
+    if (!contentId) return;
+    if (!position) {
+      queue.set("progress", contentId, null);
+      return;
+    }
+    const payload = progressPayload(slug, position);
+    if (!payload) return;
+    queue.set("progress", payload.progress_key, payload);
+  }
+  function plainFailure(e) {
+    const text = String((e == null ? void 0 : e.message) ?? e ?? "");
+    return /fetch|network|failed to fetch/i.test(text) ? "the account server could not be reached" : text || "unknown error";
+  }
+  onAccountEvent("signedIn", () => syncAccount().catch((e) => {
+    accountNote(`Signed in, but the sync failed \u2014 ${plainFailure(e)}`);
+  }));
+  onAccountEvent("sync", syncAccount);
+  onAccountEvent("signedOut", () => queue.clear());
+
   // client/src/manga-eta.js
   var HOUR = 36e5;
   var DAY = 864e5;
@@ -3572,10 +4539,138 @@ select.filter-select.sort-select {
     return `${estimateChip(est, now)} \u2014 the next chapter is estimated around ${day}, read off the gap between the chapters already posted.`;
   }
 
+  // client/src/manga-dupes.js
+  function numberKey(chapter) {
+    const raw = chapter == null ? void 0 : chapter.number;
+    if (raw === null || raw === void 0) return null;
+    const text = String(raw).trim();
+    if (!text) return null;
+    const n = Number(text);
+    return Number.isFinite(n) ? String(n) : null;
+  }
+  function visibleChapters(chapters, hideDuplicates) {
+    const rows = Array.isArray(chapters) ? chapters : [];
+    if (!hideDuplicates) return rows;
+    const seen = /* @__PURE__ */ new Set();
+    return rows.filter((c) => {
+      const key = numberKey(c);
+      if (key === null) return true;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+  function duplicateCount(chapters) {
+    const rows = Array.isArray(chapters) ? chapters : [];
+    return rows.length - visibleChapters(rows, true).length;
+  }
+  function stepIndex(chapters, from, delta) {
+    const rows = Array.isArray(chapters) ? chapters : [];
+    const at = Number(from);
+    const dir = Number(delta);
+    if (!Number.isFinite(at) || at < 0 || at >= rows.length) return -1;
+    if (!Number.isFinite(dir) || dir === 0) return -1;
+    const here = numberKey(rows[at]);
+    let i = at + dir;
+    while (here !== null && i >= 0 && i < rows.length && numberKey(rows[i]) === here) i += dir;
+    if (i < 0 || i >= rows.length) return -1;
+    const reached = numberKey(rows[i]);
+    while (reached !== null && i > 0 && numberKey(rows[i - 1]) === reached) i -= 1;
+    return i;
+  }
+
+  // client/src/manga-read.js
+  var KEY3 = "htv:manga-read:v1";
+  var MAX_TITLES = 300;
+  var MAX_CHAPTERS = 4e3;
+  function load5() {
+    try {
+      const raw = localStorage.getItem(KEY3);
+      const rows = raw ? JSON.parse(raw) : {};
+      return rows && typeof rows === "object" && !Array.isArray(rows) ? rows : {};
+    } catch (e) {
+      return {};
+    }
+  }
+  function save5(rows) {
+    try {
+      localStorage.setItem(KEY3, JSON.stringify(rows));
+    } catch (e) {
+    }
+  }
+  function readNumbers(titleId) {
+    const id = String(titleId ?? "");
+    if (!id) return [];
+    const entry = load5()[id];
+    return Array.isArray(entry == null ? void 0 : entry.n) ? entry.n.filter((n) => Number.isFinite(Number(n))) : [];
+  }
+  function progressFor(titleId) {
+    var _a10;
+    const id = String(titleId ?? "");
+    if (!id) return 0;
+    const upTo = Number((_a10 = load5()[id]) == null ? void 0 : _a10.p);
+    return Number.isFinite(upTo) && upTo >= 1 ? Math.floor(upTo) : 0;
+  }
+  function setProgress(titleId, upTo) {
+    const id = String(titleId ?? "");
+    const n = Number(upTo);
+    if (!id || !Number.isFinite(n) || n < 0) return false;
+    const rows = load5();
+    const known2 = rows[id] && typeof rows[id] === "object" && !Array.isArray(rows[id]);
+    const held = known2 && Number.isFinite(Number(rows[id].p)) ? Math.floor(Number(rows[id].p)) : 0;
+    const wanted = n >= 1 ? Math.floor(n) : 0;
+    if (held === wanted && (known2 || wanted === 0)) return false;
+    const entry = known2 ? { ...rows[id] } : { n: [], at: 0 };
+    if (!Array.isArray(entry.n)) entry.n = [];
+    if (wanted >= 1) entry.p = wanted;
+    else delete entry.p;
+    entry.at = stamp(rows);
+    rows[id] = entry;
+    prune(rows);
+    save5(rows);
+    return true;
+  }
+  function isRead(titleId, number) {
+    const n = Number(number);
+    if (!titleId || !Number.isFinite(n)) return false;
+    if (readNumbers(titleId).includes(n)) return true;
+    const upTo = progressFor(titleId);
+    return n >= 1 && n <= upTo;
+  }
+  function markRead(titleId, number) {
+    const id = String(titleId ?? "");
+    const n = Number(number);
+    if (!id || !Number.isFinite(n) || n < 0) return false;
+    const rows = load5();
+    const entry = rows[id] && Array.isArray(rows[id].n) ? rows[id] : { n: [], at: 0 };
+    if (!entry.n.includes(n)) entry.n = [n, ...entry.n].slice(0, MAX_CHAPTERS);
+    entry.at = stamp(rows);
+    rows[id] = entry;
+    prune(rows);
+    save5(rows);
+    return true;
+  }
+  function stamp(rows) {
+    var _a10;
+    let newest = 0;
+    for (const id of Object.keys(rows)) newest = Math.max(newest, Number(((_a10 = rows[id]) == null ? void 0 : _a10.at) ?? 0));
+    return Math.max(Date.now(), newest + 1);
+  }
+  function prune(rows) {
+    const ids = Object.keys(rows);
+    if (ids.length <= MAX_TITLES) return rows;
+    ids.sort((a, b) => {
+      var _a10, _b;
+      return Number(((_a10 = rows[b]) == null ? void 0 : _a10.at) ?? 0) - Number(((_b = rows[a]) == null ? void 0 : _b.at) ?? 0);
+    });
+    for (const id of ids.slice(MAX_TITLES)) delete rows[id];
+    return rows;
+  }
+
   // client/src/manga-saved.js
   var MANGA_SAVED_KEY = "htv:manga-saved:v1";
   var MAX2 = 200;
-  function load4() {
+  function load6() {
     try {
       const raw = localStorage.getItem(MANGA_SAVED_KEY);
       const rows = raw ? JSON.parse(raw) : [];
@@ -3584,18 +4679,18 @@ select.filter-select.sort-select {
       return [];
     }
   }
-  function save4(rows) {
+  function save6(rows) {
     try {
       localStorage.setItem(MANGA_SAVED_KEY, JSON.stringify(rows));
     } catch (e) {
     }
   }
-  var savedList = () => load4();
-  var isSaved = (id) => !!id && load4().some((e) => String(e.id) === String(id));
+  var savedList = () => load6();
+  var isSaved = (id) => !!id && load6().some((e) => String(e.id) === String(id));
   function forgetSaved(id) {
     const key = String(id ?? "");
     if (!key) return;
-    save4(load4().filter((e) => String(e.id) !== key));
+    save6(load6().filter((e) => String(e.id) !== key));
   }
   function toggleSaved(entry) {
     const id = String((entry == null ? void 0 : entry.id) ?? "");
@@ -3614,7 +4709,7 @@ select.filter-select.sort-select {
       chapters: Number(entry.chapters) > 0 ? Number(entry.chapters) : 0,
       at: Number(entry.at) > 0 ? Number(entry.at) : Date.now()
     };
-    save4([record, ...load4()].slice(0, MAX2));
+    save6([record, ...load6()].slice(0, MAX2));
     savedFaces();
     return true;
   }
@@ -6752,6 +7847,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
   var plain = (html) => esc(String(html ?? "").replace(/<[^>]+>/g, " ").replace(/\s{2,}/g, " ").trim());
   var label = (s) => String(s ?? "").replace(/_/g, " ");
   function renderDetail() {
+    var _a10;
     const d = dState.detail;
     slotHome = null;
     const genres = (d.genres ?? []).map((g) => `<span class="hero-tag">${esc(g.title ?? g.name ?? String(g))}</span>`).join("");
@@ -6761,7 +7857,8 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
       d.follows ? `${fmtCount(d.follows)} follows` : null,
       dState.chapters.length ? `${dState.chapters.length} chapters` : null
     ].filter(Boolean).map(esc).join(" \xB7 ");
-    const eta = nextChapterEstimate(dState.chapters, { status: d.status });
+    const eta = nextChapterEstimate(visibleChapters(dState.chapters, true), { status: d.status });
+    const dupes = duplicateCount(dState.chapters);
     const facts = [
       ["Status", label(d.status)],
       ...eta ? [["Next chapter", estimateDetail(eta)]] : [],
@@ -6795,6 +7892,10 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
               <h2>Chapters</h2>
               <span class="sec-count" id="manga-ch-count"></span>
             </div>
+            ${dupes ? `<button class="chip ch-dupes" id="manga-hide-dupes" type="button"
+              aria-pressed="${prefs.hideDuplicates ? "true" : "false"}"
+              title="Another scanlation of the same chapter is a second row for one chapter"
+              >Hide duplicates</button>` : ""}
           </div>
           <div class="ch-list" id="manga-ch-list"></div>
         </section>
@@ -6804,9 +7905,15 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
         <div class="mf-facts">
           ${facts.map(([k, v]) => `<div class="mf-fact"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join("")}
         </div>
-        <div class="mal-slot" data-mal-kind="manga" data-mal-id="${d.malId ?? ""}" data-mal-title="${esc(d.title)}"></div>
+        <div class="mal-slot" data-mal-kind="manga" data-mal-id="${d.malId ?? ""}" data-mal-title="${esc(d.title)}"
+             data-mal-for="${esc(dState.hid)}"></div>
       </aside>
     </div>`;
+    (_a10 = $("#manga-hide-dupes")) == null ? void 0 : _a10.addEventListener("click", () => {
+      prefs.hideDuplicates = !prefs.hideDuplicates;
+      savePrefs();
+      renderChapterList();
+    });
     renderChapterList();
   }
   function mangaActionsHtml(hid, eta) {
@@ -6844,6 +7951,12 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     </button>
   </div>`;
   }
+  onTrackedProgress((kind, appId, entry) => {
+    if (kind !== "manga" || !appId) return;
+    const read = Number(entry == null ? void 0 : entry.num_chapters_read);
+    setProgress(appId, Number.isFinite(read) ? read : 0);
+    if (String(appId) === String(dState.hid)) renderChapterList();
+  });
   function renderChapterList() {
     const list = $("#manga-ch-list");
     if (!list) return;
@@ -6853,14 +7966,25 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
       if (count2) count2.textContent = "";
       return;
     }
-    list.innerHTML = dState.chapters.map((c) => `
-    <button class="ch-card" type="button" data-mfch="${Number(c.id)}">
-      <span class="ch-num">Ch. ${esc(String(c.number))}</span>
+    const rowsOut = visibleChapters(dState.chapters, prefs.hideDuplicates);
+    const hidden = dState.chapters.length - rowsOut.length;
+    const toggle = $("#manga-hide-dupes");
+    if (toggle) toggle.setAttribute("aria-pressed", String(!!prefs.hideDuplicates));
+    list.innerHTML = rowsOut.map((c) => {
+      const read = isRead(dState.hid, c.number);
+      const label2 = `Chapter ${esc(String(c.number))}${read ? ", already read" : ""}` + (c.name ? ` \u2014 ${esc(c.name)}` : "");
+      return `
+    <button class="ch-card" type="button" data-mfch="${Number(c.id)}"${read ? ' data-read="true"' : ""}
+      aria-label="${label2}"${read ? ' title="Already read"' : ""}>
+      <span class="ch-num${read ? " ch-num--read" : ""}">Ch. ${esc(String(c.number))}</span>
       <span class="ch-title">${esc(c.name || "")}</span>
       <span class="ch-date">${c.createdAt ? esc(new Date(c.createdAt * 1e3).toISOString().slice(0, 10)) : ""}</span>
-    </button>`).join("");
+    </button>`;
+    }).join("");
     const count = $("#manga-ch-count");
-    if (count) count.textContent = `${dState.chapters.length} chapters`;
+    if (count) {
+      count.textContent = hidden ? `${rowsOut.length} chapters \xB7 ${hidden} duplicates hidden` : `${rowsOut.length} chapters`;
+    }
   }
   async function openManga(hid, chapter) {
     hid = String(hid);
@@ -6897,6 +8021,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     await renderReader();
     const ch = dState.chapters[idx];
     autoAdvance("manga", (_a10 = dState.detail) == null ? void 0 : _a10.malId, ch == null ? void 0 : ch.number, (_b = dState.detail) == null ? void 0 : _b.title);
+    markRead(dState.hid, ch == null ? void 0 : ch.number);
     noteOpen("manga", {
       id: dState.hid,
       title: (_c = dState.detail) == null ? void 0 : _c.title,
@@ -6911,8 +8036,10 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     var _a10;
     const seq = ++rSeq;
     const ch = dState.chapters[rState.idx];
-    const atNewest = rState.idx <= 0;
-    const atOldest = rState.idx >= dState.chapters.length - 1;
+    const newer = stepIndex(dState.chapters, rState.idx, -1);
+    const older = stepIndex(dState.chapters, rState.idx, 1);
+    const atNewest = newer < 0;
+    const atOldest = older < 0;
     $("#sheet-count").hidden = false;
     $("#sheet-count").textContent = `Ch. ${Number(ch.number)}`;
     $("#sheet-body").innerHTML = `
@@ -6931,7 +8058,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
       <button class="page-btn" id="rd-next-b" type="button" ${atOldest ? "disabled" : ""}>Older \u2192</button>
     </div>`;
     const go = (delta) => {
-      const next = dState.chapters[rState.idx + delta];
+      const next = dState.chapters[stepIndex(dState.chapters, rState.idx, delta)];
       if (next) openChapter(Number(next.id));
     };
     for (const id of ["rd-prev", "rd-prev-b"]) $("#" + id).onclick = () => go(-1);
@@ -7087,7 +8214,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
   });
 
   // client/src/mal-library.js
-  function load5(key, fallback) {
+  function load7(key, fallback) {
     try {
       const raw = localStorage.getItem(key);
       return raw ? JSON.parse(raw) : fallback;
@@ -7095,7 +8222,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
       return fallback;
     }
   }
-  function save5(key, value) {
+  function save7(key, value) {
     try {
       localStorage.setItem(key, JSON.stringify(value));
     } catch (e) {
@@ -7266,7 +8393,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
   async function openMalEntry(shelf, kind, title, card) {
     if (!TABS.includes(shelf) || !KINDS.includes(kind) || !title) return;
     const key = `${kind}:${normTitle(title)}`;
-    const seen = load5(OPEN_KEY, {});
+    const seen = load7(OPEN_KEY, {});
     if (seen[key]) {
       openTarget(kind, seen[key]);
       return;
@@ -7280,7 +8407,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
         return;
       }
       seen[key] = id;
-      save5(OPEN_KEY, seen);
+      save7(OPEN_KEY, seen);
       note(shelf, "");
       openTarget(kind, id);
     } catch (e) {
@@ -7439,14 +8566,18 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
   function toggleFav(slug) {
     if (!slug) return;
     const i = lib.favorites.findIndex((e) => e.slug === slug);
+    let entry = null;
+    let on = false;
     if (i >= 0) {
       lib.favorites.splice(i, 1);
     } else {
-      const entry = entryFor(slug);
+      entry = entryFor(slug);
       lib.favorites.unshift(entry);
       keepCover(entry);
+      on = true;
     }
     libWrite();
+    accountFavorite(slug, on, entry);
     if (viewIs("library")) renderLibrary();
   }
   function recordHistory(slug) {
@@ -7457,6 +8588,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     if (wasPartWay) lib.positions[slug] = wasPartWay;
     keepCover(entry);
     libWrite();
+    accountOpened(entry);
     if (viewIs("library")) renderLibrary();
   }
   var libDebounce;
@@ -7476,6 +8608,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
   });
   var _a3;
   (_a3 = $("#hist-clear")) == null ? void 0 : _a3.addEventListener("click", () => {
+    accountHistoryCleared();
     lib.history = [];
     lib.positions = {};
     libWrite();
@@ -8819,14 +9952,14 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
   </div>`;
   }
   function wireConnect() {
-    const send = $("#cookie-send");
-    if (!send) return;
+    const send3 = $("#cookie-send");
+    if (!send3) return;
     const input = $("#cookie-input");
     const msg = $("#cookie-msg");
     const submit = async () => {
       const cookie = input.value.trim();
       if (!cookie) return;
-      send.disabled = true;
+      send3.disabled = true;
       msg.hidden = false;
       msg.dataset.kind = "";
       msg.textContent = "Checking\u2026";
@@ -8850,10 +9983,10 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
         msg.dataset.kind = "err";
         msg.textContent = `Request failed: ${e.message}`;
       } finally {
-        send.disabled = false;
+        send3.disabled = false;
       }
     };
-    send.onclick = submit;
+    send3.onclick = submit;
     input.onkeydown = (e) => {
       if (e.key === "Enter") submit();
     };
@@ -9515,6 +10648,8 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     });
     showView("anime");
     renderLibrary();
+    if (signedIn()) syncAccount().catch(() => {
+    });
   })();
 })();
 

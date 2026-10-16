@@ -128,6 +128,7 @@ import com.nuvio.app.features.library.toLibraryItem
 import com.nuvio.app.features.library.toMetaPreview
 import com.nuvio.app.features.membership.MemberAccessRepository
 import com.nuvio.app.features.notifications.EpisodeReleaseNotificationsRepository
+import com.nuvio.app.features.nsfw.NsfwContent
 import com.nuvio.app.features.p2p.P2pSettingsRepository
 import com.nuvio.app.features.player.ExternalPlayerIntentResult
 import com.nuvio.app.features.player.externalPlaybackSession
@@ -387,8 +388,15 @@ internal fun MainAppContent(
     var networkToastBaselineReady by rememberSaveable { mutableStateOf(false) }
     var lastNetworkToastCondition by rememberSaveable { mutableStateOf(NetworkCondition.Unknown.name) }
     var watchSourceReconnectPending by remember { mutableStateOf(false) }
-    val homeCatalogRefreshKey = remember(addonsUiState.addons) {
-        buildAddonCatalogRefreshSignature(addonsUiState.addons)
+    val nsfwHidden by remember {
+        NsfwContent.ensureLoaded()
+        NsfwContent.hidden
+    }.collectAsStateWithLifecycle()
+    // The reader's "hide 18+" answer rides in the key that re-syncs the
+    // catalogue: turning it on has to drop the adult shelves from the rails
+    // already on screen, not on the next launch.
+    val homeCatalogRefreshKey = remember(addonsUiState.addons, nsfwHidden) {
+        buildAddonCatalogRefreshSignature(addonsUiState.addons) + "|hideAdult=" + nsfwHidden
     }
 
     LaunchedEffect(appContentGeneration, homeCatalogRefreshKey) {

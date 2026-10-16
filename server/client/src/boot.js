@@ -7,6 +7,8 @@
 // rebuilds.
 
 import { $, $$, esc } from './core.js';
+import { signedIn } from './account.js';
+import { syncAccount } from './account-sync.js';
 import { ensureAnime, openAnime } from './anime.js';
 import { handleMalCallback } from './mal.js';
 import { loadBrands, loadFeatured, loadGrid, loadTags } from './data.js';
@@ -87,5 +89,12 @@ $$('.rail').forEach(makeDraggable);
 
   showView('anime');
   renderLibrary();
+
+  // A reader who is signed in has the account's library and this device's
+  // reconciled on the way in — in the background, because the view above was
+  // already drawable from what is on the device and nothing here is on screen.
+  // A failure is not reported: the card is where the account speaks, and a
+  // pull that did not happen leaves this phone exactly as it was.
+  if (signedIn()) syncAccount().catch(() => {});
 })();
 

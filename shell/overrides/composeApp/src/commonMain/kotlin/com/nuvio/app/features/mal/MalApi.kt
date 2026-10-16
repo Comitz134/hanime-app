@@ -174,7 +174,8 @@ internal object MalApi {
      * status — so a second call per title is never needed.
      */
     suspend fun fetchAnimeList(accessToken: String): List<MalListEntry> {
-        val fields = "title,main_picture,num_episodes,list_status{status,score,num_watched_episodes,updated_at}"
+        val fields = "title,main_picture,num_episodes," +
+            "list_status{status,score,num_episodes_watched,is_rewatching,updated_at}"
         val out = mutableListOf<MalListEntry>()
         var offset = 0
         while (offset < 10_000) {
@@ -192,9 +193,39 @@ internal object MalApi {
     }
 
     /**
+     * One title's own numbers: how many episodes it has, and where this
+     * account's list holds it.
+     *
+     * MAL does not move a title to Completed because a count reached its
+     * total — the status is a field somebody has to write — so the total is
+     * the only honest answer to "was that the last one?", and the list status
+     * is what tells a write whether the row is already where the reader left
+     * it. Both readings come back from one call, made before the write.
+     *
+     * Read through the media route, never `/my_list_status`: that path takes
+     * writes only (a GET on it is `405 method_not_allowed`), which is the same
+     * fact the web client's own read of a title is built around. A title this
+     * account's list does not hold simply arrives without `my_list_status`,
+     * and a series with no known total answers `num_episodes: 0` — which is
+     * why zero reads as "no total" rather than as a very short show.
+     */
+    suspend fun fetchTitleStatus(accessToken: String, malId: Long): MalTitleStatus {
+        val fields = "num_episodes,my_list_status{status,num_episodes_watched}"
+        val body = apiGet(accessToken, "anime/$malId?fields=${encodeQuery(fields)}")
+        val parsed = runCatching { json.decodeFromString<MalTitleResponse>(body) }.getOrNull()
+            ?: throw MalApiException(500, "title response unreadable")
+        return MalTitleStatus(
+            episodesTotal = parsed.numEpisodes ?: 0,
+            status = parsed.listStatus?.status,
+        )
+    }
+
+    /**
      * Write one row of the list: which status it is in and how many episodes
-     * have been watched. MAL writes only the fields it is given, and it
-     * completes a title by itself the moment the count reaches the total.
+     * have been watched. MAL writes only the fields it is given, and it does
+     * **not** complete a title by itself when the count reaches the total —
+     * that status travels like any other field, or not at all (see the
+     * tracker's own `statusForWrite`).
      */
     suspend fun updateListStatus(
         accessToken: String,
@@ -256,9 +287,10 @@ internal object MalApi {
             title = anime.title?.takeIf(String::isNotBlank) ?: "Anime $id",
             poster = anime.mainPicture?.large ?: anime.mainPicture?.medium,
             episodesTotal = anime.numEpisodes ?: 0,
-            watchedEpisodes = node.listStatus.numWatchedEpisodes ?: 0,
+            watchedEpisodes = node.listStatus.numEpisodesWatched ?: 0,
             status = status,
             score = node.listStatus.score ?: 0,
+            isRewatching = node.listStatus.isRewatching == true,
             updatedAtEpochMs = node.listStatus.updatedAt?.let(::epochSecondsOrNull) ?: 0L,
         )
     }
@@ -288,11 +320,44 @@ internal data class MalListEntry(
     val watchedEpisodes: Int = 0,
     val status: String,
     val score: Int = 0,
+    val isRewatching: Boolean = false,
     val updatedAtEpochMs: Long = 0L,
 ) {
     /** `mal:21` — the id space this app's addon answers for anime titles. */
     val contentId: String get() = "mal:$malId"
+
+    /**
+     * A row that is finished but still says Watching.
+     *
+     * That is the shape a title takes when it was watched to its end *before*
+     * this app learned to write `completed` on the last episode (see
+     * MalTracker's own `statusForWrite`): MAL keeps a status and a count in
+     * separate fields and derives neither from the other, so the count reached
+     * the total while the status stayed where it was. Nothing in the app went
+     * back for those rows, because the completion rule only decides what a
+     * *new* write carries — which is what [MalLibrary] settles on a read.
+     *
+     * A total of zero is MAL saying it knows of none (an ongoing series
+     * answers `0`, not null), so an episode cannot be the last of it; and a row
+     * being re-watched is the reader's own standing order, not a stale one.
+     */
+    val isFinishedButWatching: Boolean
+        get() = status == MalListStatus.WATCHING &&
+            episodesTotal > 0 &&
+            watchedEpisodes >= episodesTotal &&
+            !isRewatching
 }
+
+/**
+ * One title as MAL describes it: its episode total and the reader's own row on
+ * it. Zero episodes means MAL knows no total — an ongoing series answers `0`,
+ * not null — so anything deciding "was that the last one?" reads zero as
+ * "no total to reach".
+ */
+internal data class MalTitleStatus(
+    val episodesTotal: Int = 0,
+    val status: String? = null,
+)
 
 /** MyAnimeList's own status spellings, which are also this app's tab keys. */
 internal object MalListStatus {
@@ -344,6 +409,13 @@ private data class MalAnimeNode(
     @SerialName("main_picture") val mainPicture: MalPicture? = null,
 )
 
+/** One title asked for by its own id: its total, and this account's row on it. */
+@Serializable
+private data class MalTitleResponse(
+    @SerialName("num_episodes") val numEpisodes: Int? = null,
+    @SerialName("my_list_status") val listStatus: MalListStatusPayload? = null,
+)
+
 @Serializable
 internal data class MalPicture(val medium: String? = null, val large: String? = null)
 
@@ -351,6 +423,15 @@ internal data class MalPicture(val medium: String? = null, val large: String? = 
 private data class MalListStatusPayload(
     val status: String? = null,
     val score: Int? = null,
-    @SerialName("num_watched_episodes") val numWatchedEpisodes: Int? = null,
+    // MAL's *reading* spelling. Writing uses `num_watched_episodes` (see
+    // updateListStatus) and reading uses `num_episodes_watched` — the two
+    // differ, and asking for the write spelling on a read is answered with
+    // silence: read back from the live API, every row carried
+    // `num_episodes_watched`, so this field was always null and every shelf row
+    // drew "0 / 12 ep" no matter how much of the show had been watched.
+    @SerialName("num_episodes_watched") val numEpisodesWatched: Int? = null,
+    // MAL's own flag for "the reader put this back on Watching themselves".
+    // Read so that a deliberate re-watch is never mistaken for a stale row.
+    @SerialName("is_rewatching") val isRewatching: Boolean? = null,
     @SerialName("updated_at") val updatedAt: String? = null,
 )

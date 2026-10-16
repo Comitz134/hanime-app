@@ -15,6 +15,7 @@ have meant maintaining a pale copy of 100k+ lines of Compose.
 shell/
   overrides/            our changes, laid over the upstream tree at their real paths
   sync.sh               fetch upstream at the pinned commit, apply overrides, print how to run
+  install-desktop.sh    rebuild the app and refresh this machine's installed copy
   NOTICE.md             what upstream is, which commit, what we changed and why
   LICENSE-NuvioDesktop-GPL-3.0   upstream's license — read it before shipping anything
 ```
@@ -59,6 +60,40 @@ JAVA_HOME=/path/to/jdk17 ./gradlew :composeApp:createDistributable
 # -> composeApp/build/compose/binaries/main/app/SEKAI/SEKAI.exe   (246 MB, folder must stay together)
 ```
 
+### Keep the installed app current — after every change
+
+The installed SEKAI is that app-image, copied to
+`%LOCALAPPDATA%\Programs\SEKAI` (the folder the Start-menu shortcut launches).
+It is a plain folder — no installer is involved in updating it, and none is
+involved in *not* updating it, which is the trap: a change built into
+`composeApp/build/...` leaves the app a reader actually opens running last
+week's code. One command closes that gap:
+
+```bash
+./shell/install-desktop.sh          # apply overrides → createDistributable → mirror into the install
+./shell/install-desktop.sh --stop   # the same, stopping a running window first (its jars are locked)
+./shell/install-desktop.sh --no-build   # install the last build as it stands
+```
+
+What it does, in order: lays `overrides/` over the build tree, runs
+`:composeApp:createDistributable`, and mirrors the result into the install with
+`robocopy /MIR` — a mirror, not a copy, because the app's main jar and its skiko
+runtime carry their content hash in their filename and change name every build,
+so the previous pair has to be *deleted*, not overwritten. It refuses to touch a
+folder not named `SEKAI` (a mistyped `SEKAI_INSTALL_DIR` must not become a
+deletion), refuses to run against a live window unless asked to stop it, and
+finishes by `diff -rq`-ing the installed folder against the build so the command
+cannot report success on a partial copy. It prints the installed version, the
+main jar's hash and the commit it was built from.
+
+The server travels inside that jar (`:composeApp:syncHanimeServer`), so the
+installed app carries this checkout's `server/` and its `.env` — including a
+server-side fix, which no client rebuild would otherwise deliver. What it does
+*not* regenerate is `server/public/index.html`, the built web client: that is
+`cd server && npm run build:client`, and the script warns when it is older than
+the sources it is built from (`server/test/web-client.test.mjs` fails on that
+drift, so the suite is the real guard).
+
 A Gradle build of this tree also needs a `local.properties` next to
 `settings.gradle.kts` — the runtime-config task declares it as an input, and
 without the file Gradle fails before compiling anything. An Android SDK path is
@@ -96,13 +131,269 @@ JAVA_TOOL_OPTIONS="-Dnuvio.desktop.smokePlayerUrl=http://127.0.0.1:8787/play/ani
 | `AddonPlatform.desktop.kt` | seeds this server's addon bridge as the built-in source |
 | `DesktopStorage.kt` | profile/cache directories named `Hanime`, so an installed Nuvio on the same machine never shares state |
 | `NetworkStatusRepository.kt` | "servers reachable" probes this project's `/api/videos`, not Nuvio's Supabase |
-| `composeApp/build.gradle.kts` | package, vendor and menu name `SEKAI` (four lines changed; the file is otherwise upstream's) |
+| `composeApp/build.gradle.kts` | package, vendor and menu name `SEKAI`, plus `syncHanimeServer` — the task that bundles `server/` and the MyAnimeList `.env` into the app — plus one default for the skip button, IntroDB's public endpoint (both below) |
+| `composeApp/src/commonMain/kotlin/com/nuvio/app/features/settings/SettingsScreen.kt`, `SettingsSearch.kt` | the settings search bar, kept in view under the page's own title, and this fork's own row in upstream's hand-written search catalogue |
+| `composeApp/src/commonMain/kotlin/com/nuvio/app/features/player/skip/SkipIntervalLookup.kt`, `SkipIntroRepository.kt`, `features/player/PlayerScreenRuntimeEffects.kt` | the skip-intro button learns this catalogue's own ids, so the providers are reached at all |
+| `features/mal/`, `features/tracking/` | MyAnimeList as a tracking provider: the login the window hands to the system browser, the relay the server runs for it, the list projection into Library, the writes that keep episode counts in step and finish a title on its last episode (including the rows written before that rule existed, which a read settles), a library add written as Plan to watch, and the activity panel that shows what became of them |
+| `features/nsfw/` *(new)*, `features/addons/AddonModels.kt`, `features/settings/HomescreenSettingsPage.kt` | the "Hide 18+ content" switch, the preference behind it, and the one seam (`enabledAddons()`) every catalogue reader goes through |
+| `features/library/LibraryRepository.kt` | the same file as upstream plus two lines: a title *entering* the app's library is announced (`TrackingProviderRegistry.notifyLibraryItemAdded`) so the tracking accounts can record the plan |
 | `composeResources/`, `desktopMain/resources/icons/` | the `SEKAI` icons and the sidebar wordmark |
 | `gradle.properties` | heap lowered to build on a 16 GB machine |
 
 The seeded addon (`server/src/addon.mjs`) is what feeds the shell its shelves and
 streams — Stremio addon protocol, which is the interface Nuvio's UI already
 speaks.
+
+### The MyAnimeList secret travels with the app
+
+`server/` needs `MAL_CLIENT_SECRET` to exchange or renew a MyAnimeList token
+(`invalid_client: Client authentication failed` without it), and an installed
+SEKAI has no checkout to find one in. So `:composeApp:syncHanimeServer` writes a
+`.env` into the bundle it packages, and the window materialises it beside the
+server it extracts — the same way every other bundled file gets there, so an
+installed SEKAI carries `MAL_CLIENT_SECRET` at
+`%LOCALAPPDATA%\SEKAI\server\.env` (`~/Library/Application Support/SEKAI/` and
+`~/.local/share/SEKAI/` elsewhere) with no checkout anywhere in sight. It is
+read, in order, from:
+
+1. `-PmalClientSecret=…` (the build's own word);
+2. `MAL_CLIENT_SECRET` in the environment;
+3. `local.properties` as `malClientSecret` — the key the Android build reads for
+   its own BuildConfig;
+4. the checkout's `.env`, the file `README-ANDROID-BUILD.md` names and the
+   repo's server reads for itself.
+
+Everything that task needs — the secret and the output directory — is read
+*before* it is registered, and its action closes over them as plain values. The
+reason is not style: the configuration cache refuses a task action that reaches for the
+project or the script (`Invocation of 'Task.project' … is unsupported`) and that
+refusal fails the whole build, not just the task. The declared input is the
+secret's *length*, never its value, because Gradle stores and can print input
+values.
+
+A build with none of those still builds — the catalogue, the player and the
+phone do not need MyAnimeList — but it logs a warning naming the consequence,
+and the `.env` it bundles says the same thing in words, because an installed app
+whose tracking silently does nothing is exactly the failure this replaced. Like
+the phone's BuildConfig, the value ends up inside the artefact: it is a secret of
+*this registration*, not of the reader's account, and the account's own tokens
+never leave the machine.
+
+### Tracking says what it did, and what did not take
+
+A write that does not record is not allowed to stop playback, so it used to be
+logged and forgotten — which is how a session MAL had invalidated early turned
+tracking off for days without a word on screen. **Settings → Tracking →
+MyAnimeList activity** is the answer: one row per title this app has tried to
+write (`features/mal/MalActivity.kt`, kept per profile in the app's own data
+directory, newest attempt per title, sixty titles), crossed with MAL's own
+answer for the same title from the list it has read back — is it on the list,
+what is it at, when did its row last move, and was that move this app's or
+somebody else's. Every disagreement is printed in the error colour: a write MAL
+refused (in MAL's own words), a title the list does not hold although this app
+wrote to it, a count MAL never caught up with. A row MAL has an id for can be
+sent again from the panel ("Send now"), and the connection card above says so
+when any tracked title has not landed — a card that only speaks when something
+is wrong is a card worth reading.
+
+### The last episode finishes the title, on MAL's list as much as here
+
+MAL keeps a status and an episode count in separate fields and derives neither
+from the other: writing twelve watched episodes onto a twelve-episode series
+leaves the row reading **Watching 12/12** until somebody opens MAL and changes
+it by hand. So the tracker reads the title's own numbers before it writes one —
+`GET /anime/{id}?fields=num_episodes,my_list_status` — and the episode that
+reaches the total is written as `completed`; the count and the status travel in
+the same call, which is also why the read is not optional. That read answers
+the second question too, whether the row is already `completed`, and the write
+then keeps it: watching episode 3 of a finished series again is not unwatching
+it. A title that was only planned becomes watching, since opening an episode
+says more than the list did.
+
+These are the web client's own rules (`server/client/src/mal.js`), so one
+account reads the same whichever client watched the episode. A title MAL will
+not describe — a blip on the read, or no answer for it at all — is still
+written, as a watched episode of a title being watched: the episode is never
+lost to a read that failed, and a number MAL does not know the total for
+(`num_episodes: 0`, which is what an ongoing series answers) can never be its
+last episode.
+
+Those rules decide what a *new* write carries, which leaves the rows written
+before them: a title already sitting on the account as **Watching 12/12**
+cannot be put right by a rule about writes that have not happened yet. So the
+read settles them (`MalLibrary.settleFinishedRows`). Reading the list is the one
+moment the app holds both the row and the title's total at once, and a row that
+is *finished* — Watching, a known total, and a count at or past it — is written
+as `completed` once: the status and nothing else, since MAL writes only the
+fields it is handed and the count is already where it belongs. Three things
+keep that from being a write nobody asked for: a title still in progress is
+never touched, a row being **re-watched** is skipped (MAL's own
+`is_rewatching`, which is the reader saying they put it back on Watching
+themselves), and one read settles at most ten rows — an account that spent a
+year under the old rule heals over a few reads instead of in one burst MAL
+answers with refusals. A repair is filed in the activity panel like any other
+write, and one MAL refuses is never allowed to take the read down with it: the
+shelf still shows the list it has, and the panel shows the row that did not
+land.
+
+### The 18+ shelves can be switched off, and the switch means everywhere
+
+**Settings → Appearance → HOME → Home Layout → Adult content → Hide 18+
+content** (`features/nsfw/NsfwContent.kt`, the third section on that page, under
+Hero) drops the two adult shelves this server's addon
+declares — `Hentai — newest` and `Hentai — most viewed`, typed `hentai` in
+`server/src/addon.mjs`. The filter is applied in exactly one place,
+`enabledAddons()` in `features/addons/AddonModels.kt`, which is the function
+every catalogue reader asks for its addons: home rails, search and its type
+list, discover, catalog pages and collections. A hidden shelf is therefore
+hidden in all of them, rather than in whichever ones remembered to filter.
+
+What it deliberately does *not* touch is `types`. This project's adult
+*entries* are `movie` — the addon has always filed them that way, and that is
+what the player, a saved library row and the watch history read — so a title
+the reader already saved still opens and plays with the switch on. Nothing is
+deleted either: the filter answers a reader, it does not edit what was
+installed, so turning the option off restores the shelves exactly as they were.
+The choice is one boolean in the app's own data directory
+(`%APPDATA%\Hanime\nsfw.properties`, `~/Library/Application Support/Hanime/`
+and `~/.config/hanime/` elsewhere), and the catalogue re-syncs the moment it is
+flipped, not on the next launch.
+
+Measured on this tree (16 Oct 2026), with the window's own addon pointed at a
+logging proxy — `HANIME_ADDON_URL` is already overridable and every catalogue,
+meta and stream request is derived from that one URL, so what the window asks
+for is visible from outside it:
+
+| switch | shelves the window asked for | adult requests |
+| --- | --- | --- |
+| on | `series/anime-trending`, `movie/films-listing`, `series/series-listing` | 0 of 24 |
+| off | all five, `hentai/adult-newest` and `hentai/adult-views` included | 6 of 32 |
+
+One boundary worth knowing: the mainstream area is AniList's catalogue, and
+AniList's own search can return a title it indexes as adult. The switch hides
+this app's 18+ shelves; it is not a filter over somebody else's index.
+
+### The settings search bar is on the page, and it knows this fork's rows
+
+**Settings** carries its search field on the page itself: directly under the
+page's own title on a wide window (the sidebar column), and as the first row of
+the root list on a narrow one. Upstream had the same field, but revealed by
+pulling the list down past a threshold — a gesture nobody performs on purpose,
+which reads as a search that does not exist. The bar is one composable
+(`SettingsSearchField`, `features/settings/SettingsSearch.kt`), and the word it
+holds lives in `SettingsScreen` because the wide layout's field and its answers
+render in two different columns.
+
+The catalogue behind it is upstream's hand-written list of the rows on each
+page, and this fork adds a row of its own that upstream's list could not know
+about: **"Hide 18+ content"**. It is written down in the words a reader would
+actually type — 18, nsfw, adult — and it lands on Home Layout, in the section it
+lives in. `SettingsSearchBarTest` (4 tests, `desktopTest`) renders the real page
+at both widths and types those words, so a field that only exists in the source,
+or a setting the search cannot find, fails the suite.
+
+### The skip-intro button works on this catalogue's ids
+
+The button asks its providers by the id the *catalogue* gave the episode, and
+this catalogue's ids are its own: `ha:an:<anilist id>` for anime, `ha:ft:`,
+`ha:fm:` and `ha:ad:` for the other three areas. Upstream's reader understood
+`mal:`, `kitsu:` and `tt…` and nothing else, so on every title this app lists the
+lookup answered null before any request was made — no button, on the whole
+catalogue, whatever was configured. Two things were missing:
+
+- **the id hop.** AniSkip — the one segment source that answers without a key of
+  its own — is keyed by MyAnimeList's id, and this project's server already
+  answers AniList's id with MAL's (`GET /api/anime/<anilist id>` →
+  `details.malId`, the same hop a scrobble or a plan write makes). The lookup
+  (`features/player/skip/SkipIntervalLookup.kt`) now reads `ha:an:` ids as what
+  they are — an AniList id, with the episode in the tail — and
+  `SkipIntroRepository.getSkipIntervalsForAniList` resolves them through that one
+  door. `ha:ml:` ids, the same title entered through its MAL id, go straight to
+  the MAL path.
+- **a segment source in a build with no secrets.** The second provider, IntroDB,
+  is read through `IntroDbConfig.URL`, and the build read that key from
+  `local.properties` and nowhere else — so every build of this tree shipped
+  `URL = ""`, and a disabled provider is a provider that silently answers
+  nothing. The generated value now comes from the same chain the other runtime
+  configs use (local.properties, then the environment) and falls back to
+  IntroDB's public endpoint, `https://api.introdb.app`, when neither names one.
+  Reads are anonymous there; a key is only asked for when a reader *submits* an
+  intro.
+
+Measured on this tree (16 Oct 2026) against the live services: the addon answers
+`ha:an:21:1:5` for One Piece's fifth episode, this project's server answers
+AniList 21 with `malId: 21`, and AniSkip answers MAL 21 episode 5 with an opening
+(0–111s) and an ending (1392–1482s) — the intervals the player is now offered.
+What the button does with a segment (the show window, auto-skip, the
+notification) is upstream's and untouched. `SkipIntervalLookupTest` grows from 5
+cases to 8, three of them pinning this fork's ids: `ha:an:21:1:5` resolves as
+AniList 21 episode 5, `ha:an:21` alone never reads its own id as an episode, and
+the film and 18+ ids answer null rather than guessing.
+
+Two things it deliberately does not do. A film's slug carries a TMDB id and an
+18+ video's its own slug: neither is an id any skip provider is keyed by, so
+those titles have no segments until the meta carries an IMDb id for them — the
+catalogue does not emit one today. And the segments handed to an *external*
+player (`ExternalPlayerLaunchCoordinator`) still resolve only for
+`mal:`/`kitsu:`/`tt…` ids: the in-app player is where this fork's catalogue was
+fixed.
+
+### A title saved to your library is a plan, on MAL too
+
+Adding a title to the Library writes it to MyAnimeList as **Plan to watch**. The
+library announces every title it *gains* (`features/library/LibraryRepository.kt`
+→ `TrackingProviderRegistry.notifyLibraryItemAdded`, out of
+`features/tracking/TrackingProvider.kt`), and MyAnimeList is the account that
+keeps a plan: `MalLibrary.planAddedItem` resolves the title's MAL id through
+the same hop a scrobble makes (`ha:an:<anilist id>` → this project's own
+server → MAL's id), then writes `status=plan_to_watch`.
+
+The write is careful in the three ways that matter, and each is pinned by a
+test:
+
+- a title MAL's list **already holds keeps the status the reader gave it** — the
+title is read first, and an existing row is never written over, so saving a
+finished show to a library again cannot drag it back to Plan to watch;
+- a title this provider does not track — a film, a series, an adult video —
+writes nothing and files nothing: the reader's library holds those too, and
+none of them has a MAL row;
+- a title MAL **cannot be asked about** is left alone and filed in the activity
+panel rather than guessed at, and with no account linked nothing is written or
+filed at all.
+
+The plan carries status and nothing else, never an episode count, so it cannot
+claim episodes nobody watched. A successful write re-reads the list, so the
+shelf shows the new row instead of the state before the save, and the write
+appears in **MyAnimeList activity** like any other (its word: `Plan to watch`,
+no progress recorded). When the Library's own source *is* MyAnimeList, an
+unchecked add defaults to Plan to watch as well
+(`MalLibraryProvider.toggledDefaultMembership`): a title does not become
+Watching because it was saved — it becomes Watching because an episode was
+played, which is the tracker's own write.
+
+### The desktop suite has 8 host-shaped failures on Windows
+
+`:composeApp:desktopTest` runs **1499** tests here (one skipped), and **8 fail —
+every one of them upstream's and every one of them about the host** (measured on
+this tree, 16 Oct 2026). `LinuxUpdateInstallTest` (3) asserts POSIX paths — it is handed
+`F:\tmp\updates\Nuvio.rpm` where it expects `/tmp/updates/Nuvio.rpm`, and the
+rpm asset pick falls over with it; `CollectionCardRemoteImageTest` (3) fails
+`The focus asset should not load before hover expected:<0> but was:<1>`, an
+image-load race the harness loses on this machine; `HomeHeroSectionTest` (1)
+computes a hero width of 640 where it asserts 660 to 0.001; and
+`WatchProgressIdentityTest` (1) asserts a boolean. None of the four classes is
+in this fork's overlay, and everything the overlay does touch passes —
+`MalActivityTest` 17/17, `MalTrackerTest` 42/42 (its added cases cover the
+library's plan write, the seam that announces it, and the list read that settles
+finished rows), `NsfwFilterTest` 6/6 (the hide-18+ filter, including that hiding
+a shelf does not delete it), `SkipIntervalLookupTest` 8/8 (this fork's own ids,
+three of the cases added here), `SettingsSearchBarTest` 4/4 (the search bar on
+the page at both window widths, and the words that find the 18+ switch),
+`HomescreenNsfwSwitchTest` 3/3, and the rest of `features/mal`,
+`features/tracking`, `features/addons`, `features/player` and
+`features/settings` with them. (The
+phone's own `MangaSourceTest` is a JVM test of the android module and runs with
+`android/`'s suite, not here.)
 
 ## Licensing — read this before you publish a build
 

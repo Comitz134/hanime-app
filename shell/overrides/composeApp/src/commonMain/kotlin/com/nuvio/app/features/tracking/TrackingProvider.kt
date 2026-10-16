@@ -1,5 +1,6 @@
 package com.nuvio.app.features.tracking
 
+import com.nuvio.app.features.library.LibraryItem
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -70,6 +71,21 @@ interface TrackingAuthProvider : TrackingProfileStore {
     fun handleAuthCallback(url: String): Boolean = false
 }
 
+/**
+ * Told when the app's own library gains a title.
+ *
+ * A library is a watchlist, and a watchlist is a plan: a title the reader puts
+ * in it is one they mean to get to, which is a fact a tracking account has a
+ * place for — MyAnimeList's Plan to watch (see
+ * [com.nuvio.app.features.mal.MalLibrary.planAddedItem]). Only *additions*
+ * arrive here: taking a title out of the library is not a plan, and when the
+ * library is a provider's own list its provider writes its own status without
+ * this being involved at all.
+ */
+fun interface LibraryAddObserver {
+    fun onLibraryItemAdded(item: LibraryItem)
+}
+
 object TrackingProviderRegistry {
     private val lock = SynchronizedObject()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -79,6 +95,7 @@ object TrackingProviderRegistry {
     private val listWriters = mutableMapOf<TrackingProviderId, TrackingListWriter>()
     private val historyWriters = mutableMapOf<TrackingProviderId, TrackingHistoryWriter>()
     private val scrobblers = mutableMapOf<TrackingProviderId, TrackingScrobbler>()
+    private val libraryAddObservers = mutableListOf<LibraryAddObserver>()
     private val libraryProviders = mutableMapOf<TrackingProviderId, TrackingLibraryProvider>()
     private val watchedProviders = mutableMapOf<TrackingProviderId, TrackingWatchedProvider>()
     private val progressProviders = mutableMapOf<TrackingProviderId, TrackingProgressProvider>()
@@ -123,6 +140,22 @@ object TrackingProviderRegistry {
 
     fun registerLibraryProvider(provider: TrackingLibraryProvider) = synchronized(lock) {
         libraryProviders[provider.providerId] = provider
+    }
+
+    fun registerLibraryAddObserver(observer: LibraryAddObserver) = synchronized(lock) {
+        if (observer !in libraryAddObservers) libraryAddObservers += observer
+    }
+
+    /**
+     * One title entered the app's library, announced to whoever is listening.
+     *
+     * Deliberately fire-and-forget: the save is the reader's own action and
+     * must not wait on a network round trip, and an observer that throws is
+     * not a failure the caller could act on — the title is saved either way.
+     */
+    fun notifyLibraryItemAdded(item: LibraryItem) {
+        val observers = synchronized(lock) { libraryAddObservers.toList() }
+        observers.forEach { observer -> runCatching { observer.onLibraryItemAdded(item) } }
     }
 
     fun registerWatchedProvider(provider: TrackingWatchedProvider) = synchronized(lock) {

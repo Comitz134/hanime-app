@@ -35,3 +35,17 @@
 }
 
 .settings-actions { display: flex; flex-wrap: wrap; gap: .5rem; padding-top: .75rem; }
+
+/* The account's two fields are the only typing in Settings, so they take the
+   page's own input look — the background/border pair `#cookie-input` uses —
+   rather than inventing a second one. */
+.settings-form { display: grid; gap: .625rem; max-width: 24rem; padding-top: .5rem; }
+.settings-field { display: grid; gap: .25rem; font-size: .75rem; color: hsl(var(--muted-foreground)); }
+.settings-field input {
+  width: 100%; height: 2.5rem; padding: 0 .875rem; font-size: .8125rem;
+  border-radius: calc(var(--radius) - .125rem);
+  background: hsl(var(--background)); border: 1px solid hsl(var(--border) / .8);
+}
+.settings-field input:focus { border-color: hsl(var(--primary) / .5); outline: none; }
+#acct-card .settings-form .settings-actions { padding-top: .25rem; }
+#acct-card .settings-actions { justify-content: flex-start; }

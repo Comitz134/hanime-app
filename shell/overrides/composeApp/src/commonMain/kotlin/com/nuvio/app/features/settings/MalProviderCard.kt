@@ -6,8 +6,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nuvio.app.features.mal.MalActivity
 import com.nuvio.app.features.mal.MalLibrary
 import com.nuvio.app.features.mal.MalTracker
+import com.nuvio.app.features.mal.malTrackedTitles
+import com.nuvio.app.features.mal.malTroubleSummary
 import com.nuvio.app.features.tracking.TrackingRefreshIntent
 import kotlinx.coroutines.launch
 
@@ -27,6 +30,21 @@ internal fun MalProviderCard(modifier: Modifier = Modifier) {
         MalTracker.uiState
     }.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    val listState by remember { MalLibrary.state }.collectAsStateWithLifecycle()
+    val attempts by remember { MalActivity.attempts }.collectAsStateWithLifecycle()
+    // The card's own last word on whether tracking is actually working: the
+    // session's error if there is one, and otherwise the panel's summary — null
+    // whenever every tracked title landed. A card that stays quiet while the
+    // list is out of step is how this failed invisibly the first time.
+    val activityTrouble = remember(attempts, listState.entries, listState.hasLoaded) {
+        malTroubleSummary(
+            malTrackedTitles(
+                attempts = attempts,
+                entries = listState.entries,
+                listLoaded = listState.hasLoaded,
+            ),
+        )
+    }
 
     TrackingProviderCard(
         brand = TrackingBrand.MAL,
@@ -50,7 +68,7 @@ internal fun MalProviderCard(modifier: Modifier = Modifier) {
         missingCredentialsMessage = "MyAnimeList is not configured in this build.",
         approvalUrl = state.authorizationUrl.takeIf { state.isAwaitingApproval },
         syncLabel = "Sync now",
-        errorMessage = state.errorMessage,
+        errorMessage = state.errorMessage ?: activityTrouble,
         websiteLabel = "myanimelist.net",
         websiteUrl = "https://myanimelist.net",
         onConnectRequested = { MalTracker.startAuthorization() },

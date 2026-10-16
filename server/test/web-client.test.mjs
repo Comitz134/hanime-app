@@ -763,6 +763,74 @@ test('settings is a view of its own: build facts, update checks, the shell', () 
   assert.ok(/\[data-go\]/.test(script), 'the view never refills when it is opened');
 });
 
+test('the account is one sign-in for both clients, and the same backend', () => {
+  // The phone's half of the account: a Settings card that signs in to the same
+  // Supabase project the desktop window uses, and the `sync_*` functions in
+  // accounts/sql/ for the library and the watch positions. Asserted against the
+  // committed bundle because the failure this guards is silent — a card that
+  // looks right and a page that syncs nothing.
+  for (const id of ['acct-card', 'acct-who', 'acct-form', 'acct-email', 'acct-pass',
+    'acct-signin', 'acct-signup', 'acct-sync', 'acct-signout', 'acct-note']) {
+    assert.ok(html.includes(` id="${id}"`), `missing #${id}`);
+  }
+  const settingsAt = html.indexOf('data-view="settings"');
+  assert.ok(settingsAt > 0 && settingsAt < html.indexOf('id="acct-card"'),
+    'the account card is not inside the settings view');
+
+  const script = inlineScripts(html)[0];
+  // The project travels in the bundle: the app serves this client out of its own
+  // assets with no server of ours in front of it to ask, so a build without the
+  // configuration would be a card that cannot sign anyone in.
+  assert.ok(script.includes('hijiurhppikjgammgdmg.supabase.co'),
+    'the bundle carries no account project — was build.mjs run?');
+  assert.ok(script.includes('sb_publishable_'), 'the bundle carries no publishable key');
+  assert.ok(script.includes('/auth/v1/token?grant_type=password'),
+    'nothing signs in the way the account server expects');
+  assert.ok(/if \(!configured\(\)\)/.test(script),
+    'a build with no project does not say so');
+  assert.ok(script.includes('htv:account:v1'), 'the session key moved');
+  assert.ok(/try \{[\s\S]*?localStorage\.setItem\(ACCOUNT_KEY/.test(script),
+    'the session write is unguarded');
+
+  // Every function this client calls has to be one the project actually has;
+  // the names are the desktop's, and accounts/sql/ grants exactly these.
+  for (const call of ['sync_pull_library', 'sync_push_library_items', 'sync_delete_library_items',
+    'sync_pull_watch_progress', 'sync_push_watch_progress', 'sync_delete_watch_progress',
+    'sync_pull_history', 'sync_push_history', 'sync_delete_history', 'sync_clear_history']) {
+    assert.ok(script.includes(call), `the client never calls ${call}`);
+  }
+  // The account is one account, not one per area: the same rows the window
+  // reads, with the ids server/src/addon.mjs builds and the milliseconds the
+  // desktop's own progress rows carry. The prefix is built from the area, so
+  // what is asserted is the pair and not the joined string.
+  assert.ok(/ID_PREFIX = `ha:\$\{AREA\}:`/.test(script), 'a favourite is not filed under the shared id space');
+  assert.ok(/\bAREA = ["']ad["']/.test(script), 'the area this client speaks for is not the 18+ shelf');
+  assert.ok(/CONTENT_TYPE = ["']movie["']/.test(script), 'no content type rides the row');
+  assert.ok(/Math\.round\(Number\([^)]*\) \* (?:1000|1e3)\)/.test(script),
+    'a position does not cross the wire in milliseconds');
+
+  // The moments this device changes are the ones that reach the account —
+  // including the one that used to stay here: a title being opened.
+  assert.ok(/accountFavorite\(/.test(script), 'pressing a heart reaches nobody');
+  assert.ok(/accountPosition\(/.test(script), 'a position is never sent');
+  assert.ok(/accountOpened\(/.test(script), 'opening a title reaches nobody, so history is device-local again');
+  assert.ok(/accountHistoryCleared\(/.test(script), 'emptying the list does not empty the account\'s');
+  assert.ok(/if \(signedIn\(\)\) syncAccount\(/.test(script),
+    'a signed-in reader is never reconciled on the way in');
+  // And the card must not claim history is kept on the device any more: that
+  // sentence is what this change was about.
+  assert.ok(!/history stays on this device/.test(html), 'the card still says history is device-local');
+
+  // Every write goes through one queue rather than a request per change, and a
+  // failed call is retried: that is what makes a two-hour watch a handful of
+  // requests, and what lands a session that was offline.
+  assert.ok(script.includes('createAccountQueue'), 'there is no queue between a change and the server');
+  assert.ok(/accountRpc\(["']sync_push_library_items["']/.test(script), 'the queue does not carry the library to the account');
+  // A project that has not been migrated yet is a case the client names, with
+  // the file to run — not a sync that fails in silence.
+  assert.ok(script.includes('0007_history.sql'), 'the unmigrated case is not named for the reader');
+});
+
 test('the anime area filters the catalog upstream, not after the fact', () => {
   // A page of 24 has to be a page of matches: the filters ride the query to
   // AniList (both backends carry them) instead of sifting one page by hand.
@@ -920,6 +988,22 @@ test('a title MAL calls something else is found and picked by hand', () => {
   assert.ok(/\/\$\{kind\}\?q=\$\{encodeURIComponent\(query\)\}/.test(script),
     'the search does not go through MAL\'s own query route');
   assert.ok(/await run\(appTitle\)/.test(script), 'the picker opens on nothing');
+
+  // MAL wraps every hit — its search and its list routes both do — in a `node`,
+  // and this client read `id`/`title` off the wrapper for as long as the search
+  // existed: every field came back undefined, so a title that was on MAL was
+  // answered "no match for this title" (reproduced on the device with
+  // /manga/196874) and every row in the picker drew blank. The mapping is
+  // exercised against MAL's real answer shape in mal-search.test.mjs; it is
+  // pinned here too, because this is the file that ships.
+  assert.ok(/\(item\?\.node|item\.node\) \?\? item/.test(script),
+    'a search hit is read off MAL\'s wrapper instead of off the entry inside it');
+  assert.ok(/alternative_titles/.test(script),
+    'MAL\'s own other names for an entry are never asked for');
+  assert.ok(/Number\.isFinite\(x\.id\) && x\.id > 0/.test(script),
+    'a hit with no entry can still be taken as an answer');
+  assert.ok(/function matchTitle\(items, title\)/.test(script),
+    'nothing picks one of the hits');
 
   // A search bar, not a form: the list follows the field as it is typed. Three
   // things make that work and each one is load-bearing — the pause that turns
@@ -1258,6 +1342,107 @@ test('the device keeps its own last-read and last-watched record', () => {
     'a remembered chapter id is never checked against the chapter list');
   assert.ok(/findIndex\(\(?c\)?\s*=>\s*Number\(c\.number\) === Number\(chapter\)\)/.test(script),
     'a remembered chapter number has no fallback');
+});
+
+// One bookmark per title says where the reading stopped; it cannot say which
+// chapters were read, because a reader who jumps back or past one leaves the
+// bookmark where it was. The chapter list is where that question is asked, so
+// the device keeps a set of chapter numbers per title and the list draws the
+// ones it has.
+test('a chapter already read is drawn quieter than the ones that are not', () => {
+  const script = inlineScripts(html)[0];
+
+  assert.ok(/htv:manga-read:v1/.test(script), 'nothing is kept about which chapters were read');
+  // Numbers, not chapter ids: mangafire re-uploads a chapter under a new id,
+  // and it is the number the reader recognises and the row prints.
+  assert.match(script, /if \(!id \|\| !Number\.isFinite\(n\) \|\| n < 0\) return false/,
+    'a prologue — chapter 0 — is refused when it is filed as read');
+  assert.ok(/MAX_CHAPTERS/.test(script) && /MAX_TITLES/.test(script),
+    'the read set is unbounded — every title ever opened grows it for ever');
+
+  // The mark is written where the reading is, so it cannot disagree with what
+  // was on screen, and the list is what asks.
+  // The bundler downlevels `ch?.number` for the WebView floor, so the call is
+  // matched by its arguments rather than by the source's own spelling of them.
+  assert.match(script, /markRead\(dState\.hid, ch[^;]{0,40}?\.number\)/,
+    'opening a chapter does not remember it');
+  assert.match(script, /const read = isRead\(dState\.hid, c\.number\)/,
+    'the chapter list never asks what this device has read');
+
+  // Read chapters are struck like unread ones — the class is the signal, and
+  // the row separately carries the word for a reader who cannot see colour.
+  assert.ok(/ch-num--read/.test(script), 'a read chapter is drawn like an unread one');
+  assert.ok(html.includes('.ch-num--read'), 'no stylesheet rule draws a read chapter');
+  assert.ok(/data-read="true"/.test(script), 'a read chapter says so only in colour');
+
+  // And the account's own list counts too, which is the half a device cannot
+  // know: chapters read on MyAnimeList's own site, or on another phone, are
+  // read. The tracking slot on the title page is where that number arrives, so
+  // it carries the title it belongs to, says what it learned, and the list is
+  // redrawn with it.
+  assert.match(script, /data-mal-for="\$\{esc\(dState\.hid\)\}"/,
+    'the tracking slot does not say which title it is tracking');
+  assert.ok(/function onTrackedProgress\(/.test(script),
+    'a filled slot has no way to tell the areas what it learned');
+  assert.match(script, /announceProgress\(kind, slot, entry\)/,
+    'the slot never announces the entry it just read');
+  assert.match(script, /onTrackedProgress\(\(?kind, appId, entry\)?[\s\S]{0,120}?kind !== ["']manga["']/,
+    'nothing listens for a manga title\'s own progress');
+  assert.match(script, /Number\(entry[^;]{0,40}?num_chapters_read\)/,
+    'the account\'s chapter count is never read off the entry');
+  assert.match(script, /setProgress\(appId,[^;]{0,80}?, 0\)|setProgress\(appId, Number\.isFinite/,
+    'what MyAnimeList says the reading got to is never kept');
+  assert.match(script, /String\(appId\) === String\(dState\.hid\)\) renderChapterList\(\)/,
+    'the chapter list is not redrawn when the account answers');
+  // The watermark itself: at or below it is read, above it is not.
+  assert.match(script, /progressFor\(titleId\)[\s\S]{0,120}?n <= upTo/,
+    'the account\'s watermark is never consulted when the list asks what is read');
+});
+
+// mangafire carries more than one upload of the same chapter, so a title's
+// list can hold "Ch. 156" twice: two rows, one chapter, and a row index that
+// still behaves like a chapter do not agree. The list can draw one row per
+// chapter, and the reader's step has to walk past the twin.
+test('a chapter posted twice is one row, and a step never lands on its twin', () => {
+  const script = inlineScripts(html)[0];
+
+  // The rule has its own module, because the number is read the same way in
+  // three places: the rows, the count, and the step.
+  assert.ok(/function visibleChapters\(/.test(script),
+    'nothing folds two uploads of one chapter into one row');
+  assert.ok(/function duplicateCount\(/.test(script),
+    'the list cannot say how many rows it left out');
+  assert.ok(/function stepIndex\(/.test(script), 'the reader has no step that skips a twin');
+
+  // The control sits on the title page, and it is a preference: it rides the
+  // same guarded store as the theme, so it survives a restart.
+  assert.ok(html.includes(' id="manga-hide-dupes"'), 'no control to hide duplicate chapters');
+  assert.match(script, /aria-pressed="\$\{prefs\.hideDuplicates/,
+    'the control does not say whether it is on');
+  assert.match(script, /prefs\.hideDuplicates = !prefs\.hideDuplicates/,
+    'pressing the control does not change the preference');
+  assert.match(script, /const rowsOut = visibleChapters\(dState\.chapters, prefs\.hideDuplicates\)/,
+    'the list does not ask whether the duplicates are hidden');
+  assert.ok(script.includes('duplicates hidden'), 'the count never says how many rows were left out');
+  assert.ok(/hideDuplicates: false/.test(script),
+    'the preference has no default, so a fresh device would hide rows on its own');
+  // A title with nothing to hide gets no control to press.
+  assert.match(script, /\$\{dupes \? `<button class="chip ch-dupes"/,
+    'the control is drawn even for a title with no duplicates');
+  assert.ok(html.includes('.chip[aria-pressed="true"]'),
+    'the control has no pressed state of its own');
+
+  // The reader steps by chapter, and the ends are read the same way the step
+  // is — a disabled button that still had a twin to land on would be worse
+  // than either mistake on its own.
+  assert.match(script, /const newer = stepIndex\(dState\.chapters, rState\.idx, -1\)/,
+    'the reader steps by row, not by chapter');
+  assert.match(script, /const older = stepIndex\(dState\.chapters, rState\.idx, 1\)/,
+    'the reader steps by row, not by chapter');
+  assert.match(script, /const next = dState\.chapters\[stepIndex\(/,
+    'the step that skips a twin is not the one the buttons press');
+  assert.match(script, /nextChapterEstimate\(visibleChapters\(dState\.chapters, true\)/,
+    'the next-chapter estimate still counts a re-upload as a chapter posted');
 });
 
 // The films & series area: f-movies.org through this server's own routes.

@@ -27,3 +27,27 @@ internal actual object PlatformMalAuthPersistence : MalAuthPersistence {
         for (profileId in 0 until 32) store.remove("$KEY_PREFIX$profileId")
     }
 }
+
+/**
+ * The journal's own file, in the same directory as the tokens: what this app
+ * last told MyAnimeList is the panel's whole subject, and it has to outlive
+ * the window — a write that failed last night is exactly what someone opens
+ * the settings page to find out about this morning.
+ */
+internal actual object PlatformMalJournalPersistence : MalJournalPersistence {
+
+    private const val STORE_NAME = "mal-activity"
+    private const val KEY_PREFIX = "profile."
+
+    private val store = DesktopStorage.store(STORE_NAME)
+
+    override fun read(profileId: Int): String? = store.getString("$KEY_PREFIX$profileId")
+
+    override fun write(profileId: Int, value: String?) {
+        store.putString("$KEY_PREFIX$profileId", value)
+    }
+
+    override fun clear() {
+        for (profileId in 0 until 32) store.remove("$KEY_PREFIX$profileId")
+    }
+}

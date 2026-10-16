@@ -16,9 +16,11 @@ distribution of the shell.
 
 ## What this fork changes
 
-Eight paths, copied into `overrides/` at their upstream paths by `sync.sh`.
+The files under `overrides/`, copied at their upstream paths by `sync.sh`.
 Everything else in the running app is upstream's, unmodified — including the
-whole of the UI, which is the point of forking rather than reimplementing.
+whole of the UI, which is the point of forking rather than reimplementing. The
+table names the fork's own additions; `sync.sh` lays over every file in the
+directory, not only these.
 
 | file | why |
 | --- | --- |
@@ -27,8 +29,13 @@ whole of the UI, which is the point of forking rather than reimplementing.
 | `composeApp/src/desktopMain/kotlin/com/nuvio/app/features/addons/AddonPlatform.desktop.kt` | seeds this server's addon bridge as the built-in source |
 | `composeApp/src/desktopMain/kotlin/com/nuvio/app/core/storage/DesktopStorage.kt` | `Hanime` profile/cache directories, so an installed Nuvio keeps its own state |
 | `composeApp/src/commonMain/kotlin/com/nuvio/app/core/network/NetworkStatusRepository.kt` | probes this project's server instead of Nuvio's Supabase endpoint |
-| `composeApp/build.gradle.kts` | package, vendor and installer menu name **SEKAI** — four lines; the rest is upstream's file verbatim |
+| `composeApp/build.gradle.kts` | package, vendor and installer menu name **SEKAI**; `syncHanimeServer`, which bundles this repo's `server/` and its MyAnimeList `.env` into the app; and one runtime-config default, IntroDB's public endpoint, so the skip-intro button has a segment source in a build with no `local.properties` of its own |
 | `gradle.properties` | heap size lowered to build on a 16 GB machine |
+| `composeApp/src/commonMain/kotlin/com/nuvio/app/features/mal/`, `features/tracking/`, `features/settings/` (MyAnimeList parts) | new: MyAnimeList as this app's tracking account — login, list projection, the episode and library writes, and the activity panel |
+| `composeApp/src/commonMain/kotlin/com/nuvio/app/features/nsfw/` *(new)*, `features/addons/AddonModels.kt`, `features/settings/HomescreenSettingsPage.kt` | new: the "Hide 18+ content" switch and the one filter (`enabledAddons()`) every catalogue reader goes through |
+| `composeApp/src/commonMain/kotlin/com/nuvio/app/features/library/LibraryRepository.kt` | upstream's file plus two lines announcing a title that enters the app's library |
+| `composeApp/src/commonMain/kotlin/com/nuvio/app/features/settings/SettingsScreen.kt`, `SettingsSearch.kt` | upstream's settings search field, kept in view under the page's own title instead of behind a pull gesture — plus this fork's own row ("Hide 18+ content") in upstream's hand-written search catalogue |
+| `composeApp/src/commonMain/kotlin/com/nuvio/app/features/player/skip/SkipIntervalLookup.kt`, `SkipIntroRepository.kt`, `features/player/PlayerScreenRuntimeEffects.kt` | the skip-intro lookup learns this catalogue's own ids (`ha:an:` through this project's server to MyAnimeList's, `ha:ml:` directly) and so reaches the same providers upstream asks |
 | `composeApp/src/**/resources/**, composeResources/drawable/**` | the **SEKAI** icon set, in-app icon resources and sidebar wordmark, replacing upstream's originals |
 
 ### The artwork

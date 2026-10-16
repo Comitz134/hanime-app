@@ -64,6 +64,9 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
     @get:Input
     abstract val tmdbApiKey: Property<String>
 
+    @get:Input
+    abstract val introDbUrl: Property<String>
+
     @TaskAction
     fun generate() {
         val props = Properties()
@@ -176,7 +179,7 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
                 |package com.nuvio.app.features.player.skip
                 |
                 |object IntroDbConfig {
-                |    const val URL = "${props.getProperty("INTRODB_API_URL", "")}" 
+                |    const val URL = "${introDbUrl.get()}" 
                 |}
                 """.trimMargin()
             )
@@ -513,24 +516,133 @@ val desktopSentryResourceDir = rootProject.layout.projectDirectory.dir("desktopS
 val hanimeServerSourceDir: File = rootProject.file("../../server")
 val generatedHanimeServerResourcesDir = layout.buildDirectory.dir("generated/hanime-server/resources")
 
+/**
+ * `MAL_CLIENT_SECRET`, from the first place that has it:
+ *
+ *   1. `-PmalClientSecret=…` — the build's own word, which wins over everything;
+ *   2. the environment — how a CI job supplies it without a file;
+ *   3. `local.properties` as `malClientSecret`, the same key the Android build
+ *      reads for its own BuildConfig (see android/app/build.gradle);
+ *   4. the checkout's `.env`, the file README-ANDROID-BUILD.md names and the one
+ *      the repo's server reads for itself.
+ *
+ * Nothing here is required to *build* the app — the catalogue, the player and
+ * the phone all work without MyAnimeList — so a missing secret is a warning
+ * naming the consequence rather than a failed build.
+ */
+fun hanimeMalClientSecret(project: Project): String? {
+    fun clean(value: String?): String? = value?.trim()?.takeIf { it.isNotEmpty() }
+
+    clean(project.findProperty("malClientSecret")?.toString())?.let { return it }
+    clean(System.getenv("MAL_CLIENT_SECRET"))?.let { return it }
+
+    // A properties-style file: `key=value` per line, `#` comments, optional
+    // quotes. Deliberately the same reading env.mjs does, so the two halves of
+    // the project cannot disagree about what a `.env` says.
+    fun readProperties(file: File): Map<String, String> {
+        if (!file.isFile) return emptyMap()
+        val out = mutableMapOf<String, String>()
+        file.readText().split(Regex("\\r?\\n")).forEach { raw ->
+            val line = raw.trim()
+            if (line.isEmpty() || line.startsWith("#")) return@forEach
+            val eq = line.indexOf('=')
+            if (eq <= 0) return@forEach
+            var value = line.substring(eq + 1).trim()
+            val quoted = value.length >= 2 && (
+                (value.startsWith("\"") && value.endsWith("\"")) ||
+                    (value.startsWith("'") && value.endsWith("'"))
+                )
+            if (quoted) value = value.substring(1, value.length - 1)
+            out[line.substring(0, eq).trim()] = value
+        }
+        return out
+    }
+
+    val root = project.rootProject.projectDir
+    readProperties(File(root, "local.properties"))["malClientSecret"]
+        ?.let { return clean(it) }
+    // `../../` from shell/.upstream is the checkout itself — the `.env` this repo
+    // documents for MAL_CLIENT_SECRET, GITHUB_TOKEN and the rest.
+    readProperties(File(root, "../../.env"))["MAL_CLIENT_SECRET"]
+        ?.let { return clean(it) }
+    readProperties(File(root, "../.env"))["MAL_CLIENT_SECRET"]
+        ?.let { return clean(it) }
+    return null
+}
+
 // Named `syncHanimeServer`, not `bundle…`: this build's Android guard rejects
 // any task whose name starts with "bundle" as an ambiguous bundle task.
-val syncHanimeServer by tasks.registering(Sync::class) {
-    from(hanimeServerSourceDir) {
-        include("src/**", "public/**", "vendor/**", "package.json")
-        exclude("data/**", ".session.json", "**/node_modules/**")
-    }
-    into(generatedHanimeServerResourcesDir.map { it.dir("hanime-server") })
-    doLast {
-        val root = generatedHanimeServerResourcesDir.get().asFile.resolve("hanime-server")
-        // A manifest of every bundled file, so the app can materialise them from
-        // the classpath without guessing (a jar offers no directory listing).
-        val manifest = root.walkTopDown()
-            .filter { it.isFile && it.name != "FILES.txt" }
-            .map { it.relativeTo(root).invariantSeparatorsPath }
-            .sorted()
-            .joinToString("\n")
-        root.resolve("FILES.txt").writeText(manifest + "\n")
+//
+// Everything the task action needs is read here, once, and closed over as plain
+// data — the secret is a String and the output is a provider. The action may not
+// reach for the project or the script: the configuration cache refuses a task
+// action that does (`Invocation of 'Task.project' … is unsupported`), and that
+// refusal fails the whole build, not just this task. The input is the secret's
+// *length* for the same reason it is not the value: Gradle stores and can print
+// input values, and a credential does not belong in either.
+val syncHanimeServer: TaskProvider<Sync> = run {
+    val serverSourceDir = hanimeServerSourceDir
+    val bundleRoot = generatedHanimeServerResourcesDir
+    val malSecret = hanimeMalClientSecret(project)
+
+    tasks.register<Sync>("syncHanimeServer") {
+        from(serverSourceDir) {
+            include("src/**", "public/**", "vendor/**", "package.json")
+            exclude("data/**", ".session.json", "**/node_modules/**")
+        }
+        into(bundleRoot.map { it.dir("hanime-server") })
+        inputs.property("malClientSecretLength", malSecret?.length ?: -1)
+        doLast {
+            val root = bundleRoot.get().asFile.resolve("hanime-server")
+
+            // The MyAnimeList registration's secret, written into the bundle as
+            // the `.env` env.mjs reads (it looks beside the server first). It has
+            // to travel with the app: an installed SEKAI has no checkout to
+            // borrow it from, and MyAnimeList refuses *every* token call without
+            // it (`invalid_client: Client authentication failed`), so a build
+            // that ships without it cannot link or renew an account at all —
+            // which is exactly what the 1.0.28 install did, silently. Written
+            // before the manifest below so the app materialises it like any
+            // other file.
+            val secret = malSecret
+            root.resolve(".env").writeText(
+                buildString {
+                    appendLine("# Written by :composeApp:syncHanimeServer. The MyAnimeList")
+                    appendLine("# registration's secret, taken from the build's own environment")
+                    appendLine("# (see hanimeMalClientSecret in build.gradle.kts). env.mjs loads")
+                    appendLine("# this file before any other, so it sits beside the server.")
+                    if (secret != null) {
+                        appendLine("MAL_CLIENT_SECRET=$secret")
+                    } else {
+                        appendLine("# MAL_CLIENT_SECRET is MISSING from this build: no -PmalClientSecret,")
+                        appendLine("# no MAL_CLIENT_SECRET in the environment, none in local.properties")
+                        appendLine("# and none in the checkout's .env. MyAnimeList will refuse every")
+                        appendLine("# token call in this build with invalid_client.")
+                    }
+                },
+            )
+            if (secret != null) {
+                // The length only: the value is a credential, and a build log is
+                // not the place for it.
+                logger.lifecycle("hanime-server: bundled .env (MAL_CLIENT_SECRET, ${secret.length} characters)")
+            } else {
+                logger.warn(
+                    "hanime-server: bundling without MAL_CLIENT_SECRET — this build cannot " +
+                        "link or refresh MyAnimeList. Put it in the checkout's .env, in " +
+                        "local.properties as malClientSecret, or pass -PmalClientSecret=…",
+                )
+            }
+
+            // A manifest of every bundled file, so the app can materialise them
+            // from the classpath without guessing (a jar offers no directory
+            // listing).
+            val manifest = root.walkTopDown()
+                .filter { it.isFile && it.name != "FILES.txt" }
+                .map { it.relativeTo(root).invariantSeparatorsPath }
+                .sorted()
+                .joinToString("\n")
+            root.resolve("FILES.txt").writeText(manifest + "\n")
+        }
     }
 }
 val requestedGradleTasks = gradle.startParameter.taskNames.map { taskName ->
@@ -569,6 +681,45 @@ val androidDistributionSourceDir = if (androidDistribution == "full") {
 } else {
     "src/androidPlaystore/kotlin"
 }
+/**
+ * IntroDB's public API, used when nothing else names one.
+ *
+ * The skip-intro button reads it (`SkipIntroApi`), and reads are anonymous:
+ * the endpoint answers a public segment list for an IMDb id and key is only
+ * asked for when a reader *submits* an intro. A build that leaves
+ * `INTRODB_API_URL` unset therefore ships a player whose intro-skip button
+ * has no segment source at all, which is the state this fork was in: the
+ * feature was assumed to be upstream's problem to configure. The default
+ * keeps the button working out of the box; local.properties or the
+ * environment still overrides it (a mirror, a proxy, a self-hosted copy).
+ */
+/**
+ * This fork's account backend.
+ *
+ * Nuvio's account system is Supabase, and it is not one service in the app: the
+ * sign-in screen, the profile picker, the library, watch progress, watched
+ * marks, settings, addons and collections all speak to a Supabase project
+ * through the RPCs in `accounts/sql/` — which is why bringing the account back
+ * needed almost no Kotlin. What it needed instead was a project to point at, and
+ * upstream leaves that to `NUVIO_SUPABASE_URL` and `NUVIO_SUPABASE_ANON_KEY`: a
+ * build with neither ships an empty `SupabaseConfig`, and an account gate whose
+ * backend URL is "" is an account gate that cannot ever open.
+ *
+ * So the default lives here, exactly as IntroDB's does below and for the same
+ * reason: the feature should work out of the box rather than be a secret the
+ * reader has to discover. `local.properties` or the environment still wins —
+ * point this at your own project with the same two keys and nothing else changes.
+ *
+ * Both values are *publishable*: the URL and the anon/publishable key are public
+ * by design, shipped inside every client, and carry no privileges of their own —
+ * row-level security, not key secrecy, is what protects an account's data. See
+ * `../accounts/README.md`.
+ */
+val SupabaseDefaultUrl = "https://hijiurhppikjgammgdmg.supabase.co"
+val SupabaseDefaultAnonKey = "sb_publishable_nr-W-nQRbUEg7pJ3ipMUxA_fwqw6t5e"
+
+val IntroDbDefaultUrl = "https://api.introdb.app"
+
 val runtimeLocalProperties = Properties().apply {
     val file = rootProject.file("local.properties")
     if (file.exists()) {
@@ -595,12 +746,13 @@ val generateRuntimeConfigs = tasks.register<GenerateRuntimeConfigsTask>("generat
     appVersionCode.set(releaseAppVersionCode)
     desktopAppVersionName.set(desktopReleaseVersionName)
     desktopAppVersionCode.set(desktopReleaseVersionCode)
-    supabaseUrl.set(runtimeConfigValue("NUVIO_SUPABASE_URL"))
-    supabaseAnonKey.set(runtimeConfigValue("NUVIO_SUPABASE_ANON_KEY"))
+    supabaseUrl.set(runtimeConfigValue("NUVIO_SUPABASE_URL", SupabaseDefaultUrl))
+    supabaseAnonKey.set(runtimeConfigValue("NUVIO_SUPABASE_ANON_KEY", SupabaseDefaultAnonKey))
     supabaseFallbackUrl.set(runtimeConfigValue("NUVIO_SUPABASE_FALLBACK_URL"))
     sentryDsn.set(runtimeConfigValue("SENTRY_DSN"))
     sentryDesktopDsn.set(runtimeConfigValue("SENTRY_DESKTOP_DSN"))
     tmdbApiKey.set(runtimeConfigValue("TMDB_API_KEY"))
+    introDbUrl.set(runtimeConfigValue("INTRODB_API_URL", IntroDbDefaultUrl))
     sentryEnvironment.set(
         when {
             requestedGradleTasks.any { "benchmark" in it } -> "benchmark"
@@ -1706,4 +1858,36 @@ configurations.matching { it.name == "iosMainImplementation" }.configureEach {
 configurations.all {
     exclude(group = "androidx.media3", module = "media3-exoplayer")
     exclude(group = "androidx.media3", module = "media3-ui")
+}
+
+/**
+ * The desktop suite runs with a storage root of its own.
+ *
+ * Upstream's tests read and write the same per-user directories the installed
+ * app uses — `%APPDATA%\Hanime`, the cache beside it, and the JVM preference
+ * store supabase-kt keeps its session in. Running the suite therefore used to be
+ * a way to disturb a reader's library, and it is what makes a *live* test
+ * against the real account backend impossible to write safely: signing in would
+ * leave the installed window signed in as the test account.
+ *
+ * So every `Test` task gets redirected paths under `build/test-appdata`, and
+ * the two live values below travel as system properties: a Gradle daemon keeps
+ * the environment it was started with, so an exported variable can silently
+ * never reach the test JVM.
+ *
+ *   ./gradlew :composeApp:desktopTest -PsekaiLiveEmail=… -PsekaiLivePassword=…
+ */
+tasks.withType<Test>().configureEach {
+    val isolatedRoot = layout.buildDirectory.dir("test-appdata").get().asFile
+    isolatedRoot.mkdirs()
+
+    environment("APPDATA", isolatedRoot.resolve("roaming").absolutePath)
+    environment("LOCALAPPDATA", isolatedRoot.resolve("local").absolutePath)
+    environment("XDG_CONFIG_HOME", isolatedRoot.resolve("config").absolutePath)
+    environment("XDG_CACHE_HOME", isolatedRoot.resolve("cache").absolutePath)
+    systemProperty("java.util.prefs.userRoot", isolatedRoot.resolve("prefs").absolutePath)
+
+    listOf("sekaiLiveEmail", "sekaiLivePassword").forEach { key ->
+        providers.gradleProperty(key).orNull?.let { systemProperty(key, it) }
+    }
 }

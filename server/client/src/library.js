@@ -6,6 +6,7 @@
 // mechanically once — they are ordinary code now, not something a tool
 // rebuilds.
 
+import { accountFavorite, accountHistoryCleared, accountOpened } from './account-sync.js';
 import { $, $$, state } from './core.js';
 import { renderLibrary } from './positions.js';
 import { shellApi, shellCall } from './shell.js';
@@ -110,14 +111,20 @@ function keepCover(entry) {
 function toggleFav(slug) {
   if (!slug) return;
   const i = lib.favorites.findIndex((e) => e.slug === slug);
+  let entry = null;
+  let on = false;
   if (i >= 0) {
     lib.favorites.splice(i, 1);
   } else {
-    const entry = entryFor(slug);
+    entry = entryFor(slug);
     lib.favorites.unshift(entry);
     keepCover(entry);
+    on = true;
   }
   libWrite();
+  // The account hears it at the same moment the device does, so the two can
+  // never disagree about a heart that was just pressed. No session, no call.
+  accountFavorite(slug, on, entry);
   if (viewIs('library')) renderLibrary();
 }
 
@@ -131,6 +138,9 @@ function recordHistory(slug) {
   if (wasPartWay) lib.positions[slug] = wasPartWay;
   keepCover(entry);
   libWrite();
+  // The list is the account's now, so an opening here is one there — the same
+  // record, queued through the same path as every other write.
+  accountOpened(entry);
   if (viewIs('library')) renderLibrary();
 }
 
@@ -149,6 +159,10 @@ $('#lib-clear')?.addEventListener('click', () => {
   renderLibrary();
 });
 $('#hist-clear')?.addEventListener('click', () => {
+  // Before the wipe, and the order matters: the account's side of the clear is
+  // the positions this device still holds (account-sync reads them) and the
+  // account's own history list.
+  accountHistoryCleared();
   lib.history = [];
   // Once nothing is watched, nothing is part-way through either: leaving the
   // positions behind would keep a Continue watching rail for a history the

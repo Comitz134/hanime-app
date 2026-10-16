@@ -13,9 +13,12 @@
 
 import { $, esc, fmtCount } from './core.js';
 import { noteOpen, renderActivity } from './activity.js';
-import { autoAdvance, configured } from './mal.js';
+import { autoAdvance, configured, onTrackedProgress } from './mal.js';
 import { goBack, pushNav } from './nav-history.js';
 import { estimateChip, estimateDetail, estimateTitle, nextChapterEstimate } from './manga-eta.js';
+import { duplicateCount, stepIndex, visibleChapters } from './manga-dupes.js';
+import { isRead, markRead, setProgress } from './manga-read.js';
+import { prefs, savePrefs } from './prefs.js';
 import { isSaved, toggleSaved } from './manga-saved.js';
 import { mangaChapters, mangaDetail, mangaFilterOptions, mangaPages, mangaSearch, mangaTrending, posterFor, proxied, sourceUrl } from './manga-api.js';
 import { openSheet, setSheetOrigin } from './sheet.js';
@@ -155,8 +158,15 @@ function renderDetail() {
     dState.chapters.length ? `${dState.chapters.length} chapters` : null,
   ].filter(Boolean).map(esc).join(' · ');
   // Read once here, shown in three places: the tile under the header, the
-  // details row, and the sentence the tile is announced with.
-  const eta = nextChapterEstimate(dState.chapters, { status: d.status });
+  // details row, and the sentence the tile is announced with. The rhythm is
+  // read off one row per chapter: the same chapter posted twice would count as
+  // two chapters posted, and its two dates would bend the gap between them.
+  const eta = nextChapterEstimate(visibleChapters(dState.chapters, true), { status: d.status });
+  // mangafire carries more than one upload of a chapter, so this is on every
+  // title with a scanlation race in it — and it is the whole reason the control
+  // below exists. A title with none gets no control to press (see
+  // manga-dupes.js for what "the same chapter" means here).
+  const dupes = duplicateCount(dState.chapters);
   const facts = [
     ['Status', label(d.status)],
     ...(eta ? [['Next chapter', estimateDetail(eta)]] : []),
@@ -193,6 +203,10 @@ function renderDetail() {
               <h2>Chapters</h2>
               <span class="sec-count" id="manga-ch-count"></span>
             </div>
+            ${dupes ? `<button class="chip ch-dupes" id="manga-hide-dupes" type="button"
+              aria-pressed="${prefs.hideDuplicates ? 'true' : 'false'}"
+              title="Another scanlation of the same chapter is a second row for one chapter"
+              >Hide duplicates</button>` : ''}
           </div>
           <div class="ch-list" id="manga-ch-list"></div>
         </section>
@@ -202,9 +216,16 @@ function renderDetail() {
         <div class="mf-facts">
           ${facts.map(([k, v]) => `<div class="mf-fact"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('')}
         </div>
-        <div class="mal-slot" data-mal-kind="manga" data-mal-id="${d.malId ?? ''}" data-mal-title="${esc(d.title)}"></div>
+        <div class="mal-slot" data-mal-kind="manga" data-mal-id="${d.malId ?? ''}" data-mal-title="${esc(d.title)}"
+             data-mal-for="${esc(dState.hid)}"></div>
       </aside>
     </div>`;
+
+  $('#manga-hide-dupes')?.addEventListener('click', () => {
+    prefs.hideDuplicates = !prefs.hideDuplicates;
+    savePrefs();
+    renderChapterList();
+  });
 
   renderChapterList();
 }
@@ -258,6 +279,28 @@ function mangaActionsHtml(hid, eta) {
   </div>`;
 }
 
+/**
+ * The account's own reading, folded into this device's.
+ *
+ * MyAnimeList holds how far the reader got there (`num_chapters_read`), and the
+ * tracking slot on this page is where that number arrives — so the list is
+ * redrawn the moment it does: a title read to chapter 48 on the list has 48
+ * quiet rows, whether or not this device opened one of them. The number is kept
+ * per title rather than by filing each chapter, so it survives a restart and
+ * costs nothing when it has not moved (`setProgress`).
+ *
+ * Subscribed once, at module load: the slot can be filled while the reader is
+ * in another area, and the number it brings is worth keeping either way.
+ */
+onTrackedProgress((kind, appId, entry) => {
+  if (kind !== 'manga' || !appId) return;
+  const read = Number(entry?.num_chapters_read);
+  // An entry that is gone — taken off the list — clears the watermark, and the
+  // chapters this device opened stay read: they are two different memories.
+  setProgress(appId, Number.isFinite(read) ? read : 0);
+  if (String(appId) === String(dState.hid)) renderChapterList();
+});
+
 function renderChapterList() {
   const list = $('#manga-ch-list');
   if (!list) return;
@@ -267,14 +310,39 @@ function renderChapterList() {
     if (count) count.textContent = '';
     return;
   }
-  list.innerHTML = dState.chapters.map((c) => `
-    <button class="ch-card" type="button" data-mfch="${Number(c.id)}">
-      <span class="ch-num">Ch. ${esc(String(c.number))}</span>
+  // One row per chapter, or every row upstream sent — the reader's choice, kept
+  // across titles and restarts in the same guarded prefs as the look of the
+  // app. The rows are drawn from `dState.chapters` whichever way, so opening a
+  // chapter still opens the copy whose row was pressed.
+  const rowsOut = visibleChapters(dState.chapters, prefs.hideDuplicates);
+  const hidden = dState.chapters.length - rowsOut.length;
+  const toggle = $('#manga-hide-dupes');
+  if (toggle) toggle.setAttribute('aria-pressed', String(!!prefs.hideDuplicates));
+  // A chapter this device has already read is drawn quieter than the ones it
+  // has not — the number steps back, and the row says so out loud for a reader
+  // who cannot see the colour. The list is the one place the question "have I
+  // read this?" is asked of every chapter of a title at once, so it is the one
+  // place the answer belongs.
+  list.innerHTML = rowsOut.map((c) => {
+    const read = isRead(dState.hid, c.number);
+    const label = `Chapter ${esc(String(c.number))}${read ? ', already read' : ''}`
+      + (c.name ? ` — ${esc(c.name)}` : '');
+    return `
+    <button class="ch-card" type="button" data-mfch="${Number(c.id)}"${read ? ' data-read="true"' : ''}
+      aria-label="${label}"${read ? ' title="Already read"' : ''}>
+      <span class="ch-num${read ? ' ch-num--read' : ''}">Ch. ${esc(String(c.number))}</span>
       <span class="ch-title">${esc(c.name || '')}</span>
       <span class="ch-date">${c.createdAt ? esc(new Date(c.createdAt * 1000).toISOString().slice(0, 10)) : ''}</span>
-    </button>`).join('');
+    </button>`;
+  }).join('');
   const count = $('#manga-ch-count');
-  if (count) count.textContent = `${dState.chapters.length} chapters`;
+  if (count) {
+    // What is on screen first — that is the number the reader can check — and
+    // how many rows were left out to get it.
+    count.textContent = hidden
+      ? `${rowsOut.length} chapters · ${hidden} duplicates hidden`
+      : `${rowsOut.length} chapters`;
+  }
 }
 
 /** Open a title in the sheet, or — when restoring history — straight into a
@@ -319,6 +387,10 @@ async function openChapter(chId) {
   // fire-and-forget.
   const ch = dState.chapters[idx];
   autoAdvance('manga', dState.detail?.malId, ch?.number, dState.detail?.title);
+  // A chapter that opened is a chapter read, kept on this device so the list
+  // it came from can say so — the next time it is drawn, and every time after
+  // that. The write is a local note, so it cannot fail the reader's way.
+  markRead(dState.hid, ch?.number);
   // The device keeps its own note of it as well: which chapter, on which
   // title, and — the part that makes the rail a resume rather than a reminder
   // — the chapter's own id, so opening it later lands in this chapter.
@@ -337,9 +409,14 @@ async function renderReader() {
   const seq = ++rSeq;
   const ch = dState.chapters[rState.idx];
   // The list is newest first: index 0 is the newest chapter, so stepping
-  // toward it is "Newer" and away from it is "Older".
-  const atNewest = rState.idx <= 0;
-  const atOldest = rState.idx >= dState.chapters.length - 1;
+  // toward it is "Newer" and away from it is "Older". A step lands on the next
+  // *chapter*, never on another upload of this one — and the ends are read the
+  // same way, because the last row of a title can be the twin of its last
+  // chapter (manga-dupes.js).
+  const newer = stepIndex(dState.chapters, rState.idx, -1);
+  const older = stepIndex(dState.chapters, rState.idx, 1);
+  const atNewest = newer < 0;
+  const atOldest = older < 0;
 
   $('#sheet-count').hidden = false;
   $('#sheet-count').textContent = `Ch. ${Number(ch.number)}`;
@@ -361,7 +438,7 @@ async function renderReader() {
     </div>`;
 
   const go = (delta) => {
-    const next = dState.chapters[rState.idx + delta];
+    const next = dState.chapters[stepIndex(dState.chapters, rState.idx, delta)];
     if (next) openChapter(Number(next.id));
   };
   for (const id of ['rd-prev', 'rd-prev-b']) $('#' + id).onclick = () => go(-1);

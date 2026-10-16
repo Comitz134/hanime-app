@@ -14,7 +14,10 @@ import { $, $$ } from './core.js';
    library — a refused or corrupt store keeps the defaults instead of taking
    the page down, and a self-update carries the choices across. */
 const PREFS_KEY = 'htv:prefs:v1';
-const DEFAULT_PREFS = { theme: 'dark', accent: 'amber', motion: 'full' };
+// `hideDuplicates` is a reading preference rather than a look, and it rides
+// here because this is the device's own store: a title page's list is drawn
+// from it, and it has to survive a restart the way the theme does.
+const DEFAULT_PREFS = { theme: 'dark', accent: 'amber', motion: 'full', hideDuplicates: false };
 const prefs = Object.assign({}, DEFAULT_PREFS);
 
 function loadPrefs() {

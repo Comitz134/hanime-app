@@ -7,6 +7,12 @@
 //   adb forward tcp:9222 localabstract:webview_devtools_remote_<pid>
 //   and WebView debugging enabled (debug builds only).
 //
+// Two devices can be in play at once (an emulator and a phone), so the forward
+// port is not fixed: WEBVIEW_PROBE_PORT picks the one this run reads, and
+// WEBVIEW_PROBE_ORIGIN the page it evaluates in (default https://hanime.tv/).
+// Each forward has to be made for the device the socket belongs to — the
+// serial goes on the `adb forward`, not on the probe.
+//
 // The page script must evaluate to a string (usually JSON.stringify of a
 // results object). A result is printed on stdout; failures exit non-zero.
 
@@ -19,13 +25,18 @@ if (!scriptPath) {
 }
 
 const script = fs.readFileSync(scriptPath, 'utf8');
+const PORT = process.env.WEBVIEW_PROBE_PORT || '9222';
+const ORIGIN = process.env.WEBVIEW_PROBE_ORIGIN || 'https://hanime.tv/';
 // /json/list, not the old /json alias: the alias answers a bare 302, and
 // fetch does not follow it out of habit — the list came back empty on a
 // WebView new enough to have dropped it.
-const list = await (await fetch('http://localhost:9222/json/list')).json();
-const target = list.find((t) => t.url === 'https://hanime.tv/');
+const list = await (await fetch(`http://localhost:${PORT}/json/list`)).json();
+const target = list.find((t) => t.url === ORIGIN)
+  // A page that has walked somewhere else (a title, a reader) keeps the origin
+  // it belongs to, so the one we want is not always the bare origin.
+  ?? list.find((t) => t.url.startsWith(ORIGIN.replace(/\/$/, '')));
 if (!target) {
-  console.error('no https://hanime.tv/ target. targets: '
+  console.error(`no ${ORIGIN} target. targets: `
     + list.map((t) => t.url).join(', '));
   process.exit(1);
 }

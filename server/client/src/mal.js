@@ -305,8 +305,8 @@ function rememberPick(kind, title, item) {
  * which is the whole reason the choice is theirs.
  */
 const SEARCH_FIELDS = {
-  anime: 'id,title,media_type,start_date,num_episodes',
-  manga: 'id,title,media_type,start_date,num_chapters',
+  anime: 'id,title,alternative_titles,media_type,start_date,num_episodes',
+  manga: 'id,title,alternative_titles,media_type,start_date,num_chapters',
 };
 
 /** The box searches as the reader types. This is the pause that decides how
@@ -318,17 +318,72 @@ const TYPE_MS = 250;
 /** One letter matches half of MAL's catalogue and helps nobody. */
 const MIN_QUERY = 2;
 
+/** The shortest name that may be treated as a prefix of a longer one: below
+ *  this, a shared beginning is a coincidence rather than the same title. */
+const MIN_PREFIX = 6;
+
 async function searchMal(kind, q, limit = 10) {
   const query = String(q ?? '').trim();
   if (!query) return [];
   const body = await mal(`/${kind}?q=${encodeURIComponent(query)}&limit=${limit}&fields=${SEARCH_FIELDS[kind]}`);
-  return (body?.data ?? []).map((x) => ({
-    id: Number(x.id),
-    title: x.title ?? '',
-    kind: x.media_type ? String(x.media_type).replace(/_/g, ' ') : '',
-    year: String(x.start_date ?? '').slice(0, 4),
-    length: Number(kind === 'manga' ? x.num_chapters : x.num_episodes) || 0,
+  // MAL wraps every hit in a `node` — its search and its list routes both do —
+  // and reading `id`/`title` straight off the item was this app's oldest
+  // tracker bug: every field came back undefined, so every title that had to
+  // be found by name was reported as "no match for this title" even when it was
+  // on MAL, and every hit in the picker drew blank. Unwrap, and drop anything
+  // without an id so a malformed hit can never be taken as an answer.
+  return (body?.data ?? []).map((item) => {
+    const x = item?.node ?? item ?? {};
+    return {
+      id: Number(x.id),
+      title: x.title ?? '',
+      kind: x.media_type ? String(x.media_type).replace(/_/g, ' ') : '',
+      year: String(x.start_date ?? '').slice(0, 4),
+      length: Number(kind === 'manga' ? x.num_chapters : x.num_episodes) || 0,
+      // MAL's own other names for the entry — the way a title this app spells
+      // one way is still recognisably the same book.
+      synonyms: (x.alternative_titles?.synonyms ?? []).map((s) => String(s)),
+    };
+  }).filter((x) => Number.isFinite(x.id) && x.id > 0);
+}
+
+/**
+ * A title as titles are compared here: lower case, punctuation and spacing
+ * gone, a leading "the" ignored. "Copying Skills With Affinity" and "Copying
+ * Skills with Affinity!" are one name, and MAL's own search already agrees —
+ * it is this app's comparison that has to stop disagreeing with it.
+ */
+function titleKey(value) {
+  return String(value ?? '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+    .replace(/^the /, '')
+    .trim();
+}
+
+/**
+ * The hit that is this title. Compared on `titleKey`, against MAL's titles
+ * *and* its synonyms, in this order of confidence: the same name, then a name
+ * one of them extends (either direction, but only when the shorter one is long
+ * enough to mean something — "affinity" alone is not a title), then whatever
+ * MAL ranked first.
+ */
+function matchTitle(items, title) {
+  if (!items.length) return null;
+  const want = titleKey(title);
+  if (!want) return items[0];
+  const keysOf = (x) => [x.title, ...(x.synonyms ?? [])].map(titleKey).filter(Boolean);
+
+  const same = items.find((x) => keysOf(x).includes(want));
+  if (same) return same;
+
+  const extended = items.find((x) => keysOf(x).some((k) => {
+    const small = want.length <= k.length ? want : k;
+    const big = small === want ? k : want;
+    return small.length >= MIN_PREFIX && big.startsWith(small);
   }));
+  return extended ?? items[0];
 }
 
 /* ------------------------------------------------------------ list ops */
@@ -352,10 +407,7 @@ async function resolveMalId(kind, id, title) {
   if (stored && stored.id) return stored.id;
 
   const found = await searchMal(kind, title, 6);
-  const wanted = String(title ?? '').toLowerCase();
-  const exact = found.find((x) => x.title.toLowerCase() === wanted);
-  const starts = found.find((x) => x.title.toLowerCase().startsWith(wanted));
-  const hit = exact || starts || found[0];
+  const hit = matchTitle(found, title);
   if (!hit || !hit.id) return null;
   const cache = load(IDS_KEY, {});
   cache[`${kind}:${String(title ?? '').toLowerCase()}`] = { id: hit.id, title: hit.title };
@@ -585,6 +637,35 @@ async function malLists({ force = false } = {}) {
 
 /* --------------------------------------------------------- detail slots */
 
+/**
+ * The areas a filled slot speaks to.
+ *
+ * A slot is where a title's *account* state becomes known — status, score,
+ * and, for manga, how far the reading got on MyAnimeList. The chapter list
+ * needs that last one: chapters read elsewhere are read. Rather than have this
+ * module know what a chapter list is, the slot announces what it learned and
+ * whoever cares subscribes. (A module that reached into the manga area from
+ * here would be one more thing the two areas have to agree about; this is one
+ * line in each instead.)
+ */
+const progressWatchers = new Set();
+
+/** Subscribes to a slot's entry: fn(kind, appTitleId, entry) — entry is null
+ *  when the title is not on the reader's list. Returns an unsubscribe. */
+function onTrackedProgress(fn) {
+  progressWatchers.add(fn);
+  return () => progressWatchers.delete(fn);
+}
+
+function announceProgress(kind, slot, entry) {
+  const appId = slot.dataset.malFor ?? '';
+  for (const fn of progressWatchers) {
+    // A listener that throws must not take the slot's own controls down with
+    // it: the tracking row is the feature, the greying is a reading of it.
+    try { fn(kind, appId, entry ?? null); } catch (e) { /* not this row's problem */ }
+  }
+}
+
 const filling = new WeakSet();
 
 function statusOptions(kind, selected) {
@@ -741,6 +822,9 @@ function renderSlotForm(slot, kind, id, entry, malTitle, picked) {
   if (malTitle !== undefined) slot.dataset.malName = malTitle;
   if (picked !== undefined) slot.dataset.malPicked = picked ? '1' : '0';
   slot.innerHTML = slotFormHtml(kind, entry, slot.dataset.malName ?? '', slot.dataset.malPicked === '1');
+  // Everything this slot knows just changed, including the progress it holds
+  // for the title — after a Save, a Remove or the first read-back.
+  announceProgress(kind, slot, entry);
   const status = slot.querySelector('.mal-status');
   const score = slot.querySelector('.mal-score');
   const prog = slot.querySelector('.mal-prog');
@@ -984,4 +1068,5 @@ watchSlots();
 export {
   handleMalCallback, fillMalSettings, startLogin, configured, linked,
   malLists, malCache, malEntry, LISTS_KEY, LIST_TTL_MS, autoAdvance,
+  onTrackedProgress,
 };

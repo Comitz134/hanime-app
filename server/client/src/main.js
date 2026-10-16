@@ -23,6 +23,13 @@ import './sheet.js';
 import './activity.js';
 import './library.js';
 import './positions.js';
+// The account: the session and its card, then what a session keeps in step,
+// through one queue of pending writes. account-sync.js is the one that listens
+// to the account's events, so the two stay one-way (see the note above the
+// hooks in account.js).
+import './account.js';
+import './account-queue.js';
+import './account-sync.js';
 import './pl-hits.js';
 import './views.js';
 import './rails.js';

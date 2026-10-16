@@ -155,22 +155,85 @@ APK=app/build/outputs/apk/release/app-release.apk
 sha256sum "$APK"
 ```
 
-Current build:
+Current build (this tree, published as v1.0.33):
 
 ```
-package: name='app.hanime.shell' versionCode='29' versionName='1.0.28'
+package: name='app.hanime.shell' versionCode='34' versionName='1.0.33'
 sdkVersion:'26'   targetSdkVersion:'34'
 launchable-activity: name='app.hanime.shell.MainActivity'
 permissions: INTERNET, ACCESS_NETWORK_STATE, REQUEST_INSTALL_PACKAGES, POST_NOTIFICATIONS
 Verifies / v2 scheme: true / signer CN=hanime shell (unchanged)  [cert sha256 13c01040…]
-2,074,367 bytes / sha256 aaf4440eed27e30309a66fa841ba9bcade4480f29c12c3ccd7bbeb0d47118efe
-  assets/index.html 483,836 bytes sha256 d60afbb9d620c829366641b8ef8878715ccc8cbaa8b2b81169d563a86b64c3b9
+2,084,379 bytes / sha256 32c6f43f02e0ce8ecb2d1cdef60d491aa7999e27214b5431c3d5d8db88df8763
+  assets/index.html 527,010 bytes sha256 30d8242fe649aad39199df84ad2cf6712ab1adfeaea9f257174e1871512526a9
   assets/hls.min.js 413,952 bytes sha256 484054e8cd03d3f6d1781fb7f402bdc318d8a4c527f933a95c624e27cc9a9470
 ```
 
 The bundled client's digest above is the one read back out of the APK built
 from this tree — not assumed — and it is byte-identical to
-`server/public/index.html` in this tree.
+`server/public/index.html` in this tree — and an anonymous fetch of the release
+asset returns those same 2,084,379 bytes and that same sha256, so what is
+published is what was measured. Both channels were read back anonymously after
+the upload: `releases/latest/download/version.json` and
+`releases/download/channel-beta/version.json` each answer `version_code 34`,
+that size, that sha256 and 1.0.33's own note.
+
+1.0.33 is the release that takes the phone's history off the device — the last
+list that only existed on one phone — and stops a write from being a request.
+History is now a fourth account dataset (`accounts/sql/0007_history.sql`,
+applied to the project this build talks to), so a reinstall or a second phone
+gets the list back; the client is built to notice if the project has not been
+migrated and says which file to run instead of failing the sync. Every write
+now goes through one queue (`client/src/account-queue.js`): writes about the
+same title collapse into the newest, a burst becomes one call per dataset, and a
+failed call keeps its entries and retries on a 5s/15s/60s/5m backoff. Measured
+against this bundle in a browser, not argued: six hearts pressed in 4ms produced
+exactly one `sync_push_library_items` carrying six rows; nine presses over seven
+titles (two cards drawn twice) produced one `sync_delete_library_items` with the
+seven keys; and with the RPCs forced to fail, one heart was attempted at +2s,
++5s and +15s, kept on the device throughout, and landed on the +60s attempt —
+the row is in the account's `library_items` as this paragraph was written. The
+1.0.33 APK's own client digest (`30d8242f…`) is the bundle those measurements
+were taken on.
+
+1.0.32 is the release that ends the doubled chapter list — **two rows for one
+chapter, and a step that lands on its twin** (§7.8). Mangafire holds more than
+one upload of a chapter, so **Dungeon Odyssey** arrived as 328 rows for 172
+chapters and "Older →" from Ch. 156 went to the *other* Ch. 156, which reads
+like a button that did nothing. The title page now carries a **Hide duplicates**
+pref beside the chapter count (`172 chapters · 156 duplicates hidden` when it
+is on), the reader's chapter list honours it, and both step buttons walk past
+every copy of the chapter on screen — so a step is dead only where there is no
+chapter that way. Verified against the built bundle in a browser: 328 rows draw
+172 with zero duplicated numbers, and the preference survives a reload. The
+299-test server suite carries the mechanism (`manga-dupes.test.mjs`, 8 cases).
+
+1.0.31 is the release that answers the phone's next report — *only the chapters
+read in the app are grey; the ones MyAnimeList already knows about stay yellow*
+(§8.0.8). The chapter list now greys a chapter if this device opened it **or**
+if the account's own entry says the reading got that far (§7.7), so **A Wimp's
+Tower Strategy Guide**, read to Ch. 48 on MyAnimeList, opens with 83 of its 85
+rows quiet instead of one.
+
+1.0.30 is the release that answers the phone's next question: **a chapter that
+has already been read is greyed in its title's chapter list**, so what is still
+bright in a long list is what has not been read yet (§7.7 for the mechanism,
+§8.0.7 for the measurement inside this build). The update channel was measured
+from this release too: the phone's own app, left on the previous build,
+cold-started on `shell35` and the updater asked the stable URL, fetched
+1.0.30's asset — 2,075,319 bytes — and confirmed `sha256 ceea233b…`, which is
+the digest published in §4's block and the one the APK on the device now
+carries.
+
+1.0.29 is the release that fixes the tracking row's title match (§8.0.6): MAL
+wraps every search hit in a `node`, and the client read `id`/`title` off the
+wrapper, so any title that had to be *found by name* was answered "no match for
+this title" even when MyAnimeList had it — reproduced on the reader's own
+account with `/manga/196874`, where MAL returns exactly one result. The update
+channel was measured too: 1.0.28 (versionCode 29) cold-started on `shell35`,
+asked the stable URL, read `AVAILABLE`, downloaded 2,074,707 bytes, confirmed
+`sha256 d6ba6b7e…` and reported `DOWNLOADED`. (1.0.28's own asset, whose
+`assets/index.html` is `d60afbb9…` — 2,074,367 bytes, sha256 `aaf4440e…` — is
+the build §8.0.5 was measured on.)
 
 1.0.28 turns the tracking row's search into a search bar: the picker searched
 when it opened and when a button was pressed, and now the list follows the field
@@ -469,18 +532,26 @@ fetched from a different host than it serves).
 
 ## 7. Library, history and playlists by name
 
-Favorites and watch history are the only state the app keeps. They live in the
-WebView's `localStorage`, under the page's own origin (`https://hanime.tv/`,
-served out of the APK): no account, no server, no database.
-`setDomStorageEnabled(true)` in `MainActivity` is what makes it durable —
-Android keeps that store in the app's data directory, so it survives a restart
-and a self-update.
+Favorites and watch history are the state the app keeps on the device. They
+live in the WebView's `localStorage`, under the page's own origin
+(`https://hanime.tv/`, served out of the APK), and `setDomStorageEnabled(true)`
+in `MainActivity` is what makes that durable — Android keeps the store in the
+app's data directory, so it survives a restart and a self-update.
+
+Since 1.0.33, a signed-in phone also keeps them **in the account** (see
+[`accounts/README.md`](accounts/README.md)): favorites, watch positions and
+history move both ways, so the list follows the reader to a reinstall or a
+second phone. The device store is still the one the screens read — the account
+is merged into it, not a second copy to draw — and a reader who never signs in
+gets exactly the app that existed before.
 
 - one key: `htv:library:v1` → `{ favorites: [...], history: [...] }`
 - an entry is `{ slug, name, cover, brand, views, released_at, at }`, recorded
   by `remember()` as records pass through a render — which is why the heart on a
   grid card costs no request
-- history is deduped by slug, newest first, capped at 240 entries
+- history is deduped by slug, newest first, capped at 240 entries — and, when
+the phone is signed in, the account's list as well: an opening here is one
+there, and a Clear here empties it for the account too
 - a title enters the history when a stream for it **resolves**, not when the
   sheet opens, so a page that never played is not left behind
 - the read and the write are both wrapped: a storage that refuses (private
@@ -653,11 +724,10 @@ Measured against the live endpoints, no account needed:
   page even though the page's own `history.length` is 2, so the shell walks the
   history when there is one and reloads its own page when there is not.
 
-Not verified here: a completed sign-in, a written list entry, and a pick taken
-from MAL's live search. All three need the reader's MAL account, so the last
-mile is theirs — everything up to the login page, both pipes, and the picker
-driven end to end against a stubbed MAL, are what is measured above and in
-§8.0.4.
+Not verified here: a completed sign-in (that last mile is the reader's) and an
+anime write. MAL's **live** search is measured now, on the reader's own account:
+the row resolving the entry and the picker drawing real hits came off the API
+with no stub in the way (§8.0.6).
 
 ### 7.4 The Library's three shelves
 
@@ -849,6 +919,115 @@ A flex row has no column template to impose one, so a card sized itself to its
 own title and a shelf of them came out ragged — already true of Continue
 watching and Recommended, made visible by two new rails. `.rail .card` now
 carries the width of the grid's smallest column at each breakpoint.
+
+### 7.7 Which chapters are read, and the grey "Ch."
+
+A bookmark answers "where was I"; it cannot answer "have I read this one" — a
+reader who jumps back to an earlier chapter, or past one, leaves a single entry
+exactly where it was. The chapter list is where that question is asked of every
+chapter of a title at once, so `manga-read.js` keeps **two** things per title.
+
+The device's own: one set of chapter *numbers* under `htv:manga-read:v1` (300
+titles, 4000 chapters each, the title read longest ago making room), written at
+the moment a chapter renders — `markRead` sits beside the activity note, so the
+mark cannot disagree with what was on screen — and read as the list draws.
+
+And the account's: the number MyAnimeList says the reading got to
+(`num_chapters_read`), which the title page's tracking slot reads back. A
+chapter is read if this device opened it **or** if it is at or below that
+number — a reader who has been reading on MAL's own site, or on another phone,
+has chapters read this device never saw, and a list that greyed only what it
+watched itself would call every one of them unread. It is kept as one number
+(`p`) rather than by filing every chapter under it: the count is what MAL
+holds, it is written whenever the entry is read back, and it can move down as
+well as up (a title taken off the list stops greying anything). The identity is
+the app's own: a chapter's own number is what `autoAdvance` writes into MAL's
+progress, so the watermark means chapters 1..N — and no prologue is implied by
+it, because nothing this app writes to MAL can say a prologue was read.
+
+The two are separate memories and neither erases the other: closing a title on
+MAL does not unread the chapters this device opened, and this device's own
+chapters are not the account's to remove. A chapter in either set gets
+`ch-num--read`: the number steps from the accent colour to muted, so what is
+still bright in a long list is what has not been read yet. Numbers, not
+mangafire's chapter ids: upstream re-uploads a chapter under a new id, and the
+number is the one the row prints and the reader carries. Colour is never the
+only signal — the row also carries `data-read="true"`, `title="Already read"`
+and an aria-label saying so.
+
+The account's half is not fetched by the list. `mal.js` is where a slot's entry
+becomes known and it does not know what a chapter list is: a filled slot
+*announces* what it read (`onTrackedProgress`), the manga area subscribes, keeps
+the number and redraws — which is why the greying appears a second after a title
+page opens the first time, and is already there when the list is drawn on every
+visit after that (the watermark is storage, like the rest of it).
+
+Verified in a browser, against the built bundle — the same bytes the server and
+the phone serve: **One Piece Gakuen**, 45 chapters, opened **Ch. 43** →
+`htv:manga-read:v1` held `{"1qz0v":{"n":[43],…}}`; back on the list exactly
+**1 of 45** rows was grey — Ch. 42 and 44 computed `rgb(255, 224, 194)`, the
+read Ch. 43 `rgb(180, 180, 180)` at weight 600 — and a reload drew the same one
+row grey, because the set is storage and not screen state. The account's own
+half was measured the same way and in the same bundle: a watermark of 12 for
+**One Piece Gakuen**, written as the slot writes it, greyed **13 of 45** rows —
+Ch. 1 to Ch. 12 *including* the **Ch. 4.5** between them, because a chapter
+numbered under the watermark is under it — while Ch. 12 computed
+`rgb(180, 180, 180)` and Ch. 13 stayed `rgb(255, 224, 194)`. The module has a
+behavioural test of its own (`test/manga-read.test.mjs`, 15 cases: a prologue is
+a chapter, reading one twice is one chapter, both caps, a device that refuses
+storage, a payload that is not a record, and the account's half), and the
+bundle-side assertions keep the greying from silently disappearing — including
+the three links of the new chain: the slot that carries the title it is
+tracking, the announcement, and the redraw when it lands.
+
+### 7.8 Two rows for one chapter, and a step that skips the twin
+
+mangafire carries more than one upload of a chapter — two scanlations racing, a
+re-upload, a bulk drop of an older group — so a title's list holds the same
+number twice, with different chapter ids and different dates. **Dungeon
+Odyssey** arrives as 328 rows for 172 chapters. The rows are honest (that is
+what upstream sent), but two things about reading them are not: a list where
+every number appears twice cannot be scanned, and "Older →" lands on another
+copy of the chapter already on screen, which reads as a button that did nothing
+at all.
+
+`manga-dupes.js` decides both by the *number* — what the row prints, what the
+read-mark is kept by (§7.7), and what a reader counts in — and both are pure
+functions over the rows, so they are pinned by tests rather than by a phone:
+
+- `visibleChapters(rows, hide)` draws one row per number, keeping the first
+  upstream sent — in the order the list arrives that is the newest copy of the
+  chapter, and the one whose row the list marks as read. `14.001` and `14.5`
+  are their own chapters, and a row whose number cannot be read is never merged
+  with anything: `Number('')` is 0, so a careless key would file every
+  unnumbered row in the catalogue as chapter zero.
+- `stepIndex(rows, from, delta)` walks past every row carrying the number the
+  reader is on, then answers with the *first* row of the chapter it reached, so
+  a step lands on a row the list draws even with the duplicates hidden. It
+  answers `-1` when there is no chapter that way, and that is what the buttons'
+  disabled state is read from — not the row index, because the last row of a
+  title can be the twin of its last chapter, and a live "Older" that lands
+  nowhere is worse than either mistake on its own.
+
+The control is on the title page beside the chapter count, and only where there
+is something to hide: **Hide duplicates**, a chip whose pressed state *is* the
+preference. It lives in `htv:prefs:v1` — the device's own guarded store, where
+the theme lives — so it survives a restart, and the count line says what was
+left out: `172 chapters · 156 duplicates hidden`. The next-chapter estimate
+(`manga-eta.js`) is fed one row per chapter as well, because a re-upload counted
+as "a chapter posted" is two dates where the rhythm has one.
+
+Verified in a browser against the built bundle — the bytes the server and the
+phone serve: **Dungeon Odyssey**, 328 rows → pressing the control draws
+**172 rows and 0 duplicated numbers**, the count reads
+`172 chapters · 156 duplicates hidden`, and a reload brings the list up hidden
+already. In the reader: "Newer" is dead on the newest chapter (Ch. 172),
+"Older" from the *older* copy of **Ch. 156** lands on **Ch. 155** rather than on
+the other 156, and "Older" is dead from the second-to-last row — the twin of
+Ch. 1. `test/manga-dupes.test.mjs` is 8 cases (the row kept, `14.001` apart from
+`14`, unreadable numbers, both ends, a step from nowhere), and
+`web-client.test.mjs` pins the control, the preference and the step in the file
+that ships.
 
 ---
 
@@ -1308,13 +1487,172 @@ after the 2.5s reply for `Bew` had landed — the stale answer was dropped rathe
 than drawn; and a single letter spends no request at all. The pick itself still
 works on this build, which is the row the whole feature exists for.
 
+### 8.0.6 The tracking row read MAL's wrapper, not the entry (v30 / 1.0.29)
+
+The phone's report: *a manga whose page exists on MyAnimeList (`/manga/196874`)
+is answered with **no match for this title**.* Reproduced on the reader's own
+device against the live API, and the live answer is where the bug is visible:
+
+```json
+{ "title": "Copying Skills With Affinity",
+  "answer": { "data": [ { "node": { "id": 196874, "title": "Copying Skills with Affinity!" } } ] },
+  "wrappedIn": ["node"],
+  "readOffTheItem": { "id": null, "title": null } }
+```
+
+MAL wraps **every** hit in a `node` — its search routes and its list routes both
+do — and `searchMal` mapped `id`/`title`/`media_type`/`start_date` straight off
+the wrapper. Every field was `undefined`, so the filter that drops hits without
+an entry dropped all of them: any title that had to be *found by name* was
+answered with a miss, and every row of the hand-picker drew blank. It was old —
+as old as the title search — and silent, because a miss and an unreadable hit
+are the same empty row from the outside. (The id route was fine: a sheet that
+arrives with mangafire's `malId`, or an AniList `idMal`, never searches.)
+
+The mapping now unwraps (`item?.node ?? item ?? {}`), drops anything without a
+positive id, and carries MAL's own `alternative_titles.synonyms` to the picker.
+Comparison is on a title key — case, punctuation and spacing gone, a leading
+`the` ignored — so `Copying Skills With Affinity` and `Copying Skills with
+Affinity!` are one name.
+
+Measured on the reader's own phone (release APK built from this tree, installed
+over 1.0.28, same signer, linked account intact), driven through the WebView's
+DevTools socket with the reader's own taps emulated:
+
+```json
+{ "steps": ["nav:found", "view:manga", "card:km679"], "gridCount": 24,
+  "calls": ["GET /api/mal/v2/manga?q=Copying%20Skills%20With%20Affinity&limit=6&fields=id,title,alternative_titles,media_type,start_date,num_chapters",
+            "GET /api/mal/v2/manga/196874?fields=title,my_list_status,num_chapters"],
+  "slot": { "appTitle": "Copying Skills With Affinity", "state": "ready",
+            "entry": "not on your list", "attached": "Copying Skills with Affinity!",
+            "buttons": ["Save", "Remove", "Search MyAnimeList…"] } }
+```
+
+The row the reader pressed now names the entry it is attached to, in MAL's own
+words, with the status controls: **196874**, found by name, where it used to say
+no match. The picker half, from the same row on the same device:
+
+```json
+{ "prefilled": "Copying Skills With Affinity",
+  "hits": [ { "id": "196874", "text": "Copying Skills with Affinity! manhwa · 2026" } ],
+  "oneLetterRequests": 0,
+  "typed": [ { "id": "2", "text": "Berserk manga · 1989" },
+             { "id": "113958", "text": "Boushoku no Berserk: … the Comic manga · 2018" },
+             { "id": "92299", "text": "Berserk: Shinen no Kami 2 one shot · 1996 · 1 chapters" } ],
+  "typedRequests": 1 }
+```
+
+One request per pause, nothing for a single letter, and each hit carrying what
+tells two same-named entries apart — the rows that used to draw empty.
+
+**The guard.** `server/test/mal-search.test.mjs` runs `mal.js`'s own source in a
+`vm` against a stub of the browser it expects, hands it MAL's real wrapped
+answer, and asserts the mapping — the shape of answer no test had ever used.
+Reverting the unwrap fails three of its four tests (`pass 1 / fail 3`), which is
+the shipped bug reproduced from the suite, and the bundle itself is pinned in
+`web-client.test.mjs` so the file that ships cannot drift from the behaviour
+that was measured. 274 tests pass (was 270).
+
+### 8.0.7 The grey chapter, measured inside the shipped app (v31 / 1.0.30)
+
+§7.7 verified the read-mark in a browser against the built bundle; this is the
+same behaviour asked of the app that ships. The APK installed on `shell35` is
+byte-identical to the published asset (2,075,319 bytes, `sha256 ceea233b…` —
+§4) and its `assets/index.html` is `db4c6638…`, the client in this tree, so the
+page that answered the probe is the page a reader downloads. The probe drove
+that page's own taps through the WebView's DevTools socket (`tools/webview-probe.mjs`):
+into the manga area, searched, opened a title, and opened **the third row** — so
+a "the newest chapter is always grey" mistake would land on the wrong row.
+
+```json
+{ "titleId": "1qz0v", "title": "One Piece Gakuen", "chapters": 45, "readBefore": 0,
+  "opened": "Ch. 42", "readerHeader": "Ch. 42",
+  "stored": "{\"1qz0v\":{\"n\":[42],\"at\":1792084705602}}",
+  "readRows": [ { "num": "Ch. 42", "cls": "ch-num ch-num--read",
+                  "color": "rgb(180, 180, 180)", "title": "Already read",
+                  "aria": "Chapter 42, already read" } ],
+  "unreadSample": [ { "num": "Ch. 44", "color": "rgb(255, 224, 194)" },
+                    { "num": "Ch. 43", "color": "rgb(255, 224, 194)" } ],
+  "counts": { "total": 45, "read": 1 } }
+```
+
+One chapter read, one row grey: `markRead` wrote `42` under the title's own key
+at the moment the reader rendered it (so the mark cannot disagree with what was
+on screen), and going back to the list — the same list, redrawn — drew exactly
+**1 of 45** rows with the read class and the muted colour, the two rows beside it
+still accent (`rgb(255, 224, 194)` against `rgb(180, 180, 180)`). The row says it
+in words as well as in colour: `data-read="true"`, `title="Already read"` and
+an aria-label carrying the chapter number. The caps, the miss-tolerant storage
+and the "reading one chapter twice is one chapter" rule are covered by
+`test/manga-read.test.mjs` (9 cases), and the bundle-side assertions in
+`web-client.test.mjs` keep the greying from disappearing from the file that
+ships. `npm run selftest` in `server/` is **284 tests, 284 pass** (was 274 when
+1.0.29 shipped), so the module that draws the row is covered on both sides of
+the bundle.
+
+### 8.0.8 The chapters MyAnimeList says are read (v32 / 1.0.31)
+
+The phone's report, verbatim: *"only the chapters that i read on the app are
+gray, the ones that come from MAL arent gray … on the «A Wimp's tower strategy
+guide» i had to click on the Ch 48 for it to be gray, and all of the previous
+chapters continue yellow."* That is what a device's own memory alone
+draws — and it is a list that calls forty-seven read chapters unread. §7.7 has
+the mechanism; this is the same title, on the same account, after it.
+
+Measured on the reader's own phone (Android 15), **the release APK built from
+this tree** — `versionCode 32`, `versionName 1.0.31`, the build published as
+§4's current one, installed over 1.0.30, same signer, linked account intact —
+driven through the WebView's DevTools socket with the reader's own taps
+emulated:
+
+```json
+{ "steps": ["view:manga", "open:zkz23"],
+  "cards": ["A Wimp's Tower Strategy Guide", …], "titleId": "zkz23",
+  "waitedForSlot": 1, "slotState": "ready",
+  "malEntry": "on your list", "malAttached": "A Wimp's Tower Strategy Guide",
+  "malProgress": "48",
+  "chapters": 85, "grey": 83,
+  "greyNums": ["Ch. 48", "Ch. 47", … "Ch. 1"],
+  "storage": "{\"zkz23\":{\"n\":[48],\"at\":…,\"p\":48}}" }
+```
+
+**48** is MyAnimeList's own answer, read off the slot's field on the same
+screen, and the list under it drew **83 of 85** rows grey: Ch. 48 down to
+Ch. 1, which is two rows per chapter number (mangafire lists two scanlations of
+most of them) plus the `14.001`/`13.001`/`12.001` specials — while Ch. 49 and
+above stayed accent, which is what says the watermark is a reading and not a
+paint-everything. The storage holds both facts side by side: `n: [48]`, the
+chapter the reader had tapped before this build existed, and `p: 48`, the
+account's count. The second visit is the other half of the point — the list was
+drawn with **83 grey rows while the slot was still `loading`**, before
+MyAnimeList was asked anything, because the watermark is storage and not an
+answer to wait for:
+
+```json
+{ "titleId": "zkz23",
+  "atDraw": { "chapters": 85, "grey": 83, "slot": "loading" },
+  "afterSlot": { "chapters": 85, "grey": 83, "slot": "ready" } }
+```
+
+Two more titles, from the same run, in opposite directions. A title with a
+count from MAL and **no chapter ever opened on this device**
+(`{"304l2":{"n":[],"at":…,"p":55}}`) greys from 55 down, which is the
+original complaint answered from the other side. And **Pretty Wimps**, which is
+not on the reader's list at all, drew `malProgress: ""`, 3 chapters, **0 grey**
+— a title the account says nothing about is not greyed by any of this.
+
+Before the fix, on 1.0.30, that same title greyed exactly one row: the Ch. 48
+the reader had tapped, which is the report above. The list itself is unchanged
+in every other way — the greying is the same class, the same colour and the same
+words in the row.
+
 ### 8.1 What is not verified here
 
 Stated plainly, because the rest of this section is measured:
 
-- **A real search and pick against MyAnimeList's live API**, and the list write
-  that follows one. Both need the reader's account (§8.0.4 drives the picker
-  against a stubbed MAL).
+- **A pick pressed on a live hit, and the list write that follows it** (the
+  search itself is measured live on the reader's account — §8.0.6).
+- **A completed sign-in**, which needs the reader's own MAL login.
 - **The import half of the file round trip.** The picker opens on both sides; the
   bytes were not carried through a Save tap and back.
 - **In-app update install completing.** Download, verification and the installer's
@@ -1388,8 +1726,12 @@ Stated plainly, because the rest of this section is measured:
 - **WebView devtools is the only practical way to assert page state on the
   emulator.** `adb forward tcp:9222
   localabstract:webview_devtools_remote$(pidof app.hanime.shell)` plus
-  `tools/webview-probe.mjs` evaluates in the live page and prints JSON; the
-  socket closes (exit 5) the moment the page navigates or the app is killed, so a
+  `tools/webview-probe.mjs` evaluates in the live page and prints JSON. With two
+  devices attached at once — an emulator and a phone, as §8.0.8 needed — the
+  forward is per-device: put the serial on the `adb forward` and point the probe
+  at the port it made with `WEBVIEW_PROBE_PORT` (9222 by default), and
+  `WEBVIEW_PROBE_ORIGIN` picks the page when more than one hanime.tv target is
+  open. The socket closes (exit 5) the moment the page navigates or the app is killed, so a
   closed socket mid-sequence means "re-check the device", not "re-check the
   test". `WebView.setWebContentsDebuggingEnabled(true)` is compiled into release
   builds on purpose, and this is why.

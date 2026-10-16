@@ -218,10 +218,20 @@ fun main(args: Array<String>) {
 
             if (smokePlayerUrl == null) {
                 ProvideDesktopWindowInsets(isFullscreen = windowState.placement == WindowPlacement.Fullscreen) {
-                    // The gate is Nuvio's account wall; this app has no account
-                    // and no server to make one on — it opens straight into
-                    // the content, with the local source seeded above.
-                    App(bypassAppGate = true)
+                    // The gate is on, and the account is real: Nuvio's sign-in,
+                    // profile picker and sync all run against this fork's own
+                    // Supabase project (`accounts/`, configured in
+                    // build.gradle.kts as `SupabaseDefaultUrl`). Until now it
+                    // was bypassed because there was no backend to open it
+                    // with — an empty `SupabaseConfig.URL` is an account wall
+                    // nobody can climb, which is how a working sign-in screen
+                    // came to look like a broken one.
+                    //
+                    // Nothing here needs an account to *use*: the gate's own
+                    // "continue without an account" path is local-only, and a
+                    // reader who has signed in once can still reach cached
+                    // profiles offline.
+                    App(bypassAppGate = false)
                 }
             } else {
                 // The player surface reads LocalNuvioPlatformDensity, which only

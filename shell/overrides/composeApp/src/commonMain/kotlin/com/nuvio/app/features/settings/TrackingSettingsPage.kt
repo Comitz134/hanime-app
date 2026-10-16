@@ -130,6 +130,14 @@ internal fun LazyListScope.trackingSettingsContent(
         }
     }
 
+    // What this app has told MyAnimeList, and what MyAnimeList made of it. It
+    // sits right under the connection card it belongs to, and it draws nothing
+    // at all unless there is an account or a thing that was already tried —
+    // the section is a diagnosis, not a decoration.
+    item {
+        MalActivitySection(isTablet = isTablet)
+    }
+
     item {
         SettingsSection(
             title = stringResource(Res.string.settings_tracking_data_sources),
