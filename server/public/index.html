@@ -5058,6 +5058,9 @@ select.filter-select.sort-select {
     "dropped",
     "axed"
   ]);
+  function hasStopped(status) {
+    return STOPPED.has(String(status ?? "").trim().toLowerCase());
+  }
   function dated(chapters, span) {
     return (chapters ?? []).map((c) => Number(c == null ? void 0 : c.createdAt)).filter((t) => Number.isFinite(t) && t > 0).sort((a, b) => b - a).slice(0, span);
   }
@@ -5068,7 +5071,7 @@ select.filter-select.sort-select {
   }
   function nextChapterEstimate(chapters, opts = {}) {
     const { status = "", now = Date.now(), wanted = 3, span = 6 } = opts;
-    if (STOPPED.has(String(status ?? "").trim().toLowerCase())) return null;
+    if (hasStopped(status)) return null;
     const dates = dated(chapters, span);
     if (dates.length < wanted + 1) return null;
     const gaps = [];
@@ -8669,8 +8672,10 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
       const when2 = est.at <= Date.now() ? "and the next chapter is due any day now" : `and the next chapter is ${estimateChip(est)} \u2014 around ${day}`;
       return `<b>You're caught up</b> \u2014 ${when2}, read off the rhythm of the chapters already posted.`;
     }
-    const word = label(status);
-    return `<b>You're caught up</b> \u2014 ${word ? `this title is ${esc(word)}, so nothing newer is coming.` : "nothing newer has been posted yet."}`;
+    if (hasStopped(status)) {
+      return `<b>You're caught up</b> \u2014 this title is ${esc(label(status))}, so there is no next chapter coming.`;
+    }
+    return "<b>You're caught up</b> \u2014 nothing newer is up yet, and this title has no run of dated chapters to read a date off.";
   }
   function nearTail() {
     const ch = dState.chapters[rState.idx];

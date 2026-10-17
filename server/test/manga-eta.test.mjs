@@ -6,7 +6,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { estimateChip, estimateDetail, estimateTitle, nextChapterEstimate } from '../client/src/manga-eta.js';
+import { estimateChip, estimateDetail, estimateTitle, hasStopped, nextChapterEstimate } from '../client/src/manga-eta.js';
 
 const DAY = 86400;                 // seconds, which is how mangafire dates a chapter
 const NOW = 1_700_000_000_000;     // a fixed clock: nothing here reads the real one
@@ -61,6 +61,23 @@ test('a title that has stopped is not projected, and says N/A', () => {
   assert.equal(chip, 'N/A');
   assert.equal(estimateDetail(null), '');
   assert.match(estimateTitle(null, NOW), /no estimate/);
+});
+
+// The one reading of "this title has stopped" that both the estimate and the
+// reader's caught-up notice ask for. Two readings that could disagree would be
+// one place telling a reader that a running title is over.
+test('a stopped title reads as stopped wherever the question is asked', () => {
+  for (const status of ['finished', ' Completed ', 'on_hiatus', 'discontinued', 'Dropped']) {
+    assert.equal(hasStopped(status), true, status);
+  }
+  for (const status of ['releasing', 'ongoing', 'not_yet_released', '', undefined, null]) {
+    assert.equal(hasStopped(status), false, String(status));
+  }
+  // And the estimate refuses on exactly the statuses the notice calls stopped.
+  for (const status of ['finished', 'on_hiatus', 'discontinued']) {
+    const rows = chapters([7 * DAY, 7 * DAY, 7 * DAY, 7 * DAY], { status });
+    assert.equal(nextChapterEstimate(rows, { status, now: NOW }), null, status);
+  }
 });
 
 test('a title that never said still gets an estimate', () => {

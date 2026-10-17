@@ -2009,8 +2009,12 @@ test('a chapter runs into the next one at its end', () => {
   assert.ok(/const day = new Date\(est\.at\)\.toISOString\(\)\.slice\(0, 10\)/.test(caught),
     'the caught-up notice has no date to print');
   assert.ok(/estimateChip\(est\)/.test(caught), 'the caught-up notice has no reading of how far off it is');
-  assert.ok(/this title is \$\{esc\(word\)\}, so nothing newer is coming\./.test(caught),
-    'a title that has stopped is still promised another chapter');
+  assert.ok(/if \(hasStopped\(status\)\) \{/.test(caught),
+    'a title that stopped and a title that is running are told the same thing');
+  assert.ok(/this title is \$\{esc\(label\(status\)\)\}/.test(caught),
+    'a title that has stopped does not say which way it stopped');
+  assert.ok(/nothing newer is up yet/.test(caught) && /no run of dated chapters/.test(caught),
+    'a running title with no rhythm to read is told nothing newer is coming');
   assert.ok(/if \(!next\) done\.innerHTML = caughtUpText\(\);/.test(body('paintChapterChrome', 2000)),
     'the caught-up notice is never drawn');
   assert.ok(/\.rd-end-done b \{/.test(css), 'the caught-up headline is drawn as small print');

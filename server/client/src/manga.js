@@ -30,7 +30,7 @@ import { $, $$, esc, fmtCount } from './core.js';
 import { noteOpen, renderActivity } from './activity.js';
 import { autoAdvance, configured, onTrackedProgress } from './mal.js';
 import { goBack, pushNav } from './nav-history.js';
-import { estimateChip, estimateDetail, estimateTitle, nextChapterEstimate } from './manga-eta.js';
+import { estimateChip, estimateDetail, estimateTitle, hasStopped, nextChapterEstimate } from './manga-eta.js';
 import { duplicateCount, stepIndex, visibleChapters } from './manga-dupes.js';
 import { dropSpot, noteSpot, spotFor } from './manga-pos.js';
 import { isRead, markRead, setProgress } from './manga-read.js';
@@ -634,10 +634,17 @@ function caughtUpText() {
     return `<b>You're caught up</b> — ${when}, read off the rhythm of the `
       + 'chapters already posted.';
   }
-  const word = label(status);
-  return `<b>You're caught up</b> — ${word
-    ? `this title is ${esc(word)}, so nothing newer is coming.`
-    : 'nothing newer has been posted yet.'}`;
+  // No date without a rhythm to read one off — and the two reasons for having
+  // none are not the same thing. A title that has stopped says which way it
+  // stopped; a title that is still running says only that nothing newer is up
+  // yet, because telling its reader the title is over is the one lie this
+  // notice cannot afford.
+  if (hasStopped(status)) {
+    return `<b>You're caught up</b> — this title is ${esc(label(status))}, `
+      + 'so there is no next chapter coming.';
+  }
+  return '<b>You\'re caught up</b> — nothing newer is up yet, and this title has '
+    + 'no run of dated chapters to read a date off.';
 }
 
 /**

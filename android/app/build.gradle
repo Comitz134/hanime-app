@@ -35,8 +35,8 @@ android {
         applicationId 'app.hanime.shell'
         minSdk 26          // adaptive icons + modern WebView APIs; Android 8.0+
         targetSdk 34
-        versionCode 39
-        versionName '1.0.38'
+        versionCode 40
+        versionName '1.0.39'
 
         // Where the updater asks for new builds. Empty means "no update source
         // configured": the check reports that instead of dialling a dead host.

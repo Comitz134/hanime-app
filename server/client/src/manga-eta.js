@@ -34,6 +34,20 @@ const STOPPED = new Set([
   'discontinued', 'cancelled', 'canceled', 'dropped', 'axed',
 ]);
 
+/**
+ * Whether a title's own status says nobody is going to post another chapter.
+ *
+ * Exported because it is the same question wherever the future of a title is
+ * spoken about — the estimate above refuses to project a title that has
+ * stopped, and the reader's caught-up notice has to *say* which way it
+ * stopped. Two readings of that word set that could disagree would be one
+ * place telling a reader a running title is over, which is the one thing this
+ * module exists to avoid.
+ */
+function hasStopped(status) {
+  return STOPPED.has(String(status ?? '').trim().toLowerCase());
+}
+
 /** The chapter dates, in seconds and newest first — the list's own order. */
 function dated(chapters, span) {
   return (chapters ?? [])
@@ -66,7 +80,7 @@ function median(values) {
  */
 function nextChapterEstimate(chapters, opts = {}) {
   const { status = '', now = Date.now(), wanted = 3, span = 6 } = opts;
-  if (STOPPED.has(String(status ?? '').trim().toLowerCase())) return null;
+  if (hasStopped(status)) return null;
 
   const dates = dated(chapters, span);
   if (dates.length < wanted + 1) return null;
@@ -116,4 +130,4 @@ function estimateTitle(est, now = Date.now()) {
     + `read off the gap between the chapters already posted.`;
 }
 
-export { nextChapterEstimate, estimateChip, estimateDetail, estimateTitle };
+export { nextChapterEstimate, estimateChip, estimateDetail, estimateTitle, hasStopped };
