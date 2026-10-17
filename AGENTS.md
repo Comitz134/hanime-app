@@ -43,6 +43,28 @@ running `cd server && node scripts/publish-desktop.mjs --pack`, which is
 documented in [`shell/README.md`](shell/README.md) along with why those releases
 are published as prereleases.
 
+**A phone change is two publishes, not one.** `publish-apk.mjs` writes the
+manifest this checkout's own server answers with (`/api/app/version`) and copies
+the APK into `server/data/apk/` — reachable from a phone only while this PC is
+up and only if the phone is pointed at it. The release a phone actually updates
+from is the GitHub one, and that is `publish-github.mjs`: it uploads the APK and
+`version.json` to a `v<versionName>` release (and refreshes the rolling
+`channel-beta` prerelease). Running the first without the second leaves every
+installed phone on the previous build while both logs read as published — it has
+happened, so neither script is a release on its own:
+
+```bash
+cd server
+node scripts/publish-apk.mjs ../android/app/build/outputs/apk/release/app-release.apk
+node --env-file=../.env scripts/publish-github.mjs --repo Comitz134/hanime-app
+```
+
+The token lives in the checkout-root `.env` (`GITHUB_TOKEN`), which
+`publish-desktop.mjs` loads itself and `publish-github.mjs` does not — hence the
+`--env-file`. Verify the phone's own view afterwards:
+`https://github.com/Comitz134/hanime-app/releases/latest/download/version.json`
+must name the version code just built.
+
 ## Where things are
 
 | path | what it is |
