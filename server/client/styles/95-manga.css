@@ -129,10 +129,11 @@
    reason: an inline one is laid out on a text baseline, which adds a few
    pixels of its own below every single page. */
 .rd-pages {
-  display: flex; flex-direction: column; gap: 0;
+  display: flex; flex-direction: column;
+  gap: var(--rd-margin, 0px);
+  padding: var(--rd-margin, 0px);
   background: hsl(var(--background));
   overflow: hidden;
-  padding: 0;
 }
 .rd-page {
   display: block; width: 100%; height: auto; margin: 0;
@@ -144,7 +145,54 @@
 .rd-pages[data-fit="height"] .rd-page {
   width: auto; max-width: 100%; max-height: 100vh; margin-inline: auto;
 }
-.rd-pages[data-gap="on"] { gap: .5rem; padding-block: .5rem; }
+/* Fit width is the width of the screen — but only if the page was drawn wider
+   than it. "Stretch small images" is the setting that says a scan narrower
+   than the phone should be blown up to it; off, it keeps its own size and is
+   centred, which is what a low-resolution scan needs. */
+#sheet[data-rd-stretch="off"] .rd-pages[data-layout="strip"][data-fit="width"] .rd-page {
+  width: auto; max-width: 100%; margin-inline: auto;
+}
+#sheet[data-rd-maxw="on"] .rd-pages[data-layout="strip"] .rd-page {
+  max-width: min(100%, 52rem); margin-inline: auto;
+}
+#sheet[data-rd-maxh="on"] .rd-pages[data-layout="strip"] .rd-page {
+  max-height: 100vh; width: auto;
+}
+#sheet[data-rd-gray="on"] .rd-pages { filter: grayscale(1); }
+
+/* ---- the two paged layouts ----------------------------------------------
+   Single and Double read across the pages element rather than down the sheet:
+   one page (or two) filling the screen, a swipe between them, and the snap that
+   makes a swipe land on a page instead of between two. The progress bar and the
+   note of where the reader stopped both follow the scroll whatever the axis. */
+.rd-pages[data-layout="single"], .rd-pages[data-layout="double"] {
+  flex-direction: row; align-items: center;
+  overflow-x: auto; overflow-y: hidden;
+  scroll-snap-type: x mandatory; overscroll-behavior-x: contain;
+  height: 100vh; scrollbar-width: none;
+}
+.rd-pages[data-layout="single"]::-webkit-scrollbar,
+.rd-pages[data-layout="double"]::-webkit-scrollbar { display: none; }
+.rd-pages[data-layout="single"] .rd-page {
+  flex: 0 0 100%; width: 100%; height: 100%; object-fit: contain; scroll-snap-align: center;
+}
+.rd-pages[data-layout="double"] .rd-page {
+  flex: 0 0 50%; width: 50%; height: 100%; object-fit: contain; scroll-snap-align: center;
+}
+
+/* The wash the Image tab's "Dim screen" draws — over the pages, under the
+   controls, and never in the way of a tap. */
+.rd-dim { position: fixed; inset: 0; z-index: 5; pointer-events: none; background: #000; opacity: 0; }
+/* The progress bar: how far through the chapter, on whichever axis it is read. */
+.rd-bar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 7; display: none;
+  pointer-events: none; background: rgb(255 255 255 / .1);
+}
+.rd-bar span { display: block; height: 100%; width: 0; background: hsl(var(--primary)); }
+.rd-bar[data-shape="hairline"] { display: block; height: 2px; }
+.rd-bar[data-shape="thin"] { display: block; height: 4px; }
+.rd-bar[data-shape="medium"] { display: block; height: 7px; }
+.rd-bar[data-shape="thick"] { display: block; height: 12px; }
 
 /* ---- the controls the middle of the screen brings up ---------------------
    A pill with the chapter's position and a rail down the right edge, over the
@@ -251,3 +299,79 @@
   font-size: .8125rem; line-height: 1.6; color: hsl(var(--muted-foreground));
 }
 .rd-help li::marker { color: hsl(var(--primary)); }
+
+/* ---- the gear's sheet: Layout and Image, MangaFire's two tabs -------------
+   The same sheet, one level deeper: the tabs sit where a title would, and each
+   pane is a stack of labelled controls. Everything a control shows is its
+   aria-pressed or its checked state, so the pane is a picture of the reader's
+   settings rather than a copy of them. */
+.rd-tabs { display: flex; gap: .25rem; }
+.rd-tab {
+  padding: .375rem .75rem; border-radius: .5rem; font-size: .8125rem; font-weight: 600;
+  color: hsl(var(--muted-foreground)); transition: background .2s, color .2s;
+}
+.rd-tab[aria-selected="true"] { background: hsl(var(--primary) / .14); color: hsl(var(--primary)); }
+.rd-panes { display: flex; flex-direction: column; min-height: 0; }
+.rd-pane {
+  display: flex; flex-direction: column; gap: .5rem; padding: .875rem;
+  overflow-y: auto; overscroll-behavior: contain;
+}
+.rd-pane[hidden] { display: none; }
+.rd-label {
+  margin: .375rem 0 0; font-size: .6875rem; font-weight: 600; letter-spacing: .08em;
+  text-transform: uppercase; color: hsl(var(--muted-foreground));
+}
+.rd-label-row { display: flex; align-items: center; justify-content: space-between; }
+.rd-label-row b { color: hsl(var(--primary)); font-variant-numeric: tabular-nums; }
+.rd-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; }
+.rd-tile {
+  display: flex; flex-direction: column; align-items: center; gap: .4375rem;
+  padding: .75rem .25rem; border-radius: .75rem;
+  border: 1px solid hsl(var(--border)); background: hsl(var(--card) / .5);
+  font-size: .75rem; font-weight: 600; color: hsl(var(--muted-foreground));
+  transition: border-color .2s, background .2s, color .2s;
+}
+.rd-tile svg { width: 1.5rem; height: 1.5rem; }
+.rd-tile[aria-pressed="true"] {
+  border-color: hsl(var(--primary) / .7); background: hsl(var(--primary) / .12); color: hsl(var(--primary));
+}
+.rd-step { display: flex; align-items: center; gap: .5rem; }
+.rd-step-btn {
+  width: 2.75rem; height: 2.25rem; border-radius: .625rem;
+  border: 1px solid hsl(var(--border)); background: hsl(var(--card) / .45);
+  font-size: 1rem; font-weight: 600; color: hsl(var(--foreground));
+}
+.rd-step-btn:active { background: hsl(var(--accent)); }
+.rd-step-value { flex: 1; text-align: center; font-weight: 700; font-variant-numeric: tabular-nums; }
+.rd-reset { padding: .5rem .75rem; border-radius: .625rem; font-size: .75rem; font-weight: 600; color: hsl(var(--primary)); }
+.rd-shapes { display: grid; grid-template-columns: repeat(5, 1fr); gap: .375rem; }
+.rd-shape {
+  height: 2.5rem; display: grid; place-items: center; border-radius: .5rem;
+  border: 1px solid hsl(var(--border)); background: hsl(var(--card) / .5);
+  color: hsl(var(--muted-foreground));
+}
+.rd-shape i { display: block; width: 60%; border-radius: 999px; background: currentColor; }
+.rd-shape[data-rd-bar="hairline"] i { height: 2px; }
+.rd-shape[data-rd-bar="thin"] i { height: 4px; }
+.rd-shape[data-rd-bar="medium"] i { height: 7px; }
+.rd-shape[data-rd-bar="thick"] i { height: 10px; }
+.rd-shape svg { width: 1rem; height: 1rem; }
+.rd-shape[aria-pressed="true"] {
+  border-color: hsl(var(--primary) / .7); background: hsl(var(--primary) / .12); color: hsl(var(--primary));
+}
+.rd-two { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+.rd-wide {
+  padding: .625rem; border-radius: .625rem; border: 1px solid hsl(var(--border));
+  background: hsl(var(--card) / .45); font-size: .8125rem; font-weight: 600;
+  color: hsl(var(--muted-foreground));
+}
+.rd-wide[aria-pressed="true"] {
+  border-color: hsl(var(--primary) / .7); background: hsl(var(--primary) / .12); color: hsl(var(--primary));
+}
+.rd-check {
+  display: flex; align-items: center; gap: .625rem; padding: .625rem .75rem;
+  border-radius: .625rem; border: 1px solid hsl(var(--border)); background: hsl(var(--card) / .45);
+  font-size: .8125rem;
+}
+.rd-check input { width: 1.15rem; height: 1.15rem; accent-color: hsl(var(--primary)); }
+.rd-range { width: 100%; accent-color: hsl(var(--primary)); }

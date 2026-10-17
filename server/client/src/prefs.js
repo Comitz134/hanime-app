@@ -17,20 +17,44 @@ const PREFS_KEY = 'htv:prefs:v1';
 // `hideDuplicates` is a reading preference rather than a look, and it rides
 // here because this is the device's own store: a title page's list is drawn
 // from it, and it has to survive a restart the way the theme does.
-// `readerFit` and `readerGap` are the manga reader's own two settings — how a
-// page is sized (the width it was drawn at, or the whole page inside the
-// screen) and whether pages are separated by a gap. They ride here with the
-// rest of the device's choices, so they survive a restart and an update.
+//
+// The `reader*` keys are the manga reader's own settings, in MangaFire's own
+// two groups — how a chapter is laid out, and how a page is drawn (Layout and
+// Image in the gear's sheet). They are kept here, with the rest of the device's
+// choices, so they survive a restart and a self-update.
+//
+// `readerGap` used to be the whole of the spacing story (on or off); `readerMargin`
+// replaced it with a number of pixels, and loadPrefs moves an old `true` over to
+// the gap that setting used to draw.
 const DEFAULT_PREFS = {
   theme: 'dark', accent: 'amber', motion: 'full', hideDuplicates: false,
-  readerFit: 'width', readerGap: false,
+  // Layout tab.
+  readerLayout: 'strip',   // single | double | strip
+  readerMargin: 0,         // 0..40 px, between the pages and around them
+  readerBar: 'off',        // off | hairline | thin | medium | thick
+  readerTap: 'single',     // single | double — how the controls are asked for
+  // Image tab.
+  readerFit: 'width',      // width | height
+  readerStretch: false,    // stretch an image smaller than the screen to it
+  readerMaxW: false,       // limit max width
+  readerMaxH: false,       // limit max height
+  readerGray: false,       // grayscale
+  readerDim: 0,            // 0..80 — a wash over the pages, for reading in the dark
 };
 const prefs = Object.assign({}, DEFAULT_PREFS);
+
+/** 8px is what the old on/off "gap between pages" drew. */
+const LEGACY_GAP_PX = 8;
 
 function loadPrefs() {
   try {
     const raw = localStorage.getItem(PREFS_KEY);
-    if (raw) Object.assign(prefs, JSON.parse(raw));
+    if (raw) {
+      const stored = JSON.parse(raw);
+      Object.assign(prefs, stored);
+      // A reader who had the gap on keeps a gap, at the size it used to be.
+      if (stored?.readerGap === true && !stored?.readerMargin) prefs.readerMargin = LEGACY_GAP_PX;
+    }
   } catch (e) { /* an unreadable store keeps the defaults */ }
 }
 function savePrefs() {
@@ -90,4 +114,4 @@ $('#pref-motion').addEventListener('change', (e) => {
   applyPrefs();
 });
 
-export { PREFS_KEY, DEFAULT_PREFS, prefs, loadPrefs, savePrefs, prefersLight, applyPrefs };
+export { PREFS_KEY, DEFAULT_PREFS, LEGACY_GAP_PX, prefs, loadPrefs, savePrefs, prefersLight, applyPrefs };

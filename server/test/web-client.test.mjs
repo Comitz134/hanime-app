@@ -400,8 +400,13 @@ test('the reader stacks its pages with nothing between them', () => {
   const css = stylesheets(html).join('\n');
   const strip = /\.rd-pages\s*\{([^}]*)\}/.exec(css);
   assert.ok(strip, 'no .rd-pages rule — did the reader move?');
-  assert.ok(/gap:\s*0/.test(strip[1]), `the pages are still separated: ${strip[1]}`);
-  assert.ok(/padding:\s*0/.test(strip[1]), `the strip has padding of its own: ${strip[1]}`);
+  // Nothing between the pages unless the reader asks for it: the spacing is one
+  // custom property, and it falls back to zero — which is what the reader had
+  // before the Margin control existed.
+  assert.ok(/gap:\s*var\(--rd-margin,\s*0px\)/.test(strip[1]),
+    `the pages are separated by something other than the margin: ${strip[1]}`);
+  assert.ok(/padding:\s*var\(--rd-margin,\s*0px\)/.test(strip[1]),
+    `the strip has padding that is not the margin: ${strip[1]}`);
   assert.ok(!/border/.test(strip[1]), `the pages are still framed: ${strip[1]}`);
   assert.ok(!/border-radius/.test(strip[1]), `the strip is still rounded: ${strip[1]}`);
   // What shows through between one page and the next is the page's own colour,
@@ -1241,10 +1246,13 @@ test('every Library shelf offers orders, and the pick is remembered', () => {
   // section is a dropdown that would never fill, and a shelf with no control
   // is an order nobody can pick.
   const controls = [...html.matchAll(/data-sort-for="([^"]+)"/g)].map((m) => m[1]);
+  // `cont`, `read-manga` and `watch-anime` appear twice on purpose: those three
+  // rails are drawn in the area they belong to as well as on the Library's own
+  // shelf, and each drawing carries the same order control.
   assert.deepEqual(controls.slice().sort(),
-    ['cont', 'fav', 'hist', 'mal-adult', 'mal-anime', 'mal-manga', 'read-manga',
-      'show-watch', 'watch-anime'],
-    'the Library does not offer an order on every shelf');
+    ['cont', 'cont', 'fav', 'hist', 'mal-adult', 'mal-anime', 'mal-manga',
+      'read-manga', 'read-manga', 'show-watch', 'watch-anime', 'watch-anime'],
+    'the shelves and their order controls do not line up');
   for (const name of controls) {
     // A key is quoted when it cannot be a bare identifier (`mal-anime`), and
     // printed as-is when it can (`cont`) — both spellings are the same table.
@@ -1617,7 +1625,7 @@ test('the manga reader brings its controls up from the middle of the screen', ()
   }
   const actions = [
     [/closeSheet\(\); showView\((["'])manga\1\)/, 'the home button'],
-    [/book: \(\) => \{ hideUi\(\); goBack\(\);/, 'the title button'],
+    [/book: \(\) => \{ saveReadSpot\(\); hideUi\(\); goBack\(\);/, 'the title button'],
     [/list: showJump/, 'the chapter-jump button'],
     [/gear: showSettings/, 'the reading-settings button'],
     [/help: showHelp/, 'the help button'],
@@ -1639,16 +1647,21 @@ test('the manga reader brings its controls up from the middle of the screen', ()
     'a tap on the sides of the page would bring the controls up');
   assert.ok(/closest\((["'])button, a, input, select, \.rd-ui\1\)/.test(flat),
     'a press on a control would toggle the controls underneath it');
-  assert.ok(/sheet\.dataset\.rdTap === (["'])true\1/.test(flat),
+  assert.ok(/sheet\.dataset\.rdTapBound === (["'])true\1/.test(flat),
     'the tap handler is rebound on every render, so the listeners stack');
+  // "Show controls: double tap" is a reader who touches the middle of the page
+  // while scrolling; one tap must then be nothing at all.
+  assert.ok(/const wantsDouble = \$[^;]*\.dataset\.rdTap === (["'])double\1/.test(flat),
+    'the double-tap setting is offered and does nothing');
+  assert.ok(/rdLastTap = paired \? 0 : now/.test(flat), 'a double tap is read as two single ones');
 
   // And it puts itself away: the first scroll of the pages closes the panel
   // and the chrome, so a chapter is never read through a floating pill.
-  assert.ok(/addEventListener\((["'])scroll\1, \(\) => \{.{0,600}?ui\.hidden = true/.test(flat),
+  assert.ok(/function onReaderScroll\(e\) \{ paintReadProgress\(\); if \(e\.target && scrolledFar\(e\.target\)\) hideReaderChrome\(\);/.test(flat),
     'the controls stay up over a chapter being read');
   // …but a page arriving and shifting the layout is not the reader scrolling:
   // without this guard the chrome closed itself in the same frame it opened.
-  assert.ok(/Math\.abs\(sheet\.scrollTop - rdUiAt\) < 12/.test(flat),
+  assert.ok(/function scrolledFar\(el\) \{ return Math\.abs\(el\.scrollTop - rdUiAt\.top\) > 12 \|\| Math\.abs\(el\.scrollLeft - rdUiAt\.left\) > 12; \}/.test(flat),
     'a layout shift takes the controls away as soon as they appear');
   assert.ok(/\.rd-ui \{ position: fixed; inset: 0; z-index: 6; pointer-events: none; \}/.test(css),
     'the overlay layer would eat the taps that are meant to reach the page');
@@ -1674,11 +1687,210 @@ test('the manga reader brings its controls up from the middle of the screen', ()
     'leaving the reader does not give the status bar back on both exits');
 
   // The rail's own settings are the reader's, and they are remembered.
-  assert.ok(/readerFit: (["'])width\1, readerGap: false/.test(flat),
-    'the reader has no page-size or gap setting to keep');
+  assert.ok(/readerFit: (["'])width\1/.test(flat), 'the reader has no page-size setting to keep');
   assert.ok(/\.rd-pages\[data-fit="height"\] \.rd-page/.test(css),
     'fit-page is offered and does nothing');
-  assert.ok(/\.rd-pages\[data-gap="on"\]/.test(css), 'the page gap is offered and does nothing');
+});
+
+// The gear's sheet is MangaFire's reader settings: two tabs — how a chapter is
+// laid out, and how a page is drawn — and every control in them a setting this
+// client actually has. The shape is asserted rather than the pixels: a control
+// with nothing behind it is a lie in the UI, and this is where that is caught.
+test('the reading settings sheet is the two tabs MangaFire has', () => {
+  const flat = inlineScripts(html)[0].replace(/\s+/g, ' ');
+  const css = stylesheets(html)[0].replace(/\s+/g, ' ');
+  const has = (text) => flat.includes(text) || flat.includes(text.replace(
+    /[^\x00-\x7F]/g,
+    (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`,
+  ));
+
+  // The tabs, and the four groups the Layout tab is made of.
+  assert.ok(/data-rd-tab="layout" aria-selected="true">Layout</.test(flat), 'no Layout tab');
+  assert.ok(/data-rd-tab="image" aria-selected="false">Image</.test(flat), 'no Image tab');
+  for (const word of ['Layout', 'Margin', 'Progress bar', 'Show controls',
+    'Image sizing', 'Image coloring', 'Dim screen']) {
+    assert.ok(has(word), `the settings sheet has no ${word} group`);
+  }
+  for (const word of ['Single', 'Double', 'Long strip']) {
+    assert.ok(has(word), `the ${word} layout is not offered`);
+  }
+  assert.ok(has('Single tap') && has('Double tap'), 'the tap modes are not offered');
+
+  // Every control names the preference it writes, and every one of those is a
+  // real key with a default behind it. The tiles and the bar shapes are drawn
+  // from their own lists, so the list is what is checked — a shape added to the
+  // markup without one behind it is exactly the lie this test exists for.
+  assert.ok(/RD_LAYOUTS = \["single", "double", "strip"\]/.test(flat),
+    'the three page arrangements are not the three MangaFire has');
+  assert.ok(/data-rd-layout="\$\{what\}"/.test(flat), 'the layout tiles are not drawn from that list');
+  assert.ok(/RD_BAR_SHAPES = \["off", "hairline", "thin", "medium", "thick"\]/.test(flat),
+    'the progress-bar shapes are not the five the sheet shows');
+  assert.ok(/data-rd-bar="\$\{shape\}"/.test(flat), 'the bar shapes are not drawn from that list');
+  assert.ok(/RD_TAP_MODES = \["single", "double"\]/.test(flat), 'no tap modes');
+  assert.ok(/data-rd-margin="-1"/.test(flat) && /data-rd-margin="1"/.test(flat),
+    'the margin cannot be stepped');
+  assert.ok(/data-rd-margin-reset/.test(flat), 'the margin cannot be reset');
+  assert.ok(/data-rd-flag="\$\{what\}"/.test(flat), 'the checkbox rows do not name a preference');
+  for (const flag of ['readerStretch', 'readerMaxW', 'readerMaxH', 'readerGray']) {
+    assert.ok(new RegExp(`${flag}: (true|false),`).test(flat), `${flag} is not a preference`);
+  }
+  assert.ok(/data-rd-fit="width"/.test(flat) && /data-rd-fit="height"/.test(flat),
+    'the two image sizings are not both offered');
+  assert.ok(/id="rd-dim" type="range" min="0" max="\$\{RD_DIM_MAX\}"/.test(flat),
+    'the dim screen slider is missing');
+
+  // Defaults, as the reader gets them without touching anything.
+  assert.ok(/readerLayout: (["'])strip\1/.test(flat), 'the default layout is not the long strip');
+  assert.ok(/readerMargin: 0/.test(flat) && /readerDim: 0/.test(flat), 'the defaults are not zero');
+  assert.ok(/readerBar: (["'])off\1/.test(flat), 'a progress bar is drawn by default');
+  assert.ok(/readerTap: (["'])single\1/.test(flat), 'the controls are not a single tap by default');
+  // The old on/off gap becomes the margin it used to be, so a reader who had it
+  // on still has it after the update.
+  assert.ok(/readerGap\) === true && !\(stored == null \? void 0 : stored\.readerMargin\)/.test(flat),
+    'a stored gap is not carried over to the margin');
+
+  // What each of them draws, in the stylesheet rather than in prose.
+  assert.ok(/\.rd-pages\[data-layout="single"\], \.rd-pages\[data-layout="double"\] \{/.test(css),
+    'the paged layouts draw nothing');
+  assert.ok(/\.rd-pages\[data-layout="single"\] \.rd-page \{ flex: 0 0 100%;/.test(css),
+    'a single page does not fill the screen');
+  assert.ok(/\.rd-pages\[data-layout="double"\] \.rd-page \{ flex: 0 0 50%;/.test(css),
+    'the double layout does not put two pages side by side');
+  assert.ok(/\.rd-bar\[data-shape="thick"\] \{ display: block; height: 12px; \}/.test(css),
+    'the progress bar shapes are not drawn');
+  assert.ok(/\.rd-dim \{ position: fixed; inset: 0; z-index: 5; pointer-events: none; background: #000; opacity: 0; \}/.test(css),
+    'the dim layer is not a layer');
+  assert.ok(/#sheet\[data-rd-gray="on"\] \.rd-pages \{ filter: grayscale\(1\); \}/.test(css),
+    'grayscale does nothing');
+  assert.ok(/#sheet\[data-rd-stretch="off"\] \.rd-pages\[data-layout="strip"\]\[data-fit="width"\] \.rd-page/.test(css),
+    'stretch small images does nothing');
+  assert.ok(/#sheet\[data-rd-maxw="on"\] .*max-width: min\(100%, 52rem\)/.test(css),
+    'limit max width does nothing');
+  assert.ok(/#sheet\[data-rd-maxh="on"\]/.test(css), 'limit max height does nothing');
+
+  // And one write path: a control sets a preference, keeps it, and draws it.
+  assert.ok(/function setReadPref\(key, value\) \{ prefs\[key\] = value; savePrefs\(\); applyReadPrefs\(\); \}/.test(flat),
+    'a setting can be changed without being kept');
+});
+
+// A long strip is a hundred screens of art: reopening it at the top is
+// reopening it in the wrong place. The record is a page and a fraction of that
+// page, because the same chapter is a different number of pixels once the phone
+// is unfolded or the reader's own settings change.
+test('a chapter reopens where the reader stopped', () => {
+  const flat = inlineScripts(html)[0].replace(/\s+/g, ' ');
+
+  // The store is this device's own, guarded like the rest, and keyed per
+  // chapter — the reading rail's record is per title and cannot say this.
+  assert.ok(/MANGA_POS_KEY = (["'])htv:manga-pos:v1\1/.test(flat), 'no reading-position store');
+  assert.ok(/function noteSpot\(chapterId, \{ hid, p, f, n \} = \{\}\)/.test(flat),
+    'the store cannot be written');
+  assert.ok(/MANGA_POS_KEY, JSON\.stringify\(rows\)/.test(flat), 'the store is never written');
+  assert.ok(/function readPercent\(chapterId\)/.test(flat), 'the store cannot say how far through');
+
+  // What is written is measured off the screen, on whichever axis is being
+  // read, and it is written as the pages move and as the chapter is left.
+  assert.ok(/function currentSpot\(\)/.test(flat), 'nothing measures where the reader is');
+  assert.ok(/const start = s\.paged \? r\.left - box\.left : r\.top - box\.top/.test(flat),
+    'the reading spot is measured on one axis only');
+  // A page's position on screen against the scroller's own edge — not against
+  // scrollTop, which is a different coordinate once anything has been scrolled.
+  assert.ok(/if \(start \+ size > 0\) return \{ p: i, f: size > 0 \? clamp\(-start \/ size, 0, 0\.999\) : 0 \}/.test(flat),
+    'the spot is measured against the scroll offset rather than the screen');
+  assert.ok(/scheduleSpot\(700\)/.test(flat) && /rdSaveTimer = setTimeout\(saveReadSpot, ms\)/.test(flat),
+    'the spot is written on every scroll frame');
+  // A page arriving moves the spot too: the strip is still growing above the
+  // reader, so the position written mid-scroll names a page they left long ago.
+  assert.ok(/pages\.addEventListener\((["'])load\1, \(\) => scheduleSpot\(400\), true\)/.test(flat),
+    'a page arriving leaves the recorded spot measured against a half-built strip');
+  assert.ok(/rdRestoring = true/.test(flat) && /rdRestoring\) return;/.test(flat),
+    'the nudge that restores the spot is recorded as reading');
+  // Bound to whatever is actually scrolling: a long strip scrolls the sheet, the
+  // two paged layouts scroll the pages element. Watching only the pages left the
+  // strip writing nothing at all.
+  assert.ok(/function bindReaderScroll\(\) \{[^}]*const s = readScroll\(\);[^}]*s\.el\.addEventListener\((["'])scroll\1, onReaderScroll/.test(flat),
+    'the spot follows an element other than the one being scrolled');
+  assert.ok(/bindReaderScroll\(\);/.test(flat), 'nothing binds the scroller to the spot');
+  assert.ok(/addEventListener\((["'])htv:sheet-closed\1, saveReadSpot\)/.test(flat),
+    'a closed sheet does not keep the spot');
+  assert.ok(/if \(document\.hidden\) saveReadSpot\(\)/.test(flat),
+    'a phone put away mid-chapter loses the spot');
+  assert.ok(/if \(readToTheEnd\(record\)\) \{ dropSpot\(ch\.id\); return; \}/.test(flat),
+    'a chapter read to the end is opened in the middle next time');
+
+  // And it is put back: the target page is fetched first, the strip is nudged
+  // into place while the pages above it load, and the whole attempt gives way to
+  // a thumb — a restore that fights the reader is worse than none.
+  assert.ok(/restoreReadSpot\(\);/.test(flat), 'nothing restores the spot');
+  assert.ok(/target\.loading = (["'])eager\1/.test(flat), 'the page to restore to is not fetched first');
+  assert.ok(/\[(["'])pointerdown\1, (["'])wheel\2, (["'])touchstart\3, (["'])keydown\4\]\.forEach/.test(flat),
+    'the restore does not give way to the reader');
+  // The nudge follows the strip until it stops growing, rather than stopping
+  // after a guessed count and leaving the reader a page further on.
+  assert.ok(/still = Math\.abs\(after - before\) < 1 \? still \+ 1 : 0/.test(flat),
+    'the restore does not notice the pages settling');
+  assert.ok(/if \(still >= 3 \|\| \+\+tries > 60\) done\(\)/.test(flat),
+    'the restore never gives up');
+
+  // And it is measured while the chapter still looks like one. Taking
+  // `data-reader` off the sheet reflows the strip, so a spot read after that is
+  // a page nobody was on — which is why a reopen used to land a page further on
+  // than the one it was asked for, every time.
+  const closeFrom = flat.indexOf('function closeSheet()');
+  const closeBody = flat.slice(closeFrom, closeFrom + 1200);
+  const said = closeBody.search(/dispatchEvent\(new CustomEvent\((["'])htv:sheet-closed\1\)\)/);
+  const torn = closeBody.indexOf('dataset.reader = ');
+  assert.ok(said > -1, 'closing the sheet never tells the reader it is closing');
+  assert.ok(torn > -1 && said < torn,
+    'the strip is reflowed before the reading spot is measured');
+});
+
+// Every area opens with the thing this device was last on: an episode or a
+// chapter left half-way is what a reader came back for, and making them go to
+// the Library to find it was the detour this removes.
+test('every area opens with what this device was last on', () => {
+  const flat = inlineScripts(html)[0].replace(/\s+/g, ' ');
+
+  // The rails themselves, each with a head, a count and the words for when it
+  // is empty — the same three pieces every other shelf in the app has.
+  const rails = {
+    'anime-cont': 'Continue watching',
+    'manga-cont': 'Continue reading',
+    'browse-cont': 'Continue watching',
+    'show-watch': 'Continue watching',
+  };
+  for (const id of Object.keys(rails)) {
+    for (const part of ['head', 'rail', 'note']) {
+      assert.ok(new RegExp(`id="${id}-${part}"`).test(html), `no ${id}-${part} element`);
+    }
+    assert.ok(new RegExp(`id="${id}-count"`).test(html), `no ${id}-count`);
+  }
+
+  // One record, drawn where it is looked for: the manga rail in the manga area
+  // and in the Library's manga tab, the anime rail in the anime area and in the
+  // Library's anime tab, the 18+ rail in the area and on its own shelf.
+  assert.ok(/places: \[ Object\.assign|places: \[\{ rail: (["'])watch-rail/.test(flat)
+    || /rail: (["'])watch-rail\1, head: (["'])watch-head\1, count: (["'])watch-count\1/.test(flat),
+    'the watching rail is drawn in only one place');
+  assert.ok(/rail: (["'])manga-cont-rail\1, head: (["'])manga-cont-head\1/.test(flat),
+    'the reading rail is not drawn in the manga area');
+  assert.ok(/rail: (["'])anime-cont-rail\1, head: (["'])anime-cont-head\1/.test(flat),
+    'the watching rail is not drawn in the anime area');
+  assert.ok(/rail: (["'])browse-cont-rail\1, head: (["'])browse-cont-head\1/.test(flat),
+    'the 18+ continue rail is not drawn in its area');
+
+  // Opening a view refills the rails it holds — local records, so a redraw.
+  assert.ok(/target\.dataset\.view === (["'])anime\1\) renderActivity\((["'])anime\2\)/.test(flat),
+    'the anime area does not refill its rail');
+  assert.ok(/target\.dataset\.view === (["'])manga\1\) renderActivity\((["'])manga\2\)/.test(flat),
+    'the manga area does not refill its rail');
+  assert.ok(/target\.dataset\.view === (["'])browse\1\) renderContinue\(\)/.test(flat),
+    'the 18+ area does not refill its rail');
+
+  // A chapter card says how far into the chapter the reader is, not just which
+  // chapter it is: that is the whole point of the rail.
+  assert.ok(/const into = e\.kind === (["'])manga\1 \? readPercent\(e\.ref\) : 0/.test(flat),
+    'the reading rail cannot say how far in the reader is');
 });
 
 // Drawing under the phone's own bars. The shell reports where they are

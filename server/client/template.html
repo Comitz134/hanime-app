@@ -172,6 +172,24 @@
          must not make them navigate to. -->
     <div class="view" data-view="anime" data-active="true">
       <section id="anime-browse">
+        <!-- What this device was watching, before the shelf: the episode left
+             half-way is the one thing on this page waiting to be picked up —
+             and going to the Library to find it was a detour. Same record the
+             Library's own rail reads, painted in the area it belongs to. -->
+        <div class="sec-head" id="anime-cont-head" hidden>
+          <div class="sec-head-l">
+            <h2>Continue watching</h2>
+            <span class="sec-count" id="anime-cont-count">0</span>
+          </div>
+          <div class="sec-tools">
+            <select class="filter-select sort-select" data-sort-for="watch-anime"
+                    aria-label="Order of continue watching"></select>
+            <button class="chip" type="button" data-rail-clear="anime">Clear</button>
+          </div>
+        </div>
+        <div class="rail" id="anime-cont-rail" hidden></div>
+        <p class="note" id="anime-cont-note" hidden></p>
+
         <div class="sec-head">
           <div class="sec-head-l">
             <h2>Anime <span class="area-chip">normal</span></h2>
@@ -235,6 +253,24 @@
          anything is typed or filtered. -->
     <div class="view" data-view="manga">
       <section id="manga-browse">
+        <!-- Continue reading, in the manga area rather than behind the
+             Library's tab: the chapter opened last night is the one thing on
+             this page to pick up, and a chapter now reopens where it was
+             left rather than at its first page. -->
+        <div class="sec-head" id="manga-cont-head" hidden>
+          <div class="sec-head-l">
+            <h2>Continue reading</h2>
+            <span class="sec-count" id="manga-cont-count">0</span>
+          </div>
+          <div class="sec-tools">
+            <select class="filter-select sort-select" data-sort-for="read-manga"
+                    aria-label="Order of continue reading"></select>
+            <button class="chip" type="button" data-rail-clear="manga">Clear</button>
+          </div>
+        </div>
+        <div class="rail" id="manga-cont-rail" hidden></div>
+        <p class="note" id="manga-cont-note" hidden></p>
+
         <div class="sec-head">
           <div class="sec-head-l">
             <h2>Manga <span class="area-chip">mangafire</span></h2>
@@ -381,6 +417,23 @@
         <div class="hero-slide" id="hero-b"><div class="hero-body"></div></div>
         <div class="hero-dots" id="hero-dots"></div>
       </section>
+
+      <!-- What this device was playing, above the search: an 18+ title left
+           part-way is the one thing on this page waiting to be picked up. The
+           records are the Library's own (positions.js), painted here so the
+           area answers "where was I" without a trip to the Library. -->
+      <div class="sec-head" id="browse-cont-head" hidden>
+        <div class="sec-head-l">
+          <h2>Continue watching</h2>
+          <span class="sec-count" id="browse-cont-count">0</span>
+        </div>
+        <div class="sec-tools">
+          <select class="filter-select sort-select" data-sort-for="cont"
+                  aria-label="Order of continue watching"></select>
+        </div>
+      </div>
+      <div class="rail" id="browse-cont-rail" hidden></div>
+      <p class="note" id="browse-cont-note" hidden></p>
 
       <!-- search + sort -->
       <section aria-label="Filters">

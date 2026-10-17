@@ -17,6 +17,7 @@ import { autoAdvance, configured, onTrackedProgress } from './mal.js';
 import { goBack, pushNav } from './nav-history.js';
 import { estimateChip, estimateDetail, estimateTitle, nextChapterEstimate } from './manga-eta.js';
 import { duplicateCount, stepIndex, visibleChapters } from './manga-dupes.js';
+import { dropSpot, noteSpot, spotFor } from './manga-pos.js';
 import { isRead, markRead, setProgress } from './manga-read.js';
 import { prefs, savePrefs } from './prefs.js';
 import { isSaved, toggleSaved } from './manga-saved.js';
@@ -161,18 +162,403 @@ const railButton = (what, label) => `
              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${RAIL_ICONS[what]}</svg>
       </button>`;
 
+/* ------------------------------------------------------- the reader's settings
+   MangaFire's reader settings, in the shape they put them in: a **Layout** tab
+   (how a chapter is arranged) and an **Image** tab (how a page is drawn), both
+   reached from the rail's gear. Every one of them is written here as one
+   attribute or custom property on the sheet, so this file has exactly one
+   place to write them and 95-manga.css one place to read them.
+*/
+
+const RD_LAYOUTS = ['single', 'double', 'strip'];
+const RD_BAR_SHAPES = ['off', 'hairline', 'thin', 'medium', 'thick'];
+const RD_TAP_MODES = ['single', 'double'];
+const RD_MARGIN_STEP = 4;
+const RD_MARGIN_MAX = 40;
+const RD_DIM_MAX = 80;
+
+const onOff = (v) => (v ? 'on' : 'off');
+const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, Number(n) || 0));
+const marginOf = () => clamp(prefs.readerMargin, 0, RD_MARGIN_MAX);
+
+/**
+ * The scroller the reading position is measured against.
+ *
+ * Long strip reads down the sheet, the two paged layouts read across the pages
+ * element itself, and everything that follows a reader through a chapter — the
+ * progress bar, the note of where they stopped, the chrome putting itself away
+ * — has to ask this rather than assume the sheet.
+ */
+function readScroll() {
+  const pages = $('#rd-pages');
+  const paged = !!pages && pages.dataset.layout !== 'strip';
+  return {
+    el: paged ? pages : $('#sheet'),
+    paged,
+    pos: paged ? 'scrollLeft' : 'scrollTop',
+    size: paged ? 'scrollWidth' : 'scrollHeight',
+    span: paged ? 'clientWidth' : 'clientHeight',
+  };
+}
+
+/** How far through the chapter the screen is, 0..1. */
+function readProgress() {
+  const s = readScroll();
+  if (!s.el) return 0;
+  const max = s.el[s.size] - s.el[s.span];
+  if (!(max > 0)) return 0;
+  return clamp(s.el[s.pos] / max, 0, 1);
+}
+
+/** The progress bar, if the reader asked for one. */
+function paintReadProgress() {
+  const fill = $('#rd-bar-fill');
+  if (!fill) return;
+  fill.style.width = `${(readProgress() * 100).toFixed(1)}%`;
+}
+
 /** The reader's own settings, as they were left on this device. */
 function applyReadPrefs() {
+  const sheet = $('#sheet');
   const pages = $('#rd-pages');
-  if (!pages) return;
+  if (!sheet || !pages) return;
+  pages.dataset.layout = RD_LAYOUTS.includes(prefs.readerLayout) ? prefs.readerLayout : 'strip';
   pages.dataset.fit = prefs.readerFit === 'height' ? 'height' : 'width';
-  pages.dataset.gap = prefs.readerGap ? 'on' : 'off';
+  sheet.dataset.rdStretch = onOff(prefs.readerStretch);
+  sheet.dataset.rdMaxW = onOff(prefs.readerMaxW);
+  sheet.dataset.rdMaxH = onOff(prefs.readerMaxH);
+  sheet.dataset.rdGray = onOff(prefs.readerGray);
+  sheet.dataset.rdTap = RD_TAP_MODES.includes(prefs.readerTap) ? prefs.readerTap : 'single';
+  sheet.style.setProperty('--rd-margin', `${marginOf()}px`);
+  const dim = $('#rd-dim-layer');
+  if (dim) dim.style.opacity = String(clamp(prefs.readerDim, 0, RD_DIM_MAX) / 100);
+  const bar = $('#rd-bar');
+  if (bar) bar.dataset.shape = RD_BAR_SHAPES.includes(prefs.readerBar) ? prefs.readerBar : 'off';
+  paintReadProgress();
+  // After the arrangement is on the element, because that is what decides which
+  // element scrolls: bound any earlier and the listener lands on the pages in a
+  // long strip, where nothing ever scrolls and no spot is ever written.
+  bindReaderScroll();
 }
 
 /** The pages of a chapter, as the reader draws them: one column, no seams. */
 const pagesHtml = (pages) => (pages.length
   ? pages.map((p, i) => `<img class="rd-page" loading="lazy" decoding="async" src="${esc(proxied(p.url))}" alt="Page ${i + 1}">`).join('')
   : '<p class="note">No pages came back for this chapter.</p>');
+
+/* ---- where the reader stopped --------------------------------------------
+   A page and a fraction of it, written as they scroll and read again when the
+   chapter is reopened: a long strip is a hundred screens of art, so opening it
+   at the top is opening it in the wrong place. See manga-pos.js for why the
+   record is a page rather than a pixel offset. */
+
+/**
+ * The page at the top of the screen, and how far into it the reader is.
+ *
+ * Measured against the scroller's own edge — the part of the page the reader is
+ * looking at — and not against the pixel offset it happens to be scrolled to.
+ * The two are the same number only before anything has been scrolled, which is
+ * why comparing a page's position with `scrollTop` named a page the reader was
+ * not looking at.
+ */
+function currentSpot() {
+  const s = readScroll();
+  const pages = $$('.rd-page', $('#rd-pages'));
+  if (!s.el || !pages.length) return null;
+  const box = s.el.getBoundingClientRect();
+  for (let i = 0; i < pages.length; i++) {
+    const r = pages[i].getBoundingClientRect();
+    const start = s.paged ? r.left - box.left : r.top - box.top;
+    const size = s.paged ? r.width : r.height;
+    if (start + size > 0) return { p: i, f: size > 0 ? clamp(-start / size, 0, 0.999) : 0 };
+  }
+  // No page on the screen at all: there is nothing here to come back to.
+  return null;
+}
+
+function saveReadSpot() {
+  const ch = dState.chapters[rState.idx];
+  if (!ch || !$('#rd-ui')) return;
+  // A sheet on its way out has no height left to measure against, and every
+  // page then reads as "above the screen" — which is how leaving a chapter
+  // halfway through used to record it as finished.
+  const s = readScroll();
+  if (!s.el || !s.el[s.span]) return;
+  const spot = currentSpot();
+  if (!spot) return;
+  const record = { hid: dState.hid, p: spot.p, f: spot.f, n: $$('.rd-page', $('#rd-pages')).length };
+  // A chapter read to its last page is not a chapter to come back into the
+  // middle of: reopening it starts at the top, which is where a re-read begins.
+  if (readToTheEnd(record)) { dropSpot(ch.id); return; }
+  noteSpot(ch.id, record);
+}
+
+/** A chapter starts at its first page, whichever page the last one ended on. */
+function openAtTop() {
+  const pages = $('#rd-pages');
+  const sheet = $('#sheet');
+  if (pages) { pages.scrollLeft = 0; pages.scrollTop = 0; }
+  if (sheet) sheet.scrollTop = 0;
+  paintReadProgress();
+}
+
+/**
+ * Puts the reader back where they stopped — and keeps them there while the
+ * pages above arrive.
+ *
+ * The pages are lazy images with no intrinsic size declared, so at the moment
+ * the position is restored everything above the target is zero pixels tall; as
+ * each image loads, the strip grows from the top and pushes the reader back
+ * towards the start of the chapter. So the target is fetched first, put under
+ * the top of the screen again for as long as that takes, and the whole attempt
+ * is abandoned the moment the reader touches the screen — a restore that fights
+ * a thumb is worse than no restore at all.
+ */
+function restoreReadSpot() {
+  const ch = dState.chapters[rState.idx];
+  if (!ch) return;
+  const spot = spotFor(ch.id);
+  if (!spot || (!spot.p && !spot.f)) return;
+  const pages = $$('.rd-page', $('#rd-pages'));
+  const target = pages[spot.p];
+  if (!target) return;
+  target.loading = 'eager';
+
+  let stopped = false;
+  const stop = () => { stopped = true; };
+
+  ['pointerdown', 'wheel', 'touchstart', 'keydown'].forEach((type) =>
+    document.addEventListener(type, stop, { once: true, passive: true }));
+
+  // Absolute, not a nudge: every call works out where the page really is in the
+  // content and puts the scroller there. A nudge is only right if the layout it
+  // was measured against still holds, and on the first frames it does not — the
+  // strip has no heights yet and the row has no widths — so a clamped first
+  // attempt would leave the reader at the end of the chapter for good.
+  const put = () => {
+    if (stopped) return;
+    const s = readScroll();
+    if (!s.el) return;
+    const r = target.getBoundingClientRect();
+    const box = s.el.getBoundingClientRect();
+    const size = s.paged ? r.width : r.height;
+    const at = s.el[s.pos] + (s.paged ? r.left - box.left : r.top - box.top);
+    const head = at + spot.f * size;
+    s.el[s.pos] = clamp(head, 0, Math.max(0, s.el[s.size] - s.el[s.span]));
+    paintReadProgress();
+  };
+
+  // A frame later: the chapter has just been moved to its first page, and the
+  // rects read in that same frame still describe where it was — mixing the two
+  // is how a restore lands a screen past the page it was asked for.
+  requestAnimationFrame(put);
+
+  // Nudged until the strip has stopped growing, not for a fixed number of
+  // ticks: which images arrive, and in what order, is the network's business,
+  // and a count guessed at here ends either too early — the reader drifts
+  // forward as the pages above land — or with the restore still nudging someone
+  // who has started reading again. Three still frames means settled, and the
+  // ceiling is only there so nothing runs forever.
+  let still = 0;
+  let tries = 0;
+  rdRestoring = true;
+  // A page arriving is the strip growing, which moves the page the reader asked
+  // for: settled is not "has not moved for three frames" but "nothing is still
+  // arriving", so a load starts the count again.
+  const slot = $('#rd-pages');
+  const wake = () => { still = 0; };
+  if (slot) slot.addEventListener('load', wake, true);
+  const done = () => {
+    rdRestoring = false;
+    if (slot) slot.removeEventListener('load', wake, true);
+    clearInterval(timer);
+  };
+  const timer = setInterval(() => {
+    if (stopped) { done(); return; }
+    const s = readScroll();
+    const before = s.el ? s.el[s.pos] : 0;
+    put();
+    const after = s.el ? s.el[s.pos] : 0;
+    still = Math.abs(after - before) < 1 ? still + 1 : 0;
+    if (still >= 3 || ++tries > 60) done();
+  }, 200);
+}
+
+/**
+ * A chapter tried once and read: the spot goes when the chapter is finished,
+ * not when it is left. There is no "finished" signal in a webtoon — a reader
+ * who stopped on the last page is at 100%, and one who stopped at 40% is not.
+ */
+function readToTheEnd(spot) {
+  return !!spot && spot.n > 1 && spot.p >= spot.n - 1 && spot.f > 0.5;
+}
+
+/* ---- the gear's sheet: the same two tabs MangaFire's reader has ---------- */
+
+/** The three page arrangements, drawn as the arrangement they make. */
+const RD_LAYOUT_ICONS = {
+  single: '<rect x="7" y="3.5" width="10" height="17" rx="1.6"/><path d="M11 8.5h2"/>',
+  double: '<rect x="2.6" y="5" width="8.4" height="14" rx="1.4"/><rect x="13" y="5" width="8.4" height="14" rx="1.4"/>',
+  strip: '<rect x="6" y="2.6" width="12" height="5.4" rx="1.2"/><rect x="6" y="9.3" width="12" height="5.4" rx="1.2"/><rect x="6" y="16" width="12" height="5.4" rx="1.2"/>',
+};
+const RD_LAYOUT_WORDS = { single: 'Single', double: 'Double', strip: 'Long strip' };
+const RD_BAR_WORDS = { off: 'No bar', hairline: 'Hairline', thin: 'Thin', medium: 'Medium', thick: 'Thick' };
+
+/** A checkbox row, named by the preference it writes. */
+const rdCheck = (what, on, word) => `
+      <label class="rd-check">
+        <input type="checkbox" data-rd-flag="${what}" ${on ? 'checked' : ''}>
+        <span>${word}</span>
+      </label>`;
+
+const readerTabsHtml = () => `
+    <div class="rd-tabs" role="tablist" aria-label="Reading settings">
+      <button class="rd-tab" type="button" role="tab" data-rd-tab="layout" aria-selected="true">Layout</button>
+      <button class="rd-tab" type="button" role="tab" data-rd-tab="image" aria-selected="false">Image</button>
+    </div>`;
+
+const readerSettingsHtml = () => `
+    <div class="rd-panes">
+      <div class="rd-pane" data-rd-pane="layout">
+        <p class="rd-label">Layout</p>
+        <div class="rd-tiles">${RD_LAYOUTS.map((what) => `
+          <button class="rd-tile" type="button" data-rd-layout="${what}" aria-pressed="${prefs.readerLayout === what}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">${RD_LAYOUT_ICONS[what]}</svg>
+            <span>${RD_LAYOUT_WORDS[what]}</span>
+          </button>`).join('')}
+        </div>
+
+        <p class="rd-label">Margin</p>
+        <div class="rd-step">
+          <button class="rd-step-btn" type="button" data-rd-margin="-1" aria-label="Less margin">−</button>
+          <span class="rd-step-value" id="rd-margin-value">${marginOf()}</span>
+          <button class="rd-step-btn" type="button" data-rd-margin="1" aria-label="More margin">+</button>
+          <button class="rd-reset" type="button" data-rd-margin-reset>Reset</button>
+        </div>
+
+        <p class="rd-label">Progress bar</p>
+        <div class="rd-shapes">${RD_BAR_SHAPES.map((shape) => `
+          <button class="rd-shape" type="button" data-rd-bar="${shape}" aria-pressed="${prefs.readerBar === shape}"
+                  aria-label="${RD_BAR_WORDS[shape]}" title="${RD_BAR_WORDS[shape]}">${shape === 'off'
+    ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>'
+    : '<i></i>'}</button>`).join('')}
+        </div>
+
+        <p class="rd-label">Show controls</p>
+        <div class="rd-two">
+          <button class="rd-wide" type="button" data-rd-tap="single" aria-pressed="${prefs.readerTap !== 'double'}">Single tap</button>
+          <button class="rd-wide" type="button" data-rd-tap="double" aria-pressed="${prefs.readerTap === 'double'}">Double tap</button>
+        </div>
+      </div>
+
+      <div class="rd-pane" data-rd-pane="image" hidden>
+        <p class="rd-label">Image sizing</p>
+        <label class="rd-check">
+          <input type="checkbox" data-rd-fit="width" ${prefs.readerFit === 'height' ? '' : 'checked'}>
+          <span>Fit width</span>
+        </label>
+        <label class="rd-check">
+          <input type="checkbox" data-rd-fit="height" ${prefs.readerFit === 'height' ? 'checked' : ''}>
+          <span>Fit height</span>
+        </label>
+        ${rdCheck('readerStretch', prefs.readerStretch, 'Stretch small images')}
+        ${rdCheck('readerMaxW', prefs.readerMaxW, 'Limit max width')}
+        ${rdCheck('readerMaxH', prefs.readerMaxH, 'Limit max height')}
+
+        <p class="rd-label">Image coloring</p>
+        ${rdCheck('readerGray', prefs.readerGray, 'Grayscale')}
+
+        <p class="rd-label rd-label-row">Dim screen <b id="rd-dim-value">${clamp(prefs.readerDim, 0, RD_DIM_MAX)}%</b></p>
+        <input class="rd-range" id="rd-dim" type="range" min="0" max="${RD_DIM_MAX}" step="5"
+               value="${clamp(prefs.readerDim, 0, RD_DIM_MAX)}" aria-label="Dim screen">
+      </div>
+    </div>`;
+
+/**
+ * Redraws every control in the sheet from the preferences.
+ *
+ * In place rather than by rebuilding the markup: a reader who has just pressed
+ * `+` four times should still be looking at the same sheet, the same tab and
+ * the same scroll position inside it.
+ */
+function paintReaderSheet(panel) {
+  $$('[data-rd-layout]', panel).forEach((b) =>
+    b.setAttribute('aria-pressed', String(b.dataset.rdLayout === prefs.readerLayout)));
+  $$('[data-rd-bar]', panel).forEach((b) =>
+    b.setAttribute('aria-pressed', String(b.dataset.rdBar === prefs.readerBar)));
+  $$('[data-rd-tap]', panel).forEach((b) =>
+    b.setAttribute('aria-pressed', String(b.dataset.rdTap === (prefs.readerTap === 'double' ? 'double' : 'single'))));
+  // Fit width and fit height are one choice in two boxes: unchecking the one
+  // that is on picks the other, which is what a two-state control should do.
+  $$('[data-rd-fit]', panel).forEach((box) => {
+    box.checked = prefs.readerFit === 'height'
+      ? box.dataset.rdFit === 'height'
+      : box.dataset.rdFit === 'width';
+  });
+  $$('[data-rd-flag]', panel).forEach((box) => { box.checked = !!prefs[box.dataset.rdFlag]; });
+  const value = $('#rd-margin-value', panel);
+  if (value) value.textContent = String(marginOf());
+  const dim = $('#rd-dim', panel);
+  if (dim) dim.value = String(clamp(prefs.readerDim, 0, RD_DIM_MAX));
+  const dimValue = $('#rd-dim-value', panel);
+  if (dimValue) dimValue.textContent = `${clamp(prefs.readerDim, 0, RD_DIM_MAX)}%`;
+}
+
+/** One write path: the preference is set, kept, and drawn. */
+function setReadPref(key, value) {
+  prefs[key] = value;
+  savePrefs();
+  applyReadPrefs();
+}
+
+function wireReaderSheet(panel) {
+  $$('[data-rd-tab]', panel).forEach((tab) => {
+    tab.onclick = () => {
+      $$('[data-rd-tab]', panel).forEach((t) => t.setAttribute('aria-selected', String(t === tab)));
+      $$('[data-rd-pane]', panel).forEach((p) => { p.hidden = p.dataset.rdPane !== tab.dataset.rdTab; });
+    };
+  });
+  $$('[data-rd-layout]', panel).forEach((b) => {
+    b.onclick = () => { setReadPref('readerLayout', b.dataset.rdLayout); paintReaderSheet(panel); };
+  });
+  $$('[data-rd-margin]', panel).forEach((b) => {
+    b.onclick = () => {
+      setReadPref('readerMargin', clamp(marginOf() + Number(b.dataset.rdMargin) * RD_MARGIN_STEP, 0, RD_MARGIN_MAX));
+      paintReaderSheet(panel);
+    };
+  });
+  const reset = $('[data-rd-margin-reset]', panel);
+  if (reset) reset.onclick = () => { setReadPref('readerMargin', 0); paintReaderSheet(panel); };
+  $$('[data-rd-bar]', panel).forEach((b) => {
+    b.onclick = () => { setReadPref('readerBar', b.dataset.rdBar); paintReaderSheet(panel); };
+  });
+  $$('[data-rd-tap]', panel).forEach((b) => {
+    b.onclick = () => { setReadPref('readerTap', b.dataset.rdTap); paintReaderSheet(panel); };
+  });
+  $$('[data-rd-fit]', panel).forEach((box) => {
+    box.onchange = () => { setReadPref('readerFit', box.dataset.rdFit === 'height' ? 'height' : 'width'); paintReaderSheet(panel); };
+  });
+  $$('[data-rd-flag]', panel).forEach((box) => {
+    box.onchange = () => setReadPref(box.dataset.rdFlag, box.checked);
+  });
+  const dim = $('#rd-dim', panel);
+  if (dim) {
+    dim.oninput = () => {
+      const box = $('#rd-dim', panel);
+      applyDim(Number(box.value));
+      const value = $('#rd-dim-value', panel);
+      if (value) value.textContent = `${clamp(box.value, 0, RD_DIM_MAX)}%`;
+    };
+    dim.onchange = () => setReadPref('readerDim', clamp(dim.value, 0, RD_DIM_MAX));
+  }
+}
+
+/** The wash the slider moves, drawn as it is dragged and kept on release. */
+function applyDim(percent) {
+  const layer = $('#rd-dim-layer');
+  prefs.readerDim = clamp(percent, 0, RD_DIM_MAX);
+  if (layer) layer.style.opacity = String(prefs.readerDim / 100);
+}
 
 /**
  * Everything the controls do, wired to the chapter on screen.
@@ -194,9 +580,11 @@ function bindReaderControls({ go, chapter, atNewest, atOldest }) {
     ui.setAttribute('aria-hidden', 'true');
     closePanel();
   };
-  const openPanel = (title, body) => {
+  /** The panel, with its own header. `raw` keeps a header that is not a title
+   *  (the settings sheet's tabs, which sit where a title would). */
+  const openPanel = (head, body, { raw = false } = {}) => {
     panel.innerHTML = `<div class="rd-panel-head">
-        <b>${esc(title)}</b>
+        ${raw ? head : `<b>${esc(head)}</b>`}
         <button class="rd-panel-x" type="button" data-rd-close aria-label="Close">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
                stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
@@ -232,40 +620,11 @@ function bindReaderControls({ go, chapter, atNewest, atOldest }) {
     });
   };
 
-  const settingsPanel = () => `
-    <div class="rd-choice">
-      <span>Page size</span>
-      <span class="rd-choice-row">
-        <button class="chip" type="button" data-rd-fit="width" aria-pressed="${prefs.readerFit !== 'height'}">Fit width</button>
-        <button class="chip" type="button" data-rd-fit="height" aria-pressed="${prefs.readerFit === 'height'}">Fit page</button>
-      </span>
-    </div>
-    <div class="rd-choice">
-      <span>Gap between pages</span>
-      <span class="rd-choice-row">
-        <button class="chip" type="button" data-rd-gap="toggle" aria-pressed="${!!prefs.readerGap}">${prefs.readerGap ? 'On' : 'Off'}</button>
-      </span>
-    </div>
-    <p class="note">A page taller than the screen scrolls either way; “Fit page”
-      draws the whole of it instead, which is what a spread or a two-page scan
-      needs.</p>`;
-
+  /* ---- the gear's sheet: Layout and Image, the two tabs MangaFire has ----- */
   const showSettings = () => {
-    openPanel('Reading', settingsPanel());
-    $$('[data-rd-fit]', panel).forEach((b) => {
-      b.onclick = () => {
-        prefs.readerFit = b.dataset.rdFit === 'height' ? 'height' : 'width';
-        savePrefs();
-        applyReadPrefs();
-        showSettings();   // repaint the choice that is now picked
-      };
-    });
-    $('[data-rd-gap]', panel).onclick = () => {
-      prefs.readerGap = !prefs.readerGap;
-      savePrefs();
-      applyReadPrefs();
-      showSettings();
-    };
+    openPanel(readerTabsHtml(), readerSettingsHtml(), { raw: true });
+    paintReaderSheet(panel);
+    wireReaderSheet(panel);
   };
 
   const showHelp = () => openPanel('Controls', `
@@ -273,7 +632,9 @@ function bindReaderControls({ go, chapter, atNewest, atOldest }) {
       <li>Tap the middle of the page to bring these controls up, and again to put them away.</li>
       <li>Scroll to read — the controls hide themselves as soon as the pages move.</li>
       <li>The pill at the top steps to the newer and older chapter; a chapter posted twice is not two steps.</li>
-      <li>The rail on the right: the shelf, this title's page, a jump to any chapter, how pages are sized, this list, and where to go when a chapter will not load.</li>
+      <li>The rail on the right: the shelf, this title's page, a jump to any chapter, the reading settings, this list, and where to go when a chapter will not load.</li>
+      <li>The reading settings are two tabs — <b>Layout</b> (one page, two, or a long strip; the margin; a progress bar; whether a single or a double tap brings these controls up) and <b>Image</b> (how a page is sized, grayscale, and how far the screen is dimmed).</li>
+      <li>A chapter reopens where it was left, not at its first page.</li>
     </ul>`);
 
   const showProblem = () => {
@@ -306,8 +667,8 @@ function bindReaderControls({ go, chapter, atNewest, atOldest }) {
   };
 
   const actions = {
-    home: () => { hideUi(); closeSheet(); showView('manga'); },
-    book: () => { hideUi(); goBack(); },          // the title page is the screen below
+    home: () => { saveReadSpot(); hideUi(); closeSheet(); showView('manga'); },
+    book: () => { saveReadSpot(); hideUi(); goBack(); },   // the title page is below
     list: showJump,
     gear: showSettings,
     help: showHelp,
@@ -333,11 +694,89 @@ let rdTapStart = null;
 // reader's own — an image arriving and shifting the layout under them, or the
 // browser restoring a position — is not the pages being read, and must not take
 // the controls away in the same breath they appeared in.
-let rdUiAt = 0;
+let rdUiAt = { top: 0, left: 0 };
+/** When the last middle tap landed, for the double-tap mode. */
+let rdLastTap = 0;
+/** True when the pages have moved far enough for the chrome to be in the way. */
+function scrolledFar(el) {
+  return Math.abs(el.scrollTop - rdUiAt.top) > 12 || Math.abs(el.scrollLeft - rdUiAt.left) > 12;
+}
+/** Puts the reader's chrome away, and whatever panel was opened from it. */
+function hideReaderChrome() {
+  const ui = $('#rd-ui');
+  if (!ui || ui.hidden) return;
+  ui.hidden = true;
+  ui.setAttribute('aria-hidden', 'true');
+  const panel = $('#rd-panel');
+  if (panel) { panel.hidden = true; panel.innerHTML = ''; }
+}
+/**
+ * What follows the pages as they move: the progress bar, the chrome putting
+ * itself away, and the note of where the reader got to — written sparsely,
+ * because scrolling is not a reason to touch storage and a long strip is
+ * thousands of scrolls.
+ *
+ * Bound to whichever element is actually scrolling (see readScroll): the sheet
+ * in a long strip, the pages element in the two paged layouts. That element is
+ * new on every chapter, so this is called per render and remembers what it has
+ * already bound — a listener per chapter on the sheet would stack, and the
+ * oldest one would be writing the spot of a chapter nobody is reading.
+ */
+let rdSaveTimer = null;
+// True while a spot is being put back: the nudges on the way there are not the
+// reader reading, and none of them should be recorded as where they got to.
+let rdRestoring = false;
+const rdBoundScrollers = typeof WeakSet === 'function' ? new WeakSet() : null;
+
+document.addEventListener('htv:sheet-closed', saveReadSpot);
+
+function scheduleSpot(ms) {
+  if (rdRestoring) return;
+  clearTimeout(rdSaveTimer);
+  rdSaveTimer = setTimeout(saveReadSpot, ms);
+}
+
+function onReaderScroll(e) {
+  paintReadProgress();
+  if (e.target && scrolledFar(e.target)) hideReaderChrome();
+  scheduleSpot(700);
+}
+
+function bindReaderScroll() {
+  const s = readScroll();
+  if (!s.el || (rdBoundScrollers && rdBoundScrollers.has(s.el))) return;
+  if (rdBoundScrollers) rdBoundScrollers.add(s.el);
+  s.el.addEventListener('scroll', onReaderScroll, { passive: true });
+  bindReaderPages();
+}
+
+/**
+ * A page arriving is the spot moving too.
+ *
+ * The pages carry no height until their images arrive, so the position written
+ * after a scroll is measured against a strip that is still growing — the same
+ * pixel offset is a later page once the art above has loaded, and resuming to
+ * it lands a screen or two past where the reader actually stopped. Each page's
+ * `load` re-measures, so what is kept is the position in the finished strip.
+ * `load` does not bubble, hence the capture.
+ */
+function bindReaderPages() {
+  const pages = $('#rd-pages');
+  if (!pages || pages.dataset.rdPagesBound === 'true') return;
+  pages.dataset.rdPagesBound = 'true';
+  pages.addEventListener('load', () => scheduleSpot(400), true);
+}
+
 function bindReaderTap() {
   const sheet = $('#sheet');
-  if (!sheet || sheet.dataset.rdTap === 'true') return;
-  sheet.dataset.rdTap = 'true';
+  if (!sheet || sheet.dataset.rdTapBound === 'true') return;
+  sheet.dataset.rdTapBound = 'true';
+
+  // A phone put in a pocket mid-chapter is the most ordinary way for a reading
+  // position to be lost; the sheet closing has its own listener above.
+  try {
+    document.addEventListener('visibilitychange', () => { if (document.hidden) saveReadSpot(); });
+  } catch (e) { /* older engines: the scroll itself still writes the spot */ }
 
   sheet.addEventListener('pointerdown', (e) => {
     rdTapStart = { x: e.clientX, y: e.clientY, at: Date.now() };
@@ -354,27 +793,25 @@ function bindReaderTap() {
     if (e.target.closest('button, a, input, select, .rd-ui')) return;         // a control
     const x = e.clientX / Math.max(window.innerWidth, 1);
     if (x < 0.33 || x > 0.67) return;
+    // "Show controls: double tap" is a reader who scrolls with a thumb resting
+    // mid-page — one tap must then be nothing at all, or the chrome appears
+    // every time the strip is touched.
+    const wantsDouble = $('#sheet').dataset.rdTap === 'double';
+    const now = Date.now();
+    const paired = now - rdLastTap < 350;
+    rdLastTap = paired ? 0 : now;
+    if (wantsDouble && !paired) return;
     const opening = ui.hidden;
     ui.hidden = !opening;
     ui.setAttribute('aria-hidden', String(!opening));
-    if (opening) rdUiAt = sheet.scrollTop;
-    // One gesture, one thing: putting the controls away also puts away
-    // whatever panel was opened from them.
-    if (!opening) {
-      const panel = $('#rd-panel');
-      if (panel) { panel.hidden = true; panel.innerHTML = ''; }
+    if (opening) {
+      const s = readScroll();
+      if (s.el) rdUiAt = { top: s.el.scrollTop, left: s.el.scrollLeft };
+    } else {
+      // One gesture, one thing: putting the controls away also puts away
+      // whatever panel was opened from them.
+      hideReaderChrome();
     }
-  }, { passive: true });
-
-  sheet.addEventListener('scroll', () => {
-    const ui = $('#rd-ui');
-    if (!ui || ui.hidden) return;
-    // A few pixels is layout noise, not reading.
-    if (Math.abs(sheet.scrollTop - rdUiAt) < 12) return;
-    ui.hidden = true;
-    ui.setAttribute('aria-hidden', 'true');
-    const panel = $('#rd-panel');
-    if (panel) { panel.hidden = true; panel.innerHTML = ''; }
   }, { passive: true });
 }
 
@@ -725,15 +1162,18 @@ async function renderReader() {
         ['flag', 'Report a problem'],
       ].map(([what, label]) => railButton(what, label)).join('')}</div>
       <div class="rd-panel" id="rd-panel" hidden></div>
-    </div>`;
+    </div>
+    <div class="rd-dim" id="rd-dim-layer" aria-hidden="true"></div>
+    <div class="rd-bar" id="rd-bar" data-shape="off" aria-hidden="true"><span id="rd-bar-fill"></span></div>`;
 
   const go = (delta) => {
+    saveReadSpot();   // the chapter being left keeps where the reader got to
     const next = dState.chapters[stepIndex(dState.chapters, rState.idx, delta)];
     if (next) openChapter(Number(next.id));
   };
   $('#rd-prev-b').onclick = () => go(-1);
   $('#rd-next-b').onclick = () => go(1);
-  $('#rd-chapters-b').onclick = () => goBack();
+  $('#rd-chapters-b').onclick = () => { saveReadSpot(); goBack(); };
   bindReaderControls({ go, chapter: ch, atNewest, atOldest });
 
   try {
@@ -748,6 +1188,12 @@ async function renderReader() {
     if (!slot) return;
     slot.innerHTML = pagesHtml(pages);
     applyReadPrefs();
+    // The pages element and the sheet are the same two elements chapter after
+    // chapter, so they are still wherever the last one was read: a chapter opens
+    // at its first page, and a spot is the only thing that moves it.
+    openAtTop();
+    // Back where they stopped, once the pages are there to be found.
+    restoreReadSpot();
   } catch (e) {
     if (seq !== rSeq) return;
     const slot = $('#rd-pages');

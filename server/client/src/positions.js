@@ -94,26 +94,41 @@ function renderLibrary() {
  * The titles that are part-way through, newest first. This is the rail that
  * answers "where was I" — history alone cannot, because a finished title and an
  * abandoned one look identical in it.
+ *
+ * It is drawn twice from the one record: on the Library's own shelf, where the
+ * reader browses everything, and at the top of the 18+ area itself, where they
+ * are when they want to pick the last thing up again. Only the Library's copy
+ * follows that view's search box; the area's rail is about the area.
  */
-function renderContinue(needle) {
-  const rail = $('#cont-rail');
-  const head = $('#cont-head');
-  if (!rail || !head) return;
+const CONTINUE_PLACES = [
+  { rail: 'cont-rail', head: 'cont-head', count: 'cont-count', note: 'cont-note', filtered: true },
+  { rail: 'browse-cont-rail', head: 'browse-cont-head', count: 'browse-cont-count', note: 'browse-cont-note', filtered: false },
+];
 
+function renderContinue(needle) {
   // The order it is in is the order of *watching*, not of first opening: the
   // position is what was written last, so it is what "last watched" means.
   const part = sorted('cont', lib.history
-    .filter((e) => (!needle || libMatches(e)) && progressOf(e.slug) > 0)
-    .map((e) => ({ ...e, at: lib.positions[e.slug]?.at ?? e.at })))
-    .slice(0, 12);
+    .filter((e) => progressOf(e.slug) > 0)
+    .map((e) => ({ ...e, at: lib.positions[e.slug]?.at ?? e.at })));
+  const html = part.slice(0, 12).map((e) => cardHtml(e, { local: true, progress: true })).join('');
 
-  head.hidden = part.length === 0;
-  rail.hidden = part.length === 0;
-  $('#cont-count').textContent = String(part.length);
-  const note = $('#cont-note');
-  note.hidden = part.length > 0;
-  note.textContent = 'Titles you start watching appear here, so you can pick them up where you stopped.';
-  rail.innerHTML = part.map((e) => cardHtml(e, { local: true, progress: true })).join('');
+  for (const place of CONTINUE_PLACES) {
+    const rail = $('#' + place.rail);
+    const head = $('#' + place.head);
+    if (!rail || !head) continue;
+    const rows = place.filtered && needle ? part.filter(libMatches) : part;
+    head.hidden = rows.length === 0;
+    rail.hidden = rows.length === 0;
+    const count = $('#' + place.count);
+    if (count) count.textContent = String(rows.length);
+    const note = $('#' + place.note);
+    if (note) {
+      note.hidden = rows.length > 0;
+      note.textContent = 'Titles you start watching appear here, so you can pick them up where you stopped.';
+    }
+    rail.innerHTML = rows.slice(0, 12).map((e) => cardHtml(e, { local: true, progress: true })).join('');
+  }
 }
 
 // The same toggle, as a pill, inside a title page.

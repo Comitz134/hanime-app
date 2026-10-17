@@ -18,6 +18,7 @@
 // in through setOpener, so this module never has to import a sheet.
 
 import { ago, esc } from './core.js';
+import { readPercent } from './manga-pos.js';
 import { sorted } from './sorts.js';
 
 const KEY = 'htv:activity:v1';
@@ -98,9 +99,18 @@ function activityCardHtml(e) {
   const where = e.kind === 'show' ? unit : `${unit} ${e.number}`;
   const when = ago(e.at);
   const pct = e.total ? Math.min(100, Math.round((e.number / e.total) * 100)) : 0;
+  // A chapter the reader stopped part-way through says so, because the point of
+  // the rail is picking the chapter up again rather than the title: the bar
+  // under the card is how far through the *title* they are, and this is how far
+  // into the chapter the screen opens.
+  const into = e.kind === 'manga' ? readPercent(e.ref) : 0;
+  // The percentage leads, because the card is a narrow column and its meta is
+  // cut off with an ellipsis: how far into the chapter the tap lands is the one
+  // thing on this line a reader came for, and when it was read is the next.
+  const meta = `${into > 0.01 ? `${Math.round(into * 100)}% in · ` : ''}${verb} ${when}`;
   return `<article class="card act-card" data-act="${e.kind}" data-act-id="${esc(e.id)}"
       data-act-num="${e.number}" data-act-ref="${esc(e.ref ?? '')}" tabindex="0" role="button"
-      aria-label="${esc(`${e.title} — ${where}, ${verb} ${when}`)}">
+      aria-label="${esc(`${e.title} — ${where}, ${meta}`)}">
     <div class="card-frame">
       <img loading="lazy" decoding="async" src="${esc(e.cover)}" alt="">
       <div class="card-fallback" hidden>${esc(e.title)}</div>
@@ -117,32 +127,46 @@ function activityCardHtml(e) {
     </div>
     <div class="card-body">
       <h3 class="card-title">${esc(e.title)}</h3>
-      <p class="card-meta">${esc(`${verb} ${when}`)}</p>
+      <p class="card-meta">${esc(meta)}</p>
     </div>
   </article>`;
 }
 
 /* ------------------------------------------------------------------- rails */
 
-/** Each rail's own elements, and what it says when it has nothing to show. */
+/**
+ * Each kind's own elements, and what it says when it has nothing to show.
+ *
+ * A kind can be painted in more than one place, and the two are the same list:
+ * the Library's tab is where a reader browses their own records, and the area
+ * itself is where they are when they want to pick the last thing up again. The
+ * rail is one record written once and drawn where it is looked for, so there is
+ * nothing for the two to disagree about.
+ */
 const RAILS = {
   anime: {
-    sort: 'watch-anime', rail: 'watch-rail', head: 'watch-head', count: 'watch-count',
-    note: 'watch-note',
+    sort: 'watch-anime',
+    places: [
+      { rail: 'watch-rail', head: 'watch-head', count: 'watch-count', note: 'watch-note' },
+      { rail: 'anime-cont-rail', head: 'anime-cont-head', count: 'anime-cont-count', note: 'anime-cont-note' },
+    ],
     empty: 'Episodes you play on this device are listed here, newest first — '
       + 'pick one up without searching for it again.',
   },
   manga: {
-    sort: 'read-manga', rail: 'read-rail', head: 'read-head', count: 'read-count',
-    note: 'read-note',
+    sort: 'read-manga',
+    places: [
+      { rail: 'read-rail', head: 'read-head', count: 'read-count', note: 'read-note' },
+      { rail: 'manga-cont-rail', head: 'manga-cont-head', count: 'manga-cont-count', note: 'manga-cont-note' },
+    ],
     empty: 'Chapters you open are listed here, newest first — the one you were '
       + 'in the middle of stays one tap away.',
   },
   // Films & series: the rail lives in the movies view rather than in the
   // Library, because the resume this area offers is its own page's business.
   show: {
-    sort: 'show-watch', rail: 'show-watch-rail', head: 'show-watch-head',
-    count: 'show-watch-count', note: 'show-watch-note',
+    sort: 'show-watch',
+    places: [{ rail: 'show-watch-rail', head: 'show-watch-head', count: 'show-watch-count', note: 'show-watch-note' }],
     empty: 'Episodes and movies you play on this device are listed here, newest '
       + 'first — pick one up without searching for it again.',
   },
@@ -152,19 +176,22 @@ const RAILS = {
 function renderActivity(kind) {
   const cfg = RAILS[kind];
   if (!cfg) return;
-  const rail = document.getElementById(cfg.rail);
-  if (!rail) return;
   const rows = sorted(cfg.sort, listFor(kind));
-  rail.innerHTML = rows.map(activityCardHtml).join('');
-  rail.hidden = rows.length === 0;
-  const head = document.getElementById(cfg.head);
-  if (head) head.hidden = rows.length === 0;
-  const count = document.getElementById(cfg.count);
-  if (count) count.textContent = String(rows.length);
-  const note = document.getElementById(cfg.note);
-  if (note) {
-    note.hidden = rows.length > 0;
-    note.textContent = rows.length ? '' : cfg.empty;
+  const html = rows.map(activityCardHtml).join('');
+  for (const place of cfg.places) {
+    const rail = document.getElementById(place.rail);
+    if (!rail) continue;
+    rail.innerHTML = html;
+    rail.hidden = rows.length === 0;
+    const head = document.getElementById(place.head);
+    if (head) head.hidden = rows.length === 0;
+    const count = document.getElementById(place.count);
+    if (count) count.textContent = String(rows.length);
+    const note = document.getElementById(place.note);
+    if (note) {
+      note.hidden = rows.length > 0;
+      note.textContent = rows.length ? '' : cfg.empty;
+    }
   }
 }
 

@@ -7,10 +7,11 @@
 // rebuilds.
 
 import { $$ } from './core.js';
+import { renderActivity } from './activity.js';
 import { renderMalShelves } from './mal-library.js';
 import { renderSavedManga } from './manga-saved.js';
 import { pushNav } from './nav-history.js';
-import { renderLibrary } from './positions.js';
+import { renderContinue, renderLibrary } from './positions.js';
 
 /* ------------------------------------------------------------------ views */
 //
@@ -52,6 +53,13 @@ function showView(name) {
     renderSavedManga();
     renderMalShelves();
   }
+  // Every area opens with the thing this device was last on, at its top: an
+  // episode or chapter left half-way is what a reader came back for, and going
+  // to the Library to find it was a detour. Local records, so this is a redraw
+  // rather than a request.
+  if (target.dataset.view === 'anime') renderActivity('anime');
+  if (target.dataset.view === 'manga') renderActivity('manga');
+  if (target.dataset.view === 'browse') renderContinue();
   // Opening a different view starts at its top; pressing the tab you are
   // already on must not throw away your place in it.
   if (changed) scrollTo({ top: 0 });

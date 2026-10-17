@@ -48,6 +48,12 @@ function openSheet(kind, ref, chapter) {
 }
 
 function closeSheet() {
+  // Said before anything is torn down. The manga reader keeps where the reader
+  // got to, and it can only measure that while the pages are still laid out as
+  // a reader: taking `data-reader` off the sheet first reflows the strip, and
+  // the spot measured afterwards is a position nothing was read at. A closed
+  // sheet is not a navigation, so this is an event, not a nav step.
+  document.dispatchEvent(new CustomEvent('htv:sheet-closed'));
   // Leaving is the single best moment to remember where the video got to: the
   // next five-second tick may never arrive, and this is exactly where a person
   // stopped watching.
