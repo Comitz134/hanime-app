@@ -9,6 +9,7 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
+import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -19,6 +20,10 @@ import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewParent;
+import android.view.Window;
+import android.view.WindowInsets;
+import android.view.WindowInsetsController;
+import android.view.WindowManager;
 import android.webkit.ConsoleMessage;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
@@ -75,6 +80,19 @@ public class MainActivity extends Activity {
 
     private boolean sawFirstError = false;
 
+    /** True while the bars are deliberately off the screen (a fullscreen view). */
+    private boolean barsHidden = false;
+
+    /**
+     * True while the page is reading — the manga reader asks for this.
+     *
+     * Not the same thing as `barsHidden`: a fullscreen video owns the screen and
+     * takes both bars, while a reader wants the status bar gone (that band is a
+     * quarter of a page of art) and the navigation bar left alone, because the
+     * back gesture is how you leave it.
+     */
+    private boolean immersive = false;
+
     /** Serves the bundled client and the ported API — the app's whole backend. */
     private ApiServer api;
 
@@ -87,6 +105,14 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // The page owns the whole screen: it draws under the status and
+        // navigation bars, and keeps its own controls out of them with the
+        // insets the shell hands it (systemBars() below). Laying the window out
+        // *beside* the bars instead is what leaves a strip of nothing at the
+        // bottom — the window ends above the bar, the strip shows the window
+        // background, and on a dark theme that strip is a black bar. Reported
+        // from a foldable as "black bars at the bottom, everywhere".
+        applyEdgeToEdge();
         setContentView(R.layout.activity_main);
 
         // Expose the page over `adb forward tcp:9222` so the running app is
@@ -798,6 +824,9 @@ public class MainActivity extends Activity {
         if (parent instanceof ViewGroup) ((ViewGroup) parent).removeView(view);
         root.addView(customView, params);
         web.setVisibility(View.GONE);
+        // Fullscreen means the whole screen: the status and navigation bars go
+        // with it, or the video is letterboxed inside a band of its own window.
+        setSystemBarsHidden(true);
         Log.i(TAG, "fullscreen: showing the page's own video view");
     }
 
@@ -807,11 +836,153 @@ public class MainActivity extends Activity {
         root.removeView(customView);
         customView = null;
         web.setVisibility(View.VISIBLE);
+        setSystemBarsHidden(false);
         if (customViewCallback != null) {
             customViewCallback.onCustomViewHidden();
             customViewCallback = null;
         }
         Log.i(TAG, "fullscreen: back to the page");
+    }
+
+    // --------------------------------------------------------- system bars
+
+    /**
+     * Draw edge to edge, through any cutout, with the bars themselves
+     * transparent.
+     *
+     * The window covers the whole display and the page decides what to do with
+     * the bars' own space: it reads their size through the bridge and insets the
+     * chrome that must not sit under them. Two smaller things go with it. The
+     * contrast scrim is a wash the system paints behind the bars for apps that
+     * draw under them, and over this app's own dark pages it reads as exactly
+     * the black strip this removes — hence `set…ContrastEnforced(false)`. And
+     * the cutout is used rather than avoided (`layoutInDisplayCutoutMode`), or a
+     * phone with a hole in its screen would still reserve a band for it.
+     */
+    @SuppressWarnings("deprecation")
+    private void applyEdgeToEdge() {
+        Window window = getWindow();
+        if (Build.VERSION.SDK_INT >= 30) {
+            window.setDecorFitsSystemWindows(false);
+        } else {
+            window.getDecorView().setSystemUiVisibility(
+                    View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+        }
+        window.setStatusBarColor(Color.TRANSPARENT);
+        window.setNavigationBarColor(Color.TRANSPARENT);
+        if (Build.VERSION.SDK_INT >= 29) {
+            window.setStatusBarContrastEnforced(false);
+            window.setNavigationBarContrastEnforced(false);
+        }
+        if (Build.VERSION.SDK_INT >= 28) {
+            WindowManager.LayoutParams attrs = window.getAttributes();
+            attrs.layoutInDisplayCutoutMode = Build.VERSION.SDK_INT >= 30
+                    ? WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                    : WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+            window.setAttributes(attrs);
+        }
+    }
+
+    /**
+     * Take the system bars off the screen while a page-owned view has it, and
+     * put them back afterwards.
+     *
+     * This is the other half of edge-to-edge, and the half fullscreen needs: a
+     * page that goes fullscreen means the whole screen, and a status bar left
+     * standing over it is a band the video is not allowed to use. Swiping still
+     * brings the bars back for a moment — a phone whose clock and battery cannot
+     * be recalled is worse than one whose video is briefly shorter.
+     */
+    @SuppressWarnings("deprecation")
+    private void setSystemBarsHidden(boolean hidden) {
+        barsHidden = hidden;
+        applySystemBars();
+    }
+
+    /**
+     * Put the bars where the two flags above say they belong.
+     *
+     * One function rather than three call sites, because they interact: leaving
+     * fullscreen while the reader is still open must not bring the status bar
+     * back, and closing the reader must not put a video's bars back mid-film.
+     */
+    @SuppressWarnings("deprecation")
+    private void applySystemBars() {
+        if (Build.VERSION.SDK_INT >= 30) {
+            WindowInsetsController controller = getWindow().getInsetsController();
+            if (controller == null) return;
+            if (barsHidden) {
+                controller.setSystemBarsBehavior(
+                        WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                controller.hide(WindowInsets.Type.systemBars());
+            } else if (immersive) {
+                controller.show(WindowInsets.Type.navigationBars());
+                controller.hide(WindowInsets.Type.statusBars());
+            } else {
+                controller.show(WindowInsets.Type.systemBars());
+            }
+            // The page insets its own chrome with the bars' size, so it is told
+            // again once they have actually animated away: a page told at the
+            // moment of the request keeps the inset of the bar that is leaving.
+            MainThread.postDelayed(this::tellPageInsets, 320);
+            return;
+        }
+        int laidOut = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION;
+        int flags = laidOut;
+        if (barsHidden) {
+            flags |= View.SYSTEM_UI_FLAG_FULLSCREEN
+                    | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                    | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
+        } else if (immersive) {
+            // FULLSCREEN alone is the status bar; the navigation bar stays.
+            flags |= View.SYSTEM_UI_FLAG_FULLSCREEN;
+        }
+        getWindow().getDecorView().setSystemUiVisibility(flags);
+        MainThread.postDelayed(this::tellPageInsets, 320);
+    }
+
+    /**
+     * A phone's bars come back by themselves, and this puts them away again.
+     *
+     * Several builds — One UI's in particular — restore the status bar when the
+     * window regains focus even though the fullscreen view never left it: pull
+     * the shade down and close it, come back from the app switcher, and the
+     * video is letterboxed under a band of clock and battery with no way to get
+     * rid of it short of leaving fullscreen. Re-applying the current state on
+     * every focus change is what keeps a fullscreen video fullscreen; when
+     * nothing is hidden it is one no-op call.
+     */
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) setSystemBarsHidden(barsHidden);
+    }
+
+    /**
+     * A foldable unfolded, a phone rotated, a window resized — all three change
+     * where the bars are without recreating the activity (the manifest claims
+     * those configuration changes). The page is holding the old numbers, so it
+     * is told the new ones.
+     */
+    @Override
+    public void onConfigurationChanged(Configuration config) {
+        super.onConfigurationChanged(config);
+        applyEdgeToEdge();
+        MainThread.postDelayed(this::tellPageInsets, 120);
+    }
+
+    /** The page's own hook for re-reading the bars; see applyShellInsets in shell.js. */
+    private void tellPageInsets() {
+        if (web == null) return;
+        try {
+            web.evaluateJavascript("window.__shellInsets&&window.__shellInsets()", null);
+        } catch (Exception e) {
+            Log.w(TAG, "insets were not handed over", e);
+        }
     }
 
     // ------------------------------------------------------------ web client
@@ -1024,6 +1195,62 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public String serverUrl() {
             return currentBase();
+        }
+
+        /**
+         * Where the phone's own bars are and whether they are on screen, as
+         * `"<top>,<bottom>,<visible>"` in device pixels.
+         *
+         * The shell's half of edge-to-edge: CSS `env(safe-area-inset-*)` reports
+         * only the display cutout, which is nothing at all on a phone whose
+         * status bar is an ordinary band, so a page relying on it alone draws
+         * its header under the clock. The page sets these as custom properties
+         * and insets its fixed chrome with the larger of the two. Zero while the
+         * bars are hidden, which is also how a fullscreen view proves it took
+         * the screen.
+         */
+        @JavascriptInterface
+        public String systemBars() {
+            // A bar taken away for a fullscreen view is not a bar to clear, and
+            // the framework's own `isVisible` is not a reliable answer here:
+            // on Android 15 it reports `false` for an app drawing edge to edge
+            // whose bars are plainly on screen (measured on device — 94px of
+            // status bar, `isVisible` false), which zeroed every inset the page
+            // asked for. The shell knows when it hid them, so that is what it
+            // answers with.
+            if (root == null) return "0,0,false";
+            WindowInsets insets = root.getRootWindowInsets();
+            if (insets == null) return "0,0,false";
+            // Device pixels. The page divides by devicePixelRatio: the numbers
+            // here are physical and the stylesheet is in CSS pixels, which on
+            // this phone is 94px of status bar that is 34px of page.
+            if (Build.VERSION.SDK_INT >= 30) {
+                android.graphics.Insets status = insets.getInsets(WindowInsets.Type.statusBars());
+                android.graphics.Insets nav = insets.getInsets(WindowInsets.Type.navigationBars());
+                // Asked per bar rather than as one lump, because the two are
+                // hidden separately: a reader keeps the navigation bar for the
+                // back gesture but takes the status bar's band for the art.
+                int top = (barsHidden || immersive) ? 0 : status.top;
+                int bottom = barsHidden ? 0 : nav.bottom;
+                return top + "," + bottom + "," + !(barsHidden || immersive);
+            }
+            int top = (barsHidden || immersive) ? 0 : insets.getSystemWindowInsetTop();
+            return top + "," + (barsHidden ? 0 : insets.getSystemWindowInsetBottom()) + ",true";
+        }
+
+        /**
+         * Reading mode: the status bar goes, the navigation bar stays.
+         *
+         * The manga reader asks for this when a chapter fills the screen and
+         * lets it go when the chapter is closed — the page's own header is
+         * inset by systemBars(), so it follows without being told twice.
+         */
+        @JavascriptInterface
+        public void setImmersive(final boolean on) {
+            MainThread.post(() -> {
+                immersive = on;
+                applySystemBars();
+            });
         }
 
         @JavascriptInterface

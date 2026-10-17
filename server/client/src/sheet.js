@@ -53,6 +53,11 @@ function closeSheet() {
   // stopped watching.
   if (activeSlug && activeVid) savePosition(activeSlug, activeVid);
   shellCall('setPlaying', false);
+  // Whatever was in the sheet is gone, so reading is over: the status bar a
+  // chapter took away comes back with the shelf it lands on, and the sheet
+  // stops being a reader for the next title opened in it.
+  shellCall('setImmersive', false);
+  $('#sheet').dataset.reader = 'false';
 
   const vid = $('#vid');
   if (vid) { vid.pause(); vid.removeAttribute('src'); vid.load(); }

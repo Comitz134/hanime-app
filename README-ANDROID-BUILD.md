@@ -155,16 +155,16 @@ APK=app/build/outputs/apk/release/app-release.apk
 sha256sum "$APK"
 ```
 
-Current build (this tree, published as v1.0.34):
+Current build (this tree, published as v1.0.35):
 
 ```
-package: name='app.hanime.shell' versionCode='35' versionName='1.0.34'
+package: name='app.hanime.shell' versionCode='36' versionName='1.0.35'
 sdkVersion:'26'   targetSdkVersion:'34'
 launchable-activity: name='app.hanime.shell.MainActivity'
 permissions: INTERNET, ACCESS_NETWORK_STATE, REQUEST_INSTALL_PACKAGES, POST_NOTIFICATIONS
 Verifies / v2 scheme: true / signer CN=hanime shell (unchanged)  [cert sha256 13c01040…]
-2,085,375 bytes / sha256 e60e8443359615550617dc03623fa77bbb025ab67a3d95c2b60d2ac645c454f7
-  assets/index.html 529,713 bytes sha256 90714bff5bc127ff7fbbe8594aad05be60d2ccdc9a4ae89ef88b04e9f0852a97
+2,092,211 bytes / sha256 56225d3971a354d62eafdbecfe4aacec96ec000991898adccaa6940866a95a6b
+  assets/index.html 548,888 bytes sha256 e26e9fc93b3392a131e3c8aa4569184492a3803319dfa02aa36627ffcc96df6e
   assets/hls.min.js 413,952 bytes sha256 484054e8cd03d3f6d1781fb7f402bdc318d8a4c527f933a95c624e27cc9a9470
 ```
 
@@ -172,14 +172,21 @@ The bundled client's digest above is the one read back out of the APK built
 from this tree — not assumed — and it is byte-identical to
 `server/public/index.html` in this tree (and to the copy under
 `android/app/src/main/assets/`) — and an anonymous fetch of the release asset
-returns those same 2,085,375 bytes and that same sha256, so what is published is
+returns those same 2,092,211 bytes and that same sha256, so what is published is
 what was measured. Both channels were read back anonymously after the upload:
 `releases/latest/download/version.json` and
-`releases/download/channel-beta/version.json` each answer `version_code 35`,
-that size, that sha256 and 1.0.34's own note. That APK was also installed over
+`releases/download/channel-beta/version.json` each answer `version_code 36`,
+that size, that sha256 and 1.0.35's own note. That APK was also installed over
 the running app on the reader's own phone (`23124RA7EO`, a Redmi Note 13, in
-place, data kept) before this was written, and the 1.0.34 measures below were
-taken on it.
+place, data kept) before this was written, and the 1.0.35 measures in §8.0.10
+were taken on it.
+
+1.0.35 is the release that gives the reader **MangaFire's controls** and takes
+the phone's own bars out of the way: the middle of the screen brings up a
+chapter pill and a rail down the right edge, reading hides the status bar, and
+the window is edge to edge on every screen — which is the black strip a foldable
+was showing under manga, anime and everything else (§8.0.10). The same client
+is what the desktop window serves, so §8.0.10's reader is in both.
 
 1.0.34 is the release that makes **fullscreen work in both embed areas** — one
 crash and one dead button, and they are not the same bug (§8.0.9). Both the
@@ -1749,6 +1756,111 @@ input events requires the caller … to have the INJECT_EVENTS permission`), so 
 harness could not send one; the path it would take is the one in `handleBack`
 above, and the video's own controls were used to leave fullscreen instead.
 
+### 8.0.10 The reader's controls, and the bars that were eating the screen (v36 / 1.0.35)
+
+Reported as three things at once: *"add this ui from mangafire when i click in
+the middle of the screen when in the middle of a chapter"*, *"the fullscreen that
+you added right now has a flaw, the statusbar from the phone never disappears so
+we lose space to see the anime"*, and *"add full support for samsung z fold 8,
+they have blackbars on the bottom of the screen on manga anime and everywhere"*.
+The first two were reproduced and measured on the reader's own phone; the third
+is largely the same change as the second — a window that is laid out *beside*
+the bars instead of under them leaves a strip of nothing, and on a display the
+app has refused to resize into, the strip is on every screen.
+
+**What the device said about the insets.** The page draws edge to edge now, so
+it has to be told where the phone's bars are, and the bridge was answering wrong
+in two ways at once:
+
+```
+Shell.systemBars()                 "94,0,false"    ← 94px of status bar, reported invisible
+--shell-inset-top                  0px             ← so the page cleared nothing at all
+innerHeight / screen.height        872 / 873       ← the WebView was already full-bleed
+window.devicePixelRatio            2.75            ← 94 device pixels is 34 CSS pixels
+```
+
+`WindowInsets.isVisible(systemBars())` answers `false` on Android 15 for an app
+drawing edge to edge with its bars plainly on screen, and the page believed the
+flag. The shell knows when *it* hid them, so that is what it answers with now.
+The second is units: the bridge measures the window in device pixels and a
+stylesheet is in CSS pixels — handing `94` to `padding-top` reserves 258
+physical pixels for a 94-pixel bar, and worse the denser the phone. The page
+divides by `devicePixelRatio`:
+
+```
+Shell.systemBars()                 "94,0,true"     after
+--shell-inset-top                  34px
+.nav (the page's own pill)         top 43          ← 8 + 34 + 1 of border
+```
+
+**The reader itself**, driven over the WebView's devtools socket on the phone
+(§8.0.9's harness, `tools/webview-probe.mjs`), against the bundle that ships:
+
+| done | what came back |
+|---|---|
+| open a title, open a chapter, tap the middle | `#rd-ui` visible, pill `Ch. 167 / 254`, 6 rail buttons, pill top 47, rail 9px off the right edge |
+| tap the middle again | controls hidden |
+| rail → list | panel open, 254 rows, the open chapter carrying `aria-current` |
+| rail → gear, then *Fit page* | `#rd-pages[data-fit="height"]`, and `readerFit: "height"` kept in the device's own `localStorage` |
+| rail → home | the sheet's own bar back (`display: flex`), `Shell.systemBars()` → `94,0,true` |
+
+Reading takes the status bar, the way MangaFire's reader does — one bar rather
+than both, because the back gesture is how a chapter is left:
+
+```
+while reading   Shell.systemBars() "0,0,false"   --shell-inset-top 0px   pill top 12
+back on the sheet  Shell.systemBars() "94,0,true"   --shell-inset-top 34px  sheet bar back
+```
+
+and the pill only takes the edge while the bar is *really* gone:
+`env(safe-area-inset-top)` keeps answering 35px after the status bar is hidden —
+the hole in the glass does not move — so `max(env(…), var(--shell-inset-top))`
+alone would hold the pill 35px down a screen it has all of. The shell publishes
+`data-shell-bars="hidden"` and the reader's chrome believes that instead.
+
+Nothing about the reader is a second app: every rail button is an action this
+client already had (the shelf, the title page, the jump list, the reading
+settings, this help, the report), the pill steps through the same chapter walk
+the Newer/Older rows use — so a chapter posted twice is never two steps (§7.8)
+— and the sheet's own Back bar is out of the way while a chapter is open, which
+is what makes the pages full-bleed.
+
+**Fullscreen.** The bars are hidden for a fullscreen view, and put away again on
+every focus change: One UI and MIUI both restore the status bar when the window
+regains focus with the fullscreen view still up, which is the "status bar never
+disappears" report. Measured with the page itself in fullscreen
+(`document.fullscreenElement` is `body`, entered with a real user gesture over
+CDP):
+
+```
+top 200px of the screen, cropped out of screencap   no clock, no battery, no bar — the page's own pill is the topmost thing on it
+window flags                                       mAppBounds=Rect(0, 0 - 1080, 2400), letterBoxed=false
+```
+
+**The foldable part** is the same change plus the window itself:
+`android:resizeableActivity="true"`, the cutout claimed in the theme
+(`windowLayoutInDisplayCutoutMode shortEdges`) and re-applied per SDK level, both
+bars transparent, and the contrast scrims off (`setStatusBarContrastEnforced`,
+`setNavigationBarContrastEnforced`) — that wash is painted behind the bars by the
+system for apps drawing under them, and over a dark page it is exactly the black
+strip this removes. An unfold is a configuration change the activity claims
+(`orientation|screenSize|screenLayout|smallestScreenSize`), so the activity
+re-reads the insets and tells the page instead of restarting the chapter.
+
+Client tests pin the shape rather than the pixels: the pill and its own words,
+six rail buttons each naming an action this app has, the duplicate rule the pill
+steps through, what a middle tap is *not* (a drag, a long press, a tap on a side
+of the page, a tap on a control), the guard that stops an image arriving from
+closing the chrome in the same breath it opened in, the immersive hand-off and
+both of its releases, the density division, and the full-bleed reader — 344
+tests, all passing on this tree (`npm run selftest` in `server/`).
+
+**Not verified here:** a Galaxy Z Fold, which is where the black bars were
+reported. There is no frame to arrange beyond the standard remedy — a resizable
+window laid out edge to edge, with the cutout claimed and the bars transparent —
+and what *was* measured is that the app's window covers the whole display on the
+phone in hand, `letterBoxed=false` and `mAppBounds` equal to the display.
+
 ### 8.1 What is not verified here
 
 Stated plainly, because the rest of this section is measured:
@@ -1762,6 +1874,9 @@ Stated plainly, because the rest of this section is measured:
   consent screen were all observed, but an abrupt emulator kill landed mid-install
   both times it was attempted. The mechanics are unchanged from 1.0.7.
 - **A real, decoded playback through the new resume path** (see §9).
+- **A Galaxy Z Fold**, where the black bars in §8.0.10 were reported. The
+  remedy is the standard one and the window is measured edge to edge on another
+  phone; a foldable unfolding mid-chapter was not measured at all.
 
 ---
 

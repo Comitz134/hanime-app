@@ -18,4 +18,16 @@ final class MainThread {
             HANDLER.post(runnable);
         }
     }
+
+    /**
+     * The same, a moment later.
+     *
+     * For work that has to see the result of something the framework does
+     * asynchronously: the window's insets are not final when a system bar is
+     * asked to hide, and a page told where the bars are too early keeps the
+     * inset of a bar that is already gone.
+     */
+    static void postDelayed(Runnable runnable, long delayMs) {
+        HANDLER.postDelayed(runnable, delayMs);
+    }
 }

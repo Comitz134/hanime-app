@@ -2,11 +2,13 @@
    Floating pill nav
    -------------------------------------------------------------------------- */
 .nav-wrap {
-  position: fixed; inset-inline: 0; top: .5rem; z-index: 9999;
-  padding-top: env(safe-area-inset-top);
+  position: fixed; inset-inline: 0; top: 0; z-index: 9999;
   pointer-events: none;
   display: flex; justify-content: center;
-  padding-top: calc(.5rem + env(safe-area-inset-top));
+  /* The page draws under the phone's bars, so the pill has to clear them
+     itself: the cutout inset when there is one, and the shell's own measured
+     status-bar height otherwise — the larger of the two, never both. */
+  padding-top: calc(.5rem + max(env(safe-area-inset-top, 0px), var(--shell-inset-top)));
 }
 .nav {
   pointer-events: auto;

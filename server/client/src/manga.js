@@ -11,7 +11,7 @@
 // chapter replaces it with the reader, and every one of those steps is a
 // line on the history stack the back button walks.
 
-import { $, esc, fmtCount } from './core.js';
+import { $, $$, esc, fmtCount } from './core.js';
 import { noteOpen, renderActivity } from './activity.js';
 import { autoAdvance, configured, onTrackedProgress } from './mal.js';
 import { goBack, pushNav } from './nav-history.js';
@@ -21,8 +21,9 @@ import { isRead, markRead, setProgress } from './manga-read.js';
 import { prefs, savePrefs } from './prefs.js';
 import { isSaved, toggleSaved } from './manga-saved.js';
 import { mangaChapters, mangaDetail, mangaFilterOptions, mangaPages, mangaSearch, mangaTrending, posterFor, proxied, sourceUrl } from './manga-api.js';
-import { openSheet, setSheetOrigin } from './sheet.js';
+import { closeSheet, openSheet, setSheetOrigin } from './sheet.js';
 import { shellCall, shellCan } from './shell.js';
+import { showView } from './views.js';
 
 /* ------------------------------------------------------------------ grid */
 
@@ -125,6 +126,260 @@ let slotHome = null;
 const rState = { idx: -1 };
 let rSeq = 0;
 
+/* ------------------------------------------------------- the reader's chrome
+   What MangaFire's reader puts on screen when you tap the middle of a page,
+   and the reason it works on a phone: the controls are something you bring
+   up, not a frame the pages sit inside. The chapter's position is a pill at
+   the top with a step either side of it, and the things a reader actually
+   reaches for hang off the right edge — the shelf, the title page, a jump to
+   any chapter, how pages are sized, what the controls do, and what to do
+   about a chapter whose pages did not arrive.
+
+   Every button is one of this app's own actions, so the rail is a second way
+   to the same places rather than a second app: the pill steps through the
+   same chapter walk the "Newer/Older" rows use (manga-dupes.js, so a twin
+   upload is never a step), the title icon is the screen this reader was
+   opened from, and the jump list is the title's own chapter list. */
+const RAIL_ICONS = {
+  // Home: the way out of the reader, back to the shelf.
+  home: '<path d="M3.5 10.6 12 3.8l8.5 6.8"/><path d="M5.6 9.4V20h12.8V9.4"/><path d="M10 20v-5.4h4V20"/>',
+  // An open book: the title page, whose chapter list is the spine of a title.
+  book: '<path d="M12 6.4C10.2 5 8 4.3 5.5 4.3c-.9 0-1.7.1-2.5.3v13c.8-.2 1.6-.3 2.5-.3 2.5 0 4.7.7 6.5 2.1"/><path d="M12 6.4c1.8-1.4 4-2.1 6.5-2.1.9 0 1.7.1 2.5.3v13c-.8-.2-1.6-.3-2.5-.3-2.5 0-4.7.7-6.5 2.1"/><path d="M12 6.4v15"/>',
+  // A list: jump straight to a chapter without leaving the reader.
+  list: '<path d="M4 6.5h.01M4 12h.01M4 17.5h.01"/><path d="M8.5 6.5H20M8.5 12H20M8.5 17.5H20"/>',
+  // Reading settings: how the pages are sized, and whether they touch.
+  gear: '<circle cx="12" cy="12" r="3.1"/><path d="M19.4 14.5a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.11a1.7 1.7 0 0 0-1.1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.11A1.7 1.7 0 0 0 4.65 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06A2 2 0 1 1 7.08 4.14l.06.06a1.7 1.7 0 0 0 1.87.34H9.1a1.7 1.7 0 0 0 1.03-1.56V3a2 2 0 1 1 4 0v.11a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.01a1.7 1.7 0 0 0 1.56 1.03H21a2 2 0 1 1 0 4h-.11a1.7 1.7 0 0 0-1.49 1.02z"/>',
+  // A question mark: what the controls do.
+  help: '<circle cx="12" cy="12" r="8.6"/><path d="M9.6 9.3a2.5 2.5 0 1 1 3.5 2.3c-.7.35-1.1.8-1.1 1.6v.4"/><path d="M12 16.6h.01"/>',
+  // A flag: a chapter whose pages did not arrive.
+  flag: '<path d="M5.5 21V4.2"/><path d="M5.5 4.7c3.4-1.2 6.6 1.4 10 0v8.2c-3.4 1.4-6.6-1.2-10 0z"/>',
+};
+
+const railButton = (what, label) => `
+      <button class="rd-rail-btn" type="button" data-rd="${what}" aria-label="${label}" title="${label}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${RAIL_ICONS[what]}</svg>
+      </button>`;
+
+/** The reader's own settings, as they were left on this device. */
+function applyReadPrefs() {
+  const pages = $('#rd-pages');
+  if (!pages) return;
+  pages.dataset.fit = prefs.readerFit === 'height' ? 'height' : 'width';
+  pages.dataset.gap = prefs.readerGap ? 'on' : 'off';
+}
+
+/** The pages of a chapter, as the reader draws them: one column, no seams. */
+const pagesHtml = (pages) => (pages.length
+  ? pages.map((p, i) => `<img class="rd-page" loading="lazy" decoding="async" src="${esc(proxied(p.url))}" alt="Page ${i + 1}">`).join('')
+  : '<p class="note">No pages came back for this chapter.</p>');
+
+/**
+ * Everything the controls do, wired to the chapter on screen.
+ *
+ * The panel is one element rewritten per choice rather than six screens: it
+ * holds a chapter list hundreds of rows long for one icon and two buttons for
+ * another, and only one of those is ever up. Closing it, or scrolling the
+ * chapter under it, puts the reader back to pages and nothing else.
+ */
+function bindReaderControls({ go, chapter, atNewest, atOldest }) {
+  const ui = $('#rd-ui');
+  const panel = $('#rd-panel');
+  if (!ui || !panel) return;
+  applyReadPrefs();
+
+  const closePanel = () => { panel.hidden = true; panel.innerHTML = ''; };
+  const hideUi = () => {
+    ui.hidden = true;
+    ui.setAttribute('aria-hidden', 'true');
+    closePanel();
+  };
+  const openPanel = (title, body) => {
+    panel.innerHTML = `<div class="rd-panel-head">
+        <b>${esc(title)}</b>
+        <button class="rd-panel-x" type="button" data-rd-close aria-label="Close">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+               stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+      </div>${body}`;
+    panel.hidden = false;
+    $('[data-rd-close]', panel).onclick = closePanel;
+  };
+
+  $('#rd-ui-prev').onclick = () => { if (!atNewest) go(-1); };
+  $('#rd-ui-next').onclick = () => { if (!atOldest) go(1); };
+
+  const jumpPanel = () => `<div class="rd-jump">${dState.chapters.map((c, i) => `
+      <button class="ch-card rd-jump-row" type="button" data-rd-jump="${esc(String(c.id))}"
+              ${i === rState.idx ? 'aria-current="true"' : ''}>
+        <span class="ch-num ${isRead(dState.hid, c.number) ? 'ch-num--read' : ''}">Ch. ${esc(String(c.number))}</span>
+        <span class="ch-title">${esc(c.name ?? '')}</span>
+      </button>`).join('')}</div>`;
+
+  const showJump = () => {
+    openPanel('Chapters', jumpPanel());
+    // Opened where the reader already is, not at chapter one: a title with a
+    // thousand rows would otherwise always open on the wrong end of it.
+    const here = $('[aria-current="true"]', panel);
+    const list = $('.rd-jump', panel);
+    if (here && list) list.scrollTop = Math.max(0, here.offsetTop - list.clientHeight / 2);
+    $$('[data-rd-jump]', panel).forEach((b) => {
+      b.onclick = () => {
+        const id = Number(b.dataset.rdJump);
+        hideUi();
+        if (id && id !== Number(chapter.id)) openChapter(id);
+      };
+    });
+  };
+
+  const settingsPanel = () => `
+    <div class="rd-choice">
+      <span>Page size</span>
+      <span class="rd-choice-row">
+        <button class="chip" type="button" data-rd-fit="width" aria-pressed="${prefs.readerFit !== 'height'}">Fit width</button>
+        <button class="chip" type="button" data-rd-fit="height" aria-pressed="${prefs.readerFit === 'height'}">Fit page</button>
+      </span>
+    </div>
+    <div class="rd-choice">
+      <span>Gap between pages</span>
+      <span class="rd-choice-row">
+        <button class="chip" type="button" data-rd-gap="toggle" aria-pressed="${!!prefs.readerGap}">${prefs.readerGap ? 'On' : 'Off'}</button>
+      </span>
+    </div>
+    <p class="note">A page taller than the screen scrolls either way; “Fit page”
+      draws the whole of it instead, which is what a spread or a two-page scan
+      needs.</p>`;
+
+  const showSettings = () => {
+    openPanel('Reading', settingsPanel());
+    $$('[data-rd-fit]', panel).forEach((b) => {
+      b.onclick = () => {
+        prefs.readerFit = b.dataset.rdFit === 'height' ? 'height' : 'width';
+        savePrefs();
+        applyReadPrefs();
+        showSettings();   // repaint the choice that is now picked
+      };
+    });
+    $('[data-rd-gap]', panel).onclick = () => {
+      prefs.readerGap = !prefs.readerGap;
+      savePrefs();
+      applyReadPrefs();
+      showSettings();
+    };
+  };
+
+  const showHelp = () => openPanel('Controls', `
+    <ul class="rd-help">
+      <li>Tap the middle of the page to bring these controls up, and again to put them away.</li>
+      <li>Scroll to read — the controls hide themselves as soon as the pages move.</li>
+      <li>The pill at the top steps to the newer and older chapter; a chapter posted twice is not two steps.</li>
+      <li>The rail on the right: the shelf, this title's page, a jump to any chapter, how pages are sized, this list, and where to go when a chapter will not load.</li>
+    </ul>`);
+
+  const showProblem = () => {
+    openPanel('Chapter will not load?', `
+      <p class="note">Pages come from the source site itself, so a page that is
+        missing there is missing here too — reloading asks it again in case the
+        answer was only slow.</p>
+      <div class="rd-choice-row">
+        <button class="chip" type="button" data-rd-reload="1">Reload this chapter</button>
+        ${shellCan('openSource') ? '<button class="chip" type="button" data-rd-source="1">Open on mangafire</button>' : ''}
+      </div>`);
+    $('[data-rd-reload]', panel).onclick = async () => {
+      hideUi();
+      pagesCache.delete(chapter.id);
+      const slot = $('#rd-pages');
+      if (!slot) return;
+      slot.innerHTML = '<div class="center-spin"><div class="spinner"></div></div>';
+      try {
+        const again = await mangaPages(chapter.id);
+        trimCache(pagesCache, 60);
+        pagesCache.set(chapter.id, again);
+        slot.innerHTML = pagesHtml(again);
+        applyReadPrefs();
+      } catch (e) {
+        slot.innerHTML = `<p class="note">Still no pages — ${esc(e.message)}</p>`;
+      }
+    };
+    const src = $('[data-rd-source]', panel);
+    if (src) src.onclick = () => shellCall('openSource', sourceUrl(dState.hid));
+  };
+
+  const actions = {
+    home: () => { hideUi(); closeSheet(); showView('manga'); },
+    book: () => { hideUi(); goBack(); },          // the title page is the screen below
+    list: showJump,
+    gear: showSettings,
+    help: showHelp,
+    flag: showProblem,
+  };
+  $$('.rd-rail-btn', ui).forEach((b) => { b.onclick = () => actions[b.dataset.rd]?.(); });
+}
+
+/**
+ * A tap in the middle of the screen brings the controls up — and takes them
+ * away again.
+ *
+ * The middle third only: the sides are where a thumb rests while a chapter is
+ * scrolled, and a panel that appeared there would answer the wrong question.
+ * A drag is not a tap and neither is a long press, so reading never trips it;
+ * and the first scroll puts the controls away, so a chapter is never read
+ * through a floating pill. Bound once, on the sheet, because the reader
+ * rewrites its own markup on every chapter and a listener per render would
+ * stack.
+ */
+let rdTapStart = null;
+// Where the pages were when the chrome came up. A scroll that is not the
+// reader's own — an image arriving and shifting the layout under them, or the
+// browser restoring a position — is not the pages being read, and must not take
+// the controls away in the same breath they appeared in.
+let rdUiAt = 0;
+function bindReaderTap() {
+  const sheet = $('#sheet');
+  if (!sheet || sheet.dataset.rdTap === 'true') return;
+  sheet.dataset.rdTap = 'true';
+
+  sheet.addEventListener('pointerdown', (e) => {
+    rdTapStart = { x: e.clientX, y: e.clientY, at: Date.now() };
+  }, { passive: true });
+
+  sheet.addEventListener('pointerup', (e) => {
+    const start = rdTapStart;
+    rdTapStart = null;
+    if (!start) return;
+    if (Math.hypot(e.clientX - start.x, e.clientY - start.y) > 12) return;   // a scroll
+    if (Date.now() - start.at > 700) return;                                 // a long press
+    const ui = $('#rd-ui');
+    if (!ui) return;                                                         // not the reader
+    if (e.target.closest('button, a, input, select, .rd-ui')) return;         // a control
+    const x = e.clientX / Math.max(window.innerWidth, 1);
+    if (x < 0.33 || x > 0.67) return;
+    const opening = ui.hidden;
+    ui.hidden = !opening;
+    ui.setAttribute('aria-hidden', String(!opening));
+    if (opening) rdUiAt = sheet.scrollTop;
+    // One gesture, one thing: putting the controls away also puts away
+    // whatever panel was opened from them.
+    if (!opening) {
+      const panel = $('#rd-panel');
+      if (panel) { panel.hidden = true; panel.innerHTML = ''; }
+    }
+  }, { passive: true });
+
+  sheet.addEventListener('scroll', () => {
+    const ui = $('#rd-ui');
+    if (!ui || ui.hidden) return;
+    // A few pixels is layout noise, not reading.
+    if (Math.abs(sheet.scrollTop - rdUiAt) < 12) return;
+    ui.hidden = true;
+    ui.setAttribute('aria-hidden', 'true');
+    const panel = $('#rd-panel');
+    if (panel) { panel.hidden = true; panel.innerHTML = ''; }
+  }, { passive: true });
+}
+
+
+
 function trimCache(map, max = 40) {
   while (map.size > max) map.delete(map.keys().next().value);
 }
@@ -142,6 +397,10 @@ const plain = (html) => esc(String(html ?? '').replace(/<[^>]+>/g, ' ').replace(
 const label = (s) => String(s ?? '').replace(/_/g, ' ');
 
 function renderDetail() {
+  // The title page is not the reader: the phone's status bar comes back for it,
+  // which is also how it comes back when the reader steps back here.
+  shellCall('setImmersive', false);
+  $('#sheet').dataset.reader = 'false';
   const d = dState.detail;
   // A fresh page has the slot in the side column, whatever the last one did
   // with it.
@@ -381,6 +640,12 @@ async function openChapter(chId) {
   pushNav();
   setSheetOrigin({ kind: 'manga', ref: dState.hid, chapter: String(chId) });
   rState.idx = idx;
+  // Reading takes the status bar with it: a quarter of a page of art is a bad
+  // thing to spend on a clock, and MangaFire's reader spends none of it. The
+  // shell hides that one bar (the back gesture still works) and the page's own
+  // chrome follows, because the insets it is laid out on are re-read. Released
+  // by the title page and by closeSheet.
+  shellCall('setImmersive', true);
   await renderReader();
   // A chapter that opened is a chapter being read, so the account's own list is
   // told — once, never backwards, and never in the reader's way: the write is
@@ -420,30 +685,56 @@ async function renderReader() {
 
   $('#sheet-count').hidden = false;
   $('#sheet-count').textContent = `Ch. ${Number(ch.number)}`;
+  // Reading is pages, and nothing else. The sheet's own bar (Back, the chapter
+  // count) and the title block that used to sit above the pages are chrome
+  // around a chapter nobody asked for: the pill says where in the title you
+  // are, the rail is the way out, and the only row left is the one at the end
+  // of the chapter, where stepping on is the next thing you want. This is the
+  // shape MangaFire's reader has, and the reason it reads as a book.
+  $('#sheet').dataset.reader = 'true';
 
   $('#sheet-body').innerHTML = `
-    <div class="rd-head">
-      <div class="rd-title">${esc(dState.detail?.title ?? '')}</div>
-      <div class="rd-sub">Chapter ${esc(String(ch.number))}${ch.name ? ' · ' + esc(ch.name) : ''}</div>
-    </div>
-    <div class="rd-nav">
-      <button class="page-btn" id="rd-prev" type="button" ${atNewest ? 'disabled' : ''}>← Newer</button>
-      <button class="page-btn" id="rd-chapters" type="button">Chapters</button>
-      <button class="page-btn" id="rd-next" type="button" ${atOldest ? 'disabled' : ''}>Older →</button>
-    </div>
     <div class="rd-pages" id="rd-pages"><div class="center-spin"><div class="spinner"></div></div></div>
-    <div class="rd-nav">
-      <button class="page-btn" id="rd-prev-b" type="button" ${atNewest ? 'disabled' : ''}>← Newer</button>
-      <button class="page-btn" id="rd-next-b" type="button" ${atOldest ? 'disabled' : ''}>Older →</button>
+    <div class="rd-end">
+      <div class="rd-end-title">${esc(dState.detail?.title ?? '')}</div>
+      <div class="rd-end-sub">Chapter ${esc(String(ch.number))} of ${dState.chapters.length}${ch.name ? ' · ' + esc(ch.name) : ''}</div>
+      <div class="rd-nav">
+        <button class="page-btn" id="rd-prev-b" type="button" ${atNewest ? 'disabled' : ''}>← Newer</button>
+        <button class="page-btn" id="rd-chapters-b" type="button">Chapters</button>
+        <button class="page-btn" id="rd-next-b" type="button" ${atOldest ? 'disabled' : ''}>Older →</button>
+      </div>
+    </div>
+    <div class="rd-ui" id="rd-ui" hidden aria-hidden="true">
+      <div class="rd-pill">
+        <button class="rd-pill-btn" id="rd-ui-prev" type="button" aria-label="Newer chapter" ${atNewest ? 'disabled' : ''}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 5.5 8 12l6.5 6.5"/></svg>
+        </button>
+        <span class="rd-pill-pos" id="rd-ui-pos">Ch. ${esc(String(ch.number))} / ${dState.chapters.length}</span>
+        <button class="rd-pill-btn" id="rd-ui-next" type="button" aria-label="Older chapter" ${atOldest ? 'disabled' : ''}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.5 5.5 16 12l-6.5 6.5"/></svg>
+        </button>
+      </div>
+      <div class="rd-rail">${[
+        ['home', 'Home'],
+        ['book', 'Title and chapters'],
+        ['list', 'Jump to a chapter'],
+        ['gear', 'Reading settings'],
+        ['help', 'What the controls do'],
+        ['flag', 'Report a problem'],
+      ].map(([what, label]) => railButton(what, label)).join('')}</div>
+      <div class="rd-panel" id="rd-panel" hidden></div>
     </div>`;
 
   const go = (delta) => {
     const next = dState.chapters[stepIndex(dState.chapters, rState.idx, delta)];
     if (next) openChapter(Number(next.id));
   };
-  for (const id of ['rd-prev', 'rd-prev-b']) $('#' + id).onclick = () => go(-1);
-  for (const id of ['rd-next', 'rd-next-b']) $('#' + id).onclick = () => go(1);
-  $('#rd-chapters').onclick = () => goBack();
+  $('#rd-prev-b').onclick = () => go(-1);
+  $('#rd-next-b').onclick = () => go(1);
+  $('#rd-chapters-b').onclick = () => goBack();
+  bindReaderControls({ go, chapter: ch, atNewest, atOldest });
 
   try {
     let pages = pagesCache.get(ch.id);
@@ -455,9 +746,8 @@ async function renderReader() {
     if (seq !== rSeq) return;   // another chapter took the screen meanwhile
     const slot = $('#rd-pages');
     if (!slot) return;
-    slot.innerHTML = pages.length
-      ? pages.map((p, i) => `<img class="rd-page" loading="lazy" decoding="async" src="${esc(proxied(p.url))}" alt="Page ${i + 1}">`).join('')
-      : '<p class="note">No pages came back for this chapter.</p>';
+    slot.innerHTML = pagesHtml(pages);
+    applyReadPrefs();
   } catch (e) {
     if (seq !== rSeq) return;
     const slot = $('#rd-pages');
@@ -519,6 +809,7 @@ function bindMangaView() {
   });
 }
 bindMangaView();
+bindReaderTap();
 
 // Cards in the manga grid, chapters in the list under the detail, and the four
 // controls on a title page. All of them are delegated from the document: the

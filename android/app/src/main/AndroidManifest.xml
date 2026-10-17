@@ -43,10 +43,20 @@
           the flag is set, the framework stops calling onBackPressed and the
           dispatcher is the only way to hear about the gesture.
         -->
+        <!--
+          resizeableActivity is declared rather than inherited: a foldable runs
+          the app in two shapes, and one that refuses to resize is letterboxed
+          into a phone-sized frame with black bars on the bottom and sides of a
+          display it is not using. The configuration list is the same idea for
+          a shape change that should not cost the reader their chapter — an
+          unfold is a screenLayout/screenSize change, which MainActivity
+          answers by re-reading the window insets rather than restarting.
+        -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
+            android:resizeableActivity="true"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize|uiMode"
             android:supportsPictureInPicture="true"
             android:theme="@style/Theme.Shell"

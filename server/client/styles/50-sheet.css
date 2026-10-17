@@ -15,7 +15,10 @@
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 .sheet-panel {
   max-width: 1280px; margin: 0 auto;
-  padding: calc(1rem + env(safe-area-inset-top)) .75rem 4rem;
+  /* Clear the phone's bars with whatever is larger: the cutout inset, or the
+     status-bar height the shell reports (see --shell-inset-top in tokens). */
+  padding: calc(1rem + max(env(safe-area-inset-top, 0px), var(--shell-inset-top)))
+    .75rem calc(4rem + var(--shell-inset-bottom));
 }
 @media (min-width: 640px) { .sheet-panel { padding-inline: 1.25rem; } }
 @media (min-width: 1024px){ .sheet-panel { padding-inline: 2rem; } }

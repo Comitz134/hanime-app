@@ -17,7 +17,14 @@ const PREFS_KEY = 'htv:prefs:v1';
 // `hideDuplicates` is a reading preference rather than a look, and it rides
 // here because this is the device's own store: a title page's list is drawn
 // from it, and it has to survive a restart the way the theme does.
-const DEFAULT_PREFS = { theme: 'dark', accent: 'amber', motion: 'full', hideDuplicates: false };
+// `readerFit` and `readerGap` are the manga reader's own two settings — how a
+// page is sized (the width it was drawn at, or the whole page inside the
+// screen) and whether pages are separated by a gap. They ride here with the
+// rest of the device's choices, so they survive a restart and an update.
+const DEFAULT_PREFS = {
+  theme: 'dark', accent: 'amber', motion: 'full', hideDuplicates: false,
+  readerFit: 'width', readerGap: false,
+};
 const prefs = Object.assign({}, DEFAULT_PREFS);
 
 function loadPrefs() {

@@ -1586,3 +1586,142 @@ test('an embed goes fullscreen through a control the page owns', () => {
   assert.ok((script.match(/mountEmbedStage\(/g) ?? []).length >= 2,
     'an embed area mounts the stage without wiring its controls');
 });
+
+// The reader's controls. They came from MangaFire's reader, which is the shape
+// a phone reader wants: the pages and nothing else, with the chrome a thing the
+// middle of the screen brings up. What has to hold is that the chrome is
+// reachable (it is drawn, and each button does one of this app's own things),
+// that reading itself is never interrupted (a drag, a long press, a tap on a
+// control or on either side of the page is not a middle tap), and that it goes
+// away by itself when the pages move.
+//
+// Assertions run against the bundle that ships, so whitespace and quote style
+// are the bundler's business: both sides are collapsed and quoted leniently.
+test('the manga reader brings its controls up from the middle of the screen', () => {
+  const flat = inlineScripts(html)[0].replace(/\s+/g, ' ');
+  const css = stylesheets(html)[0].replace(/\s+/g, ' ');
+
+  // The pill and the rail, and the pill's own words: where in the title this
+  // chapter is, with a step either side of it.
+  assert.ok(/class="rd-pill"/.test(flat), 'the reader has no chapter pill');
+  assert.ok(/id="rd-ui-pos">Ch\. \$\{esc\(String\(ch\.number\)\)\} \/ \$\{dState\.chapters\.length\}/.test(flat),
+    'the pill does not say which chapter of how many');
+  assert.ok(/id="rd-ui-prev"/.test(flat) && /id="rd-ui-next"/.test(flat),
+    'the pill has no step either side of it');
+  assert.ok(/class="rd-rail"/.test(flat), 'the reader has no rail');
+
+  // Six buttons, and every one of them an action this app already has — the
+  // rail is a second way to the same places, not a second app.
+  for (const what of ['home', 'book', 'list', 'gear', 'help', 'flag']) {
+    assert.ok(new RegExp(`\[["']${what}["'],`).test(flat), `the rail has no ${what} button`);
+  }
+  const actions = [
+    [/closeSheet\(\); showView\((["'])manga\1\)/, 'the home button'],
+    [/book: \(\) => \{ hideUi\(\); goBack\(\);/, 'the title button'],
+    [/list: showJump/, 'the chapter-jump button'],
+    [/gear: showSettings/, 'the reading-settings button'],
+    [/help: showHelp/, 'the help button'],
+    [/flag: showProblem/, 'the report button'],
+  ];
+  for (const [re, what] of actions) assert.ok(re.test(flat), `${what} does nothing`);
+
+  // A chapter posted twice is not two steps: the pill walks the same chapter
+  // walk the Newer/Older rows do, which is what keeps a step from landing on
+  // an upload of the chapter already open.
+  assert.ok(/const next = dState\.chapters\[stepIndex\(dState\.chapters, rState\.idx, delta\)\]/.test(flat),
+    'the pill steps through chapters without the duplicate rule');
+
+  // What a middle tap is, and what it is not.
+  assert.ok(/Math\.hypot\(e\.clientX - start\.x, e\.clientY - start\.y\) > 12/.test(flat),
+    'a scroll would be read as a tap');
+  assert.ok(/Date\.now\(\) - start\.at > 700/.test(flat), 'a long press would be read as a tap');
+  assert.ok(/if \(x < 0\.33 \|\| x > 0\.67\) return;/.test(flat),
+    'a tap on the sides of the page would bring the controls up');
+  assert.ok(/closest\((["'])button, a, input, select, \.rd-ui\1\)/.test(flat),
+    'a press on a control would toggle the controls underneath it');
+  assert.ok(/sheet\.dataset\.rdTap === (["'])true\1/.test(flat),
+    'the tap handler is rebound on every render, so the listeners stack');
+
+  // And it puts itself away: the first scroll of the pages closes the panel
+  // and the chrome, so a chapter is never read through a floating pill.
+  assert.ok(/addEventListener\((["'])scroll\1, \(\) => \{.{0,600}?ui\.hidden = true/.test(flat),
+    'the controls stay up over a chapter being read');
+  // …but a page arriving and shifting the layout is not the reader scrolling:
+  // without this guard the chrome closed itself in the same frame it opened.
+  assert.ok(/Math\.abs\(sheet\.scrollTop - rdUiAt\) < 12/.test(flat),
+    'a layout shift takes the controls away as soon as they appear');
+  assert.ok(/\.rd-ui \{ position: fixed; inset: 0; z-index: 6; pointer-events: none; \}/.test(css),
+    'the overlay layer would eat the taps that are meant to reach the page');
+
+  // Reading is pages and nothing else: the sheet's own Back bar goes while a
+  // chapter is open, and the pages stop being inset by the title page's frame.
+  assert.ok(/dataset\.reader = (["'])true\1/.test(flat), 'the sheet never learns it is showing a reader');
+  assert.ok(/#sheet\[data-reader="true"\] \.sheet-top \{ display: none; \}/.test(css),
+    "a chapter is read under the sheet's own Back bar");
+  assert.ok(/#sheet\[data-reader="true"\] \.sheet-panel \{ max-width: none; padding: 0 0 /.test(css),
+    'the pages are inset by the title page frame');
+  assert.equal((flat.match(/dataset\.reader = (["'])false\1/g) || []).length, 2,
+    'the sheet can be left showing a reader after the chapter is gone');
+
+  // The reader takes the status bar, like MangaFire's does, and gives it back:
+  // one ask when a chapter opens, and two ways out (the title page, and the
+  // sheet closing) that both release it, so a shelf is never shown with the
+  // clock missing.
+  assert.ok(/shellCall\((["'])setImmersive\1, true\)/.test(flat),
+    'a chapter does not take the status bar');
+  const released = flat.match(/setImmersive[^)]*false/g) || [];
+  assert.equal(released.length, 2,
+    'leaving the reader does not give the status bar back on both exits');
+
+  // The rail's own settings are the reader's, and they are remembered.
+  assert.ok(/readerFit: (["'])width\1, readerGap: false/.test(flat),
+    'the reader has no page-size or gap setting to keep');
+  assert.ok(/\.rd-pages\[data-fit="height"\] \.rd-page/.test(css),
+    'fit-page is offered and does nothing');
+  assert.ok(/\.rd-pages\[data-gap="on"\]/.test(css), 'the page gap is offered and does nothing');
+});
+
+// Drawing under the phone's own bars. The shell reports where they are
+// (`Shell.systemBars()`), and the page insets its fixed chrome with the larger
+// of that and the browser's cutout inset — because `env(safe-area-inset-top)`
+// is zero on a phone whose status bar is an ordinary band, which is every phone
+// without a hole in its screen. Without this the page's own header sits under
+// the clock, and the strip the window used to leave for the bar is the black
+// bar this was reported as.
+test('the page keeps its own chrome out of the phone bars it now draws under', () => {
+  const flat = inlineScripts(html)[0].replace(/\s+/g, ' ');
+  const css = stylesheets(html)[0].replace(/\s+/g, ' ');
+
+  assert.ok(/shellCan\((["'])systemBars\1\)/.test(flat), 'the page never asks the shell where the bars are');
+  assert.ok(/setProperty\((["'])--shell-inset-top\1, `\$\{px\(top\)\}px`\)/.test(flat),
+    'the status bar height never reaches the stylesheet');
+  assert.ok(/setProperty\((["'])--shell-inset-bottom\1, `\$\{px\(bottom\)\}px`\)/.test(flat),
+    'the navigation bar height never reaches the stylesheet');
+  // The shell measures the window in device pixels and the stylesheet is in
+  // CSS pixels: 94 physical pixels of status bar is 34 of page at 2.75×, and
+  // handing the physical number over would reserve three bars' worth of space.
+  assert.ok(/Math\.round\(device \/ density\)/.test(flat),
+    'device pixels reach the stylesheet as if they were CSS pixels');
+  // `env(safe-area-inset-top)` keeps reporting the notch after the status bar
+  // is hidden, so a place that wants the edge while reading needs the bar's own
+  // answer, published on the root element.
+  assert.ok(/dataset\.shellBars = visible === (["'])false\1 \? (["'])hidden\2 : (["'])shown\3/.test(flat),
+    'the page never learns whether the status bar is on screen');
+  assert.ok(/:root\[data-shell-bars="hidden"\] \.rd-pill \{ top: \.75rem; \}/.test(css),
+    'the reader pill still clears a status bar that is not there');
+  // Unfolding a foldable and rotating are both resizes, and neither may leave
+  // the insets of the screen before it in place.
+  assert.ok(/window\.addEventListener\((["'])resize\1, applyShellInsets\)/.test(flat),
+    'a resize would leave the old insets in place');
+
+  assert.ok(/--shell-inset-top: 0px;/.test(css) && /--shell-inset-bottom: 0px;/.test(css),
+    'the custom properties have no default, so the page has none until the shell answers');
+  // The consumers, each taking the larger of the cutout and the real bar.
+  const larger = /max\(env\(safe-area-inset-top, 0px\), var\(--shell-inset-top\)\)/;
+  for (const rule of ['\.nav-wrap', '\.sheet-panel']) {
+    assert.ok(new RegExp(`${rule} \{.{0,500}?${larger.source}`).test(css),
+      `${rule.slice(1)} does not clear the status bar`);
+  }
+  assert.ok(/\.rd-pill \{ .{0,400}?top: calc\(\.75rem \+ max\(env\(safe-area-inset-top, 0px\), var\(--shell-inset-top\)\)\)/.test(css),
+    'the reader pill sits in the status bar');
+});

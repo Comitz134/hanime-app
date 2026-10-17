@@ -47,6 +47,14 @@
   --brand-500: 29.5 100% 88%;
   --brand-600: 29 85% 76%;
   --radius: .5rem;
+  /* Where the phone's own bars are, in the app's own pixels. The shell sets
+     these on <html> on every resize (shell.js — `applyShellInsets`), because
+     the browser's `env(safe-area-inset-*)` is the display *cutout* and reports
+     nothing on a phone whose status bar is an ordinary band. Fixed chrome
+     clears both: `max(env(safe-area-inset-top, 0px), var(--shell-inset-top))`.
+     Zero in a plain browser, which leaves the env() value to speak. */
+  --shell-inset-top: 0px;
+  --shell-inset-bottom: 0px;
   --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --font-serif: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
   --ease-out-expo: cubic-bezier(.16, 1, .3, 1);
@@ -100,7 +108,7 @@ img { display: block; }
    `main.container` outranks the padding shorthand above, so the media
    queries cannot take the space back. */
 main.container {
-  padding-top: calc(4.75rem + env(safe-area-inset-top));
+  padding-top: calc(4.75rem + max(env(safe-area-inset-top, 0px), var(--shell-inset-top)));
 }
 
 .stack > * + * { margin-top: 1rem; }
@@ -114,11 +122,13 @@ main.container {
    Floating pill nav
    -------------------------------------------------------------------------- */
 .nav-wrap {
-  position: fixed; inset-inline: 0; top: .5rem; z-index: 9999;
-  padding-top: env(safe-area-inset-top);
+  position: fixed; inset-inline: 0; top: 0; z-index: 9999;
   pointer-events: none;
   display: flex; justify-content: center;
-  padding-top: calc(.5rem + env(safe-area-inset-top));
+  /* The page draws under the phone's bars, so the pill has to clear them
+     itself: the cutout inset when there is one, and the shell's own measured
+     status-bar height otherwise — the larger of the two, never both. */
+  padding-top: calc(.5rem + max(env(safe-area-inset-top, 0px), var(--shell-inset-top)));
 }
 .nav {
   pointer-events: auto;
@@ -653,7 +663,10 @@ select.filter-select[data-set="true"] {
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 .sheet-panel {
   max-width: 1280px; margin: 0 auto;
-  padding: calc(1rem + env(safe-area-inset-top)) .75rem 4rem;
+  /* Clear the phone's bars with whatever is larger: the cutout inset, or the
+     status-bar height the shell reports (see --shell-inset-top in tokens). */
+  padding: calc(1rem + max(env(safe-area-inset-top, 0px), var(--shell-inset-top)))
+    .75rem calc(4rem + var(--shell-inset-bottom));
 }
 @media (min-width: 640px) { .sheet-panel { padding-inline: 1.25rem; } }
 @media (min-width: 1024px){ .sheet-panel { padding-inline: 2rem; } }
@@ -1214,14 +1227,26 @@ h2 .area-chip { font-size: .5625rem; }
   overflow-wrap: anywhere;
 }
 
-/* The reader: a heading that says where you are, one row of stepping stones,
-   then the pages — full width, one under the other, nothing between them. */
-.rd-head { margin-bottom: .875rem; }
-.rd-title {
+/* Reading is the pages, edge to edge, and nothing above them: the sheet's own
+   bar (Back, the chapter count) and the padding that frames a title page are
+   chrome a chapter does not need. The pill and the rail are how it is driven,
+   and the way out is the rail or the system's back gesture — the shape
+   MangaFire's reader has, and the reason it reads as a book. */
+#sheet[data-reader="true"] .sheet-top { display: none; }
+#sheet[data-reader="true"] .sheet-panel {
+  max-width: none;
+  padding: 0 0 calc(.75rem + var(--shell-inset-bottom));
+}
+
+/* After the last page: what this was, and the way on. The one row of chrome a
+   reader does want, and it is at the end of the chapter rather than over it. */
+.rd-end { padding: 1.5rem 1rem 1.25rem; text-align: center; }
+.rd-end-title {
   font-size: .9375rem; font-weight: 700; line-height: 1.3;
   overflow-wrap: anywhere;
 }
-.rd-sub { margin-top: .125rem; font-size: .75rem; color: hsl(var(--muted-foreground)); }
+.rd-end-sub { margin-top: .25rem; font-size: .75rem; color: hsl(var(--muted-foreground)); }
+.rd-end .rd-nav { margin: 1rem 0 0; }
 .rd-nav {
   display: flex; gap: .5rem; justify-content: space-between;
   margin: .875rem 0;
@@ -1245,6 +1270,119 @@ h2 .area-chip { font-size: .5625rem; }
   display: block; width: 100%; height: auto; margin: 0;
   background: hsl(var(--muted) / .12);
 }
+/* "Fit page": the whole of a page inside the screen instead of the width it
+   was drawn at. A spread or a two-page scan is the reason it exists, and a
+   tall strip of it is what scrolling is for. */
+.rd-pages[data-fit="height"] .rd-page {
+  width: auto; max-width: 100%; max-height: 100vh; margin-inline: auto;
+}
+.rd-pages[data-gap="on"] { gap: .5rem; padding-block: .5rem; }
+
+/* ---- the controls the middle of the screen brings up ---------------------
+   A pill with the chapter's position and a rail down the right edge, over the
+   pages, on nothing of their own. The layer covers the screen but takes no
+   pointer events: what a tap in the middle does is the page's business (see
+   bindReaderTap in manga.js), and the controls are only drawn once it has
+   been asked for them. */
+.rd-ui { position: fixed; inset: 0; z-index: 6; pointer-events: none; }
+.rd-ui[hidden] { display: none; }
+.rd-ui > * { pointer-events: auto; }
+
+.rd-pill {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  /* Under the phone's own bars rather than in them: the page draws edge to
+     edge now, and the shell reports where those bars are. */
+  top: calc(.75rem + max(env(safe-area-inset-top, 0px), var(--shell-inset-top)));
+  display: flex; align-items: center; gap: .125rem; padding: .25rem;
+  border-radius: 999px; border: 1px solid rgb(255 255 255 / .12);
+  background: rgb(0 0 0 / .62);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 14px 34px -14px rgb(0 0 0 / .85);
+}
+.rd-pill-btn {
+  display: grid; place-items: center; width: 2.25rem; height: 2.25rem;
+  border-radius: 999px; color: #fff; transition: background .2s, opacity .2s;
+}
+.rd-pill-btn svg { width: 1.125rem; height: 1.125rem; }
+.rd-pill-btn:hover { background: rgb(255 255 255 / .12); }
+.rd-pill-btn:active { background: rgb(255 255 255 / .2); }
+.rd-pill-btn:disabled { opacity: .3; }
+.rd-pill-pos {
+  padding-inline: .375rem; font-size: .8125rem; font-weight: 600; color: #fff;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+
+.rd-rail {
+  position: absolute; right: .625rem; top: 50%; transform: translateY(-50%);
+  display: flex; flex-direction: column; gap: .125rem; padding: .3125rem;
+  border-radius: 999px; border: 1px solid rgb(255 255 255 / .1);
+  background: rgb(0 0 0 / .55);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 14px 34px -14px rgb(0 0 0 / .85);
+}
+.rd-rail-btn {
+  display: grid; place-items: center; width: 2.25rem; height: 2.25rem;
+  border-radius: 999px; color: rgb(255 255 255 / .86);
+  transition: background .2s, color .2s;
+}
+.rd-rail-btn svg { width: 1.125rem; height: 1.125rem; }
+.rd-rail-btn:hover { background: rgb(255 255 255 / .12); color: #fff; }
+.rd-rail-btn:active { background: rgb(255 255 255 / .2); }
+
+/* The panel one of the rail's buttons opens: a chapter list hundreds of rows
+   long for one of them, two buttons for another, so it scrolls rather than
+   growing past the screen. */
+/* While the shell has the bars hidden — which is what the reader asks for —
+   there is no bar to clear, and the browser's cutout inset still reports the
+   notch under them. Reading gets the edge. */
+:root[data-shell-bars="hidden"] .rd-pill { top: .75rem; }
+:root[data-shell-bars="hidden"] .rd-panel { bottom: .75rem; }
+
+.rd-panel {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  bottom: calc(.75rem + var(--shell-inset-bottom));
+  width: min(30rem, calc(100% - 1.25rem)); max-height: 62vh;
+  display: flex; flex-direction: column; overflow: hidden;
+  border-radius: 1rem; border: 1px solid hsl(var(--border));
+  background: hsl(var(--card) / .96);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 24px 60px -20px rgb(0 0 0 / .8);
+}
+.rd-panel[hidden] { display: none; }
+.rd-panel-head {
+  display: flex; align-items: center; justify-content: space-between; gap: .5rem;
+  padding: .625rem .75rem; border-bottom: 1px solid hsl(var(--border) / .6);
+  font-size: .8125rem;
+}
+.rd-panel-x {
+  display: grid; place-items: center; width: 1.75rem; height: 1.75rem;
+  border-radius: 999px; color: hsl(var(--muted-foreground));
+}
+.rd-panel-x:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
+.rd-panel-x svg { width: 1rem; height: 1rem; }
+.rd-jump {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  display: flex; flex-direction: column; gap: .375rem; padding: .625rem;
+}
+.rd-jump-row[aria-current="true"] {
+  border-color: hsl(var(--primary) / .7); background: hsl(var(--primary) / .12);
+}
+.rd-choice {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: .75rem; padding: .75rem .875rem; font-size: .8125rem;
+  border-bottom: 1px solid hsl(var(--border) / .5);
+}
+.rd-choice-row { display: flex; flex-wrap: wrap; gap: .375rem; }
+.rd-panel > .rd-choice-row { padding: .75rem .875rem; }
+/* The note keeps its own padding inside a panel, where it is the body text
+   rather than a line under a card. */
+.rd-panel > .note { margin: 0; padding: .75rem .875rem; }
+.rd-help {
+  margin: 0; padding: .875rem 1.25rem .875rem 1.875rem; overflow-y: auto;
+  display: flex; flex-direction: column; gap: .5rem; list-style: disc;
+  font-size: .8125rem; line-height: 1.6; color: hsl(var(--muted-foreground));
+}
+.rd-help li::marker { color: hsl(var(--primary)); }
 
 /* --------------------------------------------------------------------------
    MyAnimeList tracking
@@ -2534,7 +2672,14 @@ select.filter-select.sort-select {
 
   // client/src/prefs.js
   var PREFS_KEY = "htv:prefs:v1";
-  var DEFAULT_PREFS = { theme: "dark", accent: "amber", motion: "full", hideDuplicates: false };
+  var DEFAULT_PREFS = {
+    theme: "dark",
+    accent: "amber",
+    motion: "full",
+    hideDuplicates: false,
+    readerFit: "width",
+    readerGap: false
+  };
   var prefs = Object.assign({}, DEFAULT_PREFS);
   function loadPrefs() {
     try {
@@ -7894,6 +8039,219 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
   var slotHome = null;
   var rState = { idx: -1 };
   var rSeq = 0;
+  var RAIL_ICONS = {
+    // Home: the way out of the reader, back to the shelf.
+    home: '<path d="M3.5 10.6 12 3.8l8.5 6.8"/><path d="M5.6 9.4V20h12.8V9.4"/><path d="M10 20v-5.4h4V20"/>',
+    // An open book: the title page, whose chapter list is the spine of a title.
+    book: '<path d="M12 6.4C10.2 5 8 4.3 5.5 4.3c-.9 0-1.7.1-2.5.3v13c.8-.2 1.6-.3 2.5-.3 2.5 0 4.7.7 6.5 2.1"/><path d="M12 6.4c1.8-1.4 4-2.1 6.5-2.1.9 0 1.7.1 2.5.3v13c-.8-.2-1.6-.3-2.5-.3-2.5 0-4.7.7-6.5 2.1"/><path d="M12 6.4v15"/>',
+    // A list: jump straight to a chapter without leaving the reader.
+    list: '<path d="M4 6.5h.01M4 12h.01M4 17.5h.01"/><path d="M8.5 6.5H20M8.5 12H20M8.5 17.5H20"/>',
+    // Reading settings: how the pages are sized, and whether they touch.
+    gear: '<circle cx="12" cy="12" r="3.1"/><path d="M19.4 14.5a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.11a1.7 1.7 0 0 0-1.1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.11A1.7 1.7 0 0 0 4.65 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06A2 2 0 1 1 7.08 4.14l.06.06a1.7 1.7 0 0 0 1.87.34H9.1a1.7 1.7 0 0 0 1.03-1.56V3a2 2 0 1 1 4 0v.11a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.01a1.7 1.7 0 0 0 1.56 1.03H21a2 2 0 1 1 0 4h-.11a1.7 1.7 0 0 0-1.49 1.02z"/>',
+    // A question mark: what the controls do.
+    help: '<circle cx="12" cy="12" r="8.6"/><path d="M9.6 9.3a2.5 2.5 0 1 1 3.5 2.3c-.7.35-1.1.8-1.1 1.6v.4"/><path d="M12 16.6h.01"/>',
+    // A flag: a chapter whose pages did not arrive.
+    flag: '<path d="M5.5 21V4.2"/><path d="M5.5 4.7c3.4-1.2 6.6 1.4 10 0v8.2c-3.4 1.4-6.6-1.2-10 0z"/>'
+  };
+  var railButton = (what, label2) => `
+      <button class="rd-rail-btn" type="button" data-rd="${what}" aria-label="${label2}" title="${label2}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${RAIL_ICONS[what]}</svg>
+      </button>`;
+  function applyReadPrefs() {
+    const pages = $("#rd-pages");
+    if (!pages) return;
+    pages.dataset.fit = prefs.readerFit === "height" ? "height" : "width";
+    pages.dataset.gap = prefs.readerGap ? "on" : "off";
+  }
+  var pagesHtml = (pages) => pages.length ? pages.map((p, i) => `<img class="rd-page" loading="lazy" decoding="async" src="${esc(proxied(p.url))}" alt="Page ${i + 1}">`).join("") : '<p class="note">No pages came back for this chapter.</p>';
+  function bindReaderControls({ go, chapter, atNewest, atOldest }) {
+    const ui = $("#rd-ui");
+    const panel = $("#rd-panel");
+    if (!ui || !panel) return;
+    applyReadPrefs();
+    const closePanel = () => {
+      panel.hidden = true;
+      panel.innerHTML = "";
+    };
+    const hideUi = () => {
+      ui.hidden = true;
+      ui.setAttribute("aria-hidden", "true");
+      closePanel();
+    };
+    const openPanel = (title, body) => {
+      panel.innerHTML = `<div class="rd-panel-head">
+        <b>${esc(title)}</b>
+        <button class="rd-panel-x" type="button" data-rd-close aria-label="Close">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+               stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+      </div>${body}`;
+      panel.hidden = false;
+      $("[data-rd-close]", panel).onclick = closePanel;
+    };
+    $("#rd-ui-prev").onclick = () => {
+      if (!atNewest) go(-1);
+    };
+    $("#rd-ui-next").onclick = () => {
+      if (!atOldest) go(1);
+    };
+    const jumpPanel = () => `<div class="rd-jump">${dState.chapters.map((c, i) => `
+      <button class="ch-card rd-jump-row" type="button" data-rd-jump="${esc(String(c.id))}"
+              ${i === rState.idx ? 'aria-current="true"' : ""}>
+        <span class="ch-num ${isRead(dState.hid, c.number) ? "ch-num--read" : ""}">Ch. ${esc(String(c.number))}</span>
+        <span class="ch-title">${esc(c.name ?? "")}</span>
+      </button>`).join("")}</div>`;
+    const showJump = () => {
+      openPanel("Chapters", jumpPanel());
+      const here = $('[aria-current="true"]', panel);
+      const list = $(".rd-jump", panel);
+      if (here && list) list.scrollTop = Math.max(0, here.offsetTop - list.clientHeight / 2);
+      $$("[data-rd-jump]", panel).forEach((b) => {
+        b.onclick = () => {
+          const id = Number(b.dataset.rdJump);
+          hideUi();
+          if (id && id !== Number(chapter.id)) openChapter(id);
+        };
+      });
+    };
+    const settingsPanel = () => `
+    <div class="rd-choice">
+      <span>Page size</span>
+      <span class="rd-choice-row">
+        <button class="chip" type="button" data-rd-fit="width" aria-pressed="${prefs.readerFit !== "height"}">Fit width</button>
+        <button class="chip" type="button" data-rd-fit="height" aria-pressed="${prefs.readerFit === "height"}">Fit page</button>
+      </span>
+    </div>
+    <div class="rd-choice">
+      <span>Gap between pages</span>
+      <span class="rd-choice-row">
+        <button class="chip" type="button" data-rd-gap="toggle" aria-pressed="${!!prefs.readerGap}">${prefs.readerGap ? "On" : "Off"}</button>
+      </span>
+    </div>
+    <p class="note">A page taller than the screen scrolls either way; \u201CFit page\u201D
+      draws the whole of it instead, which is what a spread or a two-page scan
+      needs.</p>`;
+    const showSettings = () => {
+      openPanel("Reading", settingsPanel());
+      $$("[data-rd-fit]", panel).forEach((b) => {
+        b.onclick = () => {
+          prefs.readerFit = b.dataset.rdFit === "height" ? "height" : "width";
+          savePrefs();
+          applyReadPrefs();
+          showSettings();
+        };
+      });
+      $("[data-rd-gap]", panel).onclick = () => {
+        prefs.readerGap = !prefs.readerGap;
+        savePrefs();
+        applyReadPrefs();
+        showSettings();
+      };
+    };
+    const showHelp = () => openPanel("Controls", `
+    <ul class="rd-help">
+      <li>Tap the middle of the page to bring these controls up, and again to put them away.</li>
+      <li>Scroll to read \u2014 the controls hide themselves as soon as the pages move.</li>
+      <li>The pill at the top steps to the newer and older chapter; a chapter posted twice is not two steps.</li>
+      <li>The rail on the right: the shelf, this title's page, a jump to any chapter, how pages are sized, this list, and where to go when a chapter will not load.</li>
+    </ul>`);
+    const showProblem = () => {
+      openPanel("Chapter will not load?", `
+      <p class="note">Pages come from the source site itself, so a page that is
+        missing there is missing here too \u2014 reloading asks it again in case the
+        answer was only slow.</p>
+      <div class="rd-choice-row">
+        <button class="chip" type="button" data-rd-reload="1">Reload this chapter</button>
+        ${shellCan("openSource") ? '<button class="chip" type="button" data-rd-source="1">Open on mangafire</button>' : ""}
+      </div>`);
+      $("[data-rd-reload]", panel).onclick = async () => {
+        hideUi();
+        pagesCache.delete(chapter.id);
+        const slot = $("#rd-pages");
+        if (!slot) return;
+        slot.innerHTML = '<div class="center-spin"><div class="spinner"></div></div>';
+        try {
+          const again = await mangaPages(chapter.id);
+          trimCache(pagesCache, 60);
+          pagesCache.set(chapter.id, again);
+          slot.innerHTML = pagesHtml(again);
+          applyReadPrefs();
+        } catch (e) {
+          slot.innerHTML = `<p class="note">Still no pages \u2014 ${esc(e.message)}</p>`;
+        }
+      };
+      const src = $("[data-rd-source]", panel);
+      if (src) src.onclick = () => shellCall("openSource", sourceUrl(dState.hid));
+    };
+    const actions = {
+      home: () => {
+        hideUi();
+        closeSheet();
+        showView("manga");
+      },
+      book: () => {
+        hideUi();
+        goBack();
+      },
+      // the title page is the screen below
+      list: showJump,
+      gear: showSettings,
+      help: showHelp,
+      flag: showProblem
+    };
+    $$(".rd-rail-btn", ui).forEach((b) => {
+      b.onclick = () => {
+        var _a10;
+        return (_a10 = actions[b.dataset.rd]) == null ? void 0 : _a10.call(actions);
+      };
+    });
+  }
+  var rdTapStart = null;
+  var rdUiAt = 0;
+  function bindReaderTap() {
+    const sheet = $("#sheet");
+    if (!sheet || sheet.dataset.rdTap === "true") return;
+    sheet.dataset.rdTap = "true";
+    sheet.addEventListener("pointerdown", (e) => {
+      rdTapStart = { x: e.clientX, y: e.clientY, at: Date.now() };
+    }, { passive: true });
+    sheet.addEventListener("pointerup", (e) => {
+      const start = rdTapStart;
+      rdTapStart = null;
+      if (!start) return;
+      if (Math.hypot(e.clientX - start.x, e.clientY - start.y) > 12) return;
+      if (Date.now() - start.at > 700) return;
+      const ui = $("#rd-ui");
+      if (!ui) return;
+      if (e.target.closest("button, a, input, select, .rd-ui")) return;
+      const x = e.clientX / Math.max(window.innerWidth, 1);
+      if (x < 0.33 || x > 0.67) return;
+      const opening = ui.hidden;
+      ui.hidden = !opening;
+      ui.setAttribute("aria-hidden", String(!opening));
+      if (opening) rdUiAt = sheet.scrollTop;
+      if (!opening) {
+        const panel = $("#rd-panel");
+        if (panel) {
+          panel.hidden = true;
+          panel.innerHTML = "";
+        }
+      }
+    }, { passive: true });
+    sheet.addEventListener("scroll", () => {
+      const ui = $("#rd-ui");
+      if (!ui || ui.hidden) return;
+      if (Math.abs(sheet.scrollTop - rdUiAt) < 12) return;
+      ui.hidden = true;
+      ui.setAttribute("aria-hidden", "true");
+      const panel = $("#rd-panel");
+      if (panel) {
+        panel.hidden = true;
+        panel.innerHTML = "";
+      }
+    }, { passive: true });
+  }
   function trimCache(map, max = 40) {
     while (map.size > max) map.delete(map.keys().next().value);
   }
@@ -7909,6 +8267,8 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
   var label = (s) => String(s ?? "").replace(/_/g, " ");
   function renderDetail() {
     var _a10;
+    shellCall("setImmersive", false);
+    $("#sheet").dataset.reader = "false";
     const d = dState.detail;
     slotHome = null;
     const genres = (d.genres ?? []).map((g) => `<span class="hero-tag">${esc(g.title ?? g.name ?? String(g))}</span>`).join("");
@@ -8079,6 +8439,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     pushNav();
     setSheetOrigin({ kind: "manga", ref: dState.hid, chapter: String(chId) });
     rState.idx = idx;
+    shellCall("setImmersive", true);
     await renderReader();
     const ch = dState.chapters[idx];
     autoAdvance("manga", (_a10 = dState.detail) == null ? void 0 : _a10.malId, ch == null ? void 0 : ch.number, (_b = dState.detail) == null ? void 0 : _b.title);
@@ -8103,28 +8464,48 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     const atOldest = older < 0;
     $("#sheet-count").hidden = false;
     $("#sheet-count").textContent = `Ch. ${Number(ch.number)}`;
+    $("#sheet").dataset.reader = "true";
     $("#sheet-body").innerHTML = `
-    <div class="rd-head">
-      <div class="rd-title">${esc(((_a10 = dState.detail) == null ? void 0 : _a10.title) ?? "")}</div>
-      <div class="rd-sub">Chapter ${esc(String(ch.number))}${ch.name ? " \xB7 " + esc(ch.name) : ""}</div>
-    </div>
-    <div class="rd-nav">
-      <button class="page-btn" id="rd-prev" type="button" ${atNewest ? "disabled" : ""}>\u2190 Newer</button>
-      <button class="page-btn" id="rd-chapters" type="button">Chapters</button>
-      <button class="page-btn" id="rd-next" type="button" ${atOldest ? "disabled" : ""}>Older \u2192</button>
-    </div>
     <div class="rd-pages" id="rd-pages"><div class="center-spin"><div class="spinner"></div></div></div>
-    <div class="rd-nav">
-      <button class="page-btn" id="rd-prev-b" type="button" ${atNewest ? "disabled" : ""}>\u2190 Newer</button>
-      <button class="page-btn" id="rd-next-b" type="button" ${atOldest ? "disabled" : ""}>Older \u2192</button>
+    <div class="rd-end">
+      <div class="rd-end-title">${esc(((_a10 = dState.detail) == null ? void 0 : _a10.title) ?? "")}</div>
+      <div class="rd-end-sub">Chapter ${esc(String(ch.number))} of ${dState.chapters.length}${ch.name ? " \xB7 " + esc(ch.name) : ""}</div>
+      <div class="rd-nav">
+        <button class="page-btn" id="rd-prev-b" type="button" ${atNewest ? "disabled" : ""}>\u2190 Newer</button>
+        <button class="page-btn" id="rd-chapters-b" type="button">Chapters</button>
+        <button class="page-btn" id="rd-next-b" type="button" ${atOldest ? "disabled" : ""}>Older \u2192</button>
+      </div>
+    </div>
+    <div class="rd-ui" id="rd-ui" hidden aria-hidden="true">
+      <div class="rd-pill">
+        <button class="rd-pill-btn" id="rd-ui-prev" type="button" aria-label="Newer chapter" ${atNewest ? "disabled" : ""}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 5.5 8 12l6.5 6.5"/></svg>
+        </button>
+        <span class="rd-pill-pos" id="rd-ui-pos">Ch. ${esc(String(ch.number))} / ${dState.chapters.length}</span>
+        <button class="rd-pill-btn" id="rd-ui-next" type="button" aria-label="Older chapter" ${atOldest ? "disabled" : ""}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.5 5.5 16 12l-6.5 6.5"/></svg>
+        </button>
+      </div>
+      <div class="rd-rail">${[
+      ["home", "Home"],
+      ["book", "Title and chapters"],
+      ["list", "Jump to a chapter"],
+      ["gear", "Reading settings"],
+      ["help", "What the controls do"],
+      ["flag", "Report a problem"]
+    ].map(([what, label2]) => railButton(what, label2)).join("")}</div>
+      <div class="rd-panel" id="rd-panel" hidden></div>
     </div>`;
     const go = (delta) => {
       const next = dState.chapters[stepIndex(dState.chapters, rState.idx, delta)];
       if (next) openChapter(Number(next.id));
     };
-    for (const id of ["rd-prev", "rd-prev-b"]) $("#" + id).onclick = () => go(-1);
-    for (const id of ["rd-next", "rd-next-b"]) $("#" + id).onclick = () => go(1);
-    $("#rd-chapters").onclick = () => goBack();
+    $("#rd-prev-b").onclick = () => go(-1);
+    $("#rd-next-b").onclick = () => go(1);
+    $("#rd-chapters-b").onclick = () => goBack();
+    bindReaderControls({ go, chapter: ch, atNewest, atOldest });
     try {
       let pages = pagesCache.get(ch.id);
       if (!pages) {
@@ -8135,7 +8516,8 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
       if (seq !== rSeq) return;
       const slot = $("#rd-pages");
       if (!slot) return;
-      slot.innerHTML = pages.length ? pages.map((p, i) => `<img class="rd-page" loading="lazy" decoding="async" src="${esc(proxied(p.url))}" alt="Page ${i + 1}">`).join("") : '<p class="note">No pages came back for this chapter.</p>';
+      slot.innerHTML = pagesHtml(pages);
+      applyReadPrefs();
     } catch (e) {
       if (seq !== rSeq) return;
       const slot = $("#rd-pages");
@@ -8191,6 +8573,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     });
   }
   bindMangaView();
+  bindReaderTap();
   document.addEventListener("click", (e) => {
     var _a10, _b, _c, _d;
     if (e.target.closest("[data-saved-drop]")) return;
@@ -8996,6 +9379,8 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
   function closeSheet() {
     if (activeSlug && activeVid) savePosition(activeSlug, activeVid);
     shellCall("setPlaying", false);
+    shellCall("setImmersive", false);
+    $("#sheet").dataset.reader = "false";
     const vid = $("#vid");
     if (vid) {
       vid.pause();
@@ -10612,6 +10997,28 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
   window.__shellPip = (on) => {
     document.body.dataset.pip = String(!!on);
   };
+  function applyShellInsets() {
+    const raw = shellCall("systemBars");
+    const [top, bottom, visible] = String(raw ?? "").split(",");
+    const density = window.devicePixelRatio > 0 ? window.devicePixelRatio : 1;
+    const px = (value) => {
+      const device = Number(value);
+      return Number.isFinite(device) && device > 0 ? Math.round(device / density) : 0;
+    };
+    const style = document.documentElement.style;
+    style.setProperty("--shell-inset-top", `${px(top)}px`);
+    style.setProperty("--shell-inset-bottom", `${px(bottom)}px`);
+    document.documentElement.dataset.shellBars = visible === "false" ? "hidden" : "shown";
+  }
+  window.__shellInsets = applyShellInsets;
+  if (shellCan("systemBars")) {
+    applyShellInsets();
+    window.addEventListener("resize", applyShellInsets);
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) applyShellInsets();
+    });
+    document.addEventListener("fullscreenchange", () => setTimeout(applyShellInsets, 250));
+  }
 
   // client/src/rails.js
   function makeDraggable(rail) {

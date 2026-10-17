@@ -24,6 +24,14 @@
   --brand-500: 29.5 100% 88%;
   --brand-600: 29 85% 76%;
   --radius: .5rem;
+  /* Where the phone's own bars are, in the app's own pixels. The shell sets
+     these on <html> on every resize (shell.js — `applyShellInsets`), because
+     the browser's `env(safe-area-inset-*)` is the display *cutout* and reports
+     nothing on a phone whose status bar is an ordinary band. Fixed chrome
+     clears both: `max(env(safe-area-inset-top, 0px), var(--shell-inset-top))`.
+     Zero in a plain browser, which leaves the env() value to speak. */
+  --shell-inset-top: 0px;
+  --shell-inset-bottom: 0px;
   --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --font-serif: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
   --ease-out-expo: cubic-bezier(.16, 1, .3, 1);
@@ -77,7 +85,7 @@ img { display: block; }
    `main.container` outranks the padding shorthand above, so the media
    queries cannot take the space back. */
 main.container {
-  padding-top: calc(4.75rem + env(safe-area-inset-top));
+  padding-top: calc(4.75rem + max(env(safe-area-inset-top, 0px), var(--shell-inset-top)));
 }
 
 .stack > * + * { margin-top: 1rem; }

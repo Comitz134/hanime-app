@@ -167,18 +167,25 @@ to publish a release whose app disagrees with its own tag;
 installed app.
 
 The current release is
-[`v1.0.2`](https://github.com/Comitz134/hanime-app/releases/tag/v1.0.2), a
-prerelease carrying `SEKAI-Windows-x64-1.0.2.zip` (230,540,743 bytes) and
-`desktop.json` — the release whose update stops leaving its own copies behind
-(above). It was packed from this tree, and its manifest was read back anonymously
-afterwards: `desktop.json` answers `version_name 1.0.2`, `version_code 3`, that
+[`v1.0.3`](https://github.com/Comitz134/hanime-app/releases/tag/v1.0.3), a
+prerelease carrying `SEKAI-Windows-x64-1.0.3.zip` (230,545,859 bytes) and
+`desktop.json` — the window that serves §8.0.10 of the phone README: the same
+web client, so the MangaFire-shaped reader and the edge-to-edge layout are in
+both. It was packed from this tree, the installed app was re-mirrored and
+verified against the same build, and its manifest was read back anonymously
+afterwards: `desktop.json` answers `version_name 1.0.3`, `version_code 4`, that
 size and sha256
-`b1597384d09839169ddc72b66f7aee518d7c930d4d6fccbf64f4e43fc9967d3f`.
+`d8c6acad135a3d41f65490bccfeac4b2f8d5872ebee2a2a78caa3c68886157f1`.
 
-v1.0.1 is the previous one — `SEKAI-Windows-x64-1.0.1.zip` (230,537,627 bytes),
-sha256 `58ae7ef14c2c44e909ed7aac650781c30ab028254e16061946f750a169d011ca`, the
-bytes downloaded from GitHub again, anonymously, rather than taken from the
-upload's own record.
+v1.0.2 is the previous one — `SEKAI-Windows-x64-1.0.2.zip` (230,540,743 bytes),
+sha256 `b1597384d09839169ddc72b66f7aee518d7c930d4d6fccbf64f4e43fc9967d3f` — the
+release whose update stops leaving its own copies behind (above).
+
+v1.0.1 is the one before that — `SEKAI-Windows-x64-1.0.1.zip` (230,537,627
+bytes), sha256
+`58ae7ef14c2c44e909ed7aac650781c30ab028254e16061946f750a169d011ca`, the bytes
+downloaded from GitHub again, anonymously, rather than taken from the upload's
+own record.
 
 What was exercised on this machine, end to end: an installed 1.0.0 window found
 v1.0.1, downloaded it, staged it, wrote its `apply-update.cmd`, exited, mirrored

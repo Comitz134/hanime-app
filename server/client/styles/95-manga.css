@@ -95,14 +95,26 @@
   overflow-wrap: anywhere;
 }
 
-/* The reader: a heading that says where you are, one row of stepping stones,
-   then the pages — full width, one under the other, nothing between them. */
-.rd-head { margin-bottom: .875rem; }
-.rd-title {
+/* Reading is the pages, edge to edge, and nothing above them: the sheet's own
+   bar (Back, the chapter count) and the padding that frames a title page are
+   chrome a chapter does not need. The pill and the rail are how it is driven,
+   and the way out is the rail or the system's back gesture — the shape
+   MangaFire's reader has, and the reason it reads as a book. */
+#sheet[data-reader="true"] .sheet-top { display: none; }
+#sheet[data-reader="true"] .sheet-panel {
+  max-width: none;
+  padding: 0 0 calc(.75rem + var(--shell-inset-bottom));
+}
+
+/* After the last page: what this was, and the way on. The one row of chrome a
+   reader does want, and it is at the end of the chapter rather than over it. */
+.rd-end { padding: 1.5rem 1rem 1.25rem; text-align: center; }
+.rd-end-title {
   font-size: .9375rem; font-weight: 700; line-height: 1.3;
   overflow-wrap: anywhere;
 }
-.rd-sub { margin-top: .125rem; font-size: .75rem; color: hsl(var(--muted-foreground)); }
+.rd-end-sub { margin-top: .25rem; font-size: .75rem; color: hsl(var(--muted-foreground)); }
+.rd-end .rd-nav { margin: 1rem 0 0; }
 .rd-nav {
   display: flex; gap: .5rem; justify-content: space-between;
   margin: .875rem 0;
@@ -126,3 +138,116 @@
   display: block; width: 100%; height: auto; margin: 0;
   background: hsl(var(--muted) / .12);
 }
+/* "Fit page": the whole of a page inside the screen instead of the width it
+   was drawn at. A spread or a two-page scan is the reason it exists, and a
+   tall strip of it is what scrolling is for. */
+.rd-pages[data-fit="height"] .rd-page {
+  width: auto; max-width: 100%; max-height: 100vh; margin-inline: auto;
+}
+.rd-pages[data-gap="on"] { gap: .5rem; padding-block: .5rem; }
+
+/* ---- the controls the middle of the screen brings up ---------------------
+   A pill with the chapter's position and a rail down the right edge, over the
+   pages, on nothing of their own. The layer covers the screen but takes no
+   pointer events: what a tap in the middle does is the page's business (see
+   bindReaderTap in manga.js), and the controls are only drawn once it has
+   been asked for them. */
+.rd-ui { position: fixed; inset: 0; z-index: 6; pointer-events: none; }
+.rd-ui[hidden] { display: none; }
+.rd-ui > * { pointer-events: auto; }
+
+.rd-pill {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  /* Under the phone's own bars rather than in them: the page draws edge to
+     edge now, and the shell reports where those bars are. */
+  top: calc(.75rem + max(env(safe-area-inset-top, 0px), var(--shell-inset-top)));
+  display: flex; align-items: center; gap: .125rem; padding: .25rem;
+  border-radius: 999px; border: 1px solid rgb(255 255 255 / .12);
+  background: rgb(0 0 0 / .62);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 14px 34px -14px rgb(0 0 0 / .85);
+}
+.rd-pill-btn {
+  display: grid; place-items: center; width: 2.25rem; height: 2.25rem;
+  border-radius: 999px; color: #fff; transition: background .2s, opacity .2s;
+}
+.rd-pill-btn svg { width: 1.125rem; height: 1.125rem; }
+.rd-pill-btn:hover { background: rgb(255 255 255 / .12); }
+.rd-pill-btn:active { background: rgb(255 255 255 / .2); }
+.rd-pill-btn:disabled { opacity: .3; }
+.rd-pill-pos {
+  padding-inline: .375rem; font-size: .8125rem; font-weight: 600; color: #fff;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+
+.rd-rail {
+  position: absolute; right: .625rem; top: 50%; transform: translateY(-50%);
+  display: flex; flex-direction: column; gap: .125rem; padding: .3125rem;
+  border-radius: 999px; border: 1px solid rgb(255 255 255 / .1);
+  background: rgb(0 0 0 / .55);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 14px 34px -14px rgb(0 0 0 / .85);
+}
+.rd-rail-btn {
+  display: grid; place-items: center; width: 2.25rem; height: 2.25rem;
+  border-radius: 999px; color: rgb(255 255 255 / .86);
+  transition: background .2s, color .2s;
+}
+.rd-rail-btn svg { width: 1.125rem; height: 1.125rem; }
+.rd-rail-btn:hover { background: rgb(255 255 255 / .12); color: #fff; }
+.rd-rail-btn:active { background: rgb(255 255 255 / .2); }
+
+/* The panel one of the rail's buttons opens: a chapter list hundreds of rows
+   long for one of them, two buttons for another, so it scrolls rather than
+   growing past the screen. */
+/* While the shell has the bars hidden — which is what the reader asks for —
+   there is no bar to clear, and the browser's cutout inset still reports the
+   notch under them. Reading gets the edge. */
+:root[data-shell-bars="hidden"] .rd-pill { top: .75rem; }
+:root[data-shell-bars="hidden"] .rd-panel { bottom: .75rem; }
+
+.rd-panel {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  bottom: calc(.75rem + var(--shell-inset-bottom));
+  width: min(30rem, calc(100% - 1.25rem)); max-height: 62vh;
+  display: flex; flex-direction: column; overflow: hidden;
+  border-radius: 1rem; border: 1px solid hsl(var(--border));
+  background: hsl(var(--card) / .96);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 24px 60px -20px rgb(0 0 0 / .8);
+}
+.rd-panel[hidden] { display: none; }
+.rd-panel-head {
+  display: flex; align-items: center; justify-content: space-between; gap: .5rem;
+  padding: .625rem .75rem; border-bottom: 1px solid hsl(var(--border) / .6);
+  font-size: .8125rem;
+}
+.rd-panel-x {
+  display: grid; place-items: center; width: 1.75rem; height: 1.75rem;
+  border-radius: 999px; color: hsl(var(--muted-foreground));
+}
+.rd-panel-x:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
+.rd-panel-x svg { width: 1rem; height: 1rem; }
+.rd-jump {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  display: flex; flex-direction: column; gap: .375rem; padding: .625rem;
+}
+.rd-jump-row[aria-current="true"] {
+  border-color: hsl(var(--primary) / .7); background: hsl(var(--primary) / .12);
+}
+.rd-choice {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: .75rem; padding: .75rem .875rem; font-size: .8125rem;
+  border-bottom: 1px solid hsl(var(--border) / .5);
+}
+.rd-choice-row { display: flex; flex-wrap: wrap; gap: .375rem; }
+.rd-panel > .rd-choice-row { padding: .75rem .875rem; }
+/* The note keeps its own padding inside a panel, where it is the body text
+   rather than a line under a card. */
+.rd-panel > .note { margin: 0; padding: .75rem .875rem; }
+.rd-help {
+  margin: 0; padding: .875rem 1.25rem .875rem 1.875rem; overflow-y: auto;
+  display: flex; flex-direction: column; gap: .5rem; list-style: disc;
+  font-size: .8125rem; line-height: 1.6; color: hsl(var(--muted-foreground));
+}
+.rd-help li::marker { color: hsl(var(--primary)); }
