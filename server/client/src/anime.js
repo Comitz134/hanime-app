@@ -10,7 +10,7 @@
 // list, recommended below. The player here is the same embed LunarX itself
 // plays, so what works there works here.
 
-import { $, esc } from './core.js';
+import { $, embedStageHtml, esc, mountEmbedStage } from './core.js';
 import { autoAdvance } from './mal.js';
 import { noteOpen, renderActivity } from './activity.js';
 import { openSheet } from './sheet.js';
@@ -140,9 +140,8 @@ async function loadPlayer(ep) {
     if (!src) throw new Error('no source');
     let frame = document.getElementById('lx-frame');
     if (!frame) {
-      slot.innerHTML = `<div class="lx-frame"><iframe id="lx-frame" allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
-          allowfullscreen referrerpolicy="origin" title="Player"></iframe></div>`;
-      frame = document.getElementById('lx-frame');
+      slot.innerHTML = embedStageHtml();
+      frame = mountEmbedStage(slot);
     }
     frame.src = src;
     // An episode that resolves a player is an episode being watched, so the

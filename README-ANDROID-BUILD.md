@@ -155,27 +155,49 @@ APK=app/build/outputs/apk/release/app-release.apk
 sha256sum "$APK"
 ```
 
-Current build (this tree, published as v1.0.33):
+Current build (this tree, published as v1.0.34):
 
 ```
-package: name='app.hanime.shell' versionCode='34' versionName='1.0.33'
+package: name='app.hanime.shell' versionCode='35' versionName='1.0.34'
 sdkVersion:'26'   targetSdkVersion:'34'
 launchable-activity: name='app.hanime.shell.MainActivity'
 permissions: INTERNET, ACCESS_NETWORK_STATE, REQUEST_INSTALL_PACKAGES, POST_NOTIFICATIONS
 Verifies / v2 scheme: true / signer CN=hanime shell (unchanged)  [cert sha256 13c01040…]
-2,084,379 bytes / sha256 32c6f43f02e0ce8ecb2d1cdef60d491aa7999e27214b5431c3d5d8db88df8763
-  assets/index.html 527,010 bytes sha256 30d8242fe649aad39199df84ad2cf6712ab1adfeaea9f257174e1871512526a9
+2,085,375 bytes / sha256 e60e8443359615550617dc03623fa77bbb025ab67a3d95c2b60d2ac645c454f7
+  assets/index.html 529,713 bytes sha256 90714bff5bc127ff7fbbe8594aad05be60d2ccdc9a4ae89ef88b04e9f0852a97
   assets/hls.min.js 413,952 bytes sha256 484054e8cd03d3f6d1781fb7f402bdc318d8a4c527f933a95c624e27cc9a9470
 ```
 
 The bundled client's digest above is the one read back out of the APK built
 from this tree — not assumed — and it is byte-identical to
-`server/public/index.html` in this tree — and an anonymous fetch of the release
-asset returns those same 2,084,379 bytes and that same sha256, so what is
-published is what was measured. Both channels were read back anonymously after
-the upload: `releases/latest/download/version.json` and
-`releases/download/channel-beta/version.json` each answer `version_code 34`,
-that size, that sha256 and 1.0.33's own note.
+`server/public/index.html` in this tree (and to the copy under
+`android/app/src/main/assets/`) — and an anonymous fetch of the release asset
+returns those same 2,085,375 bytes and that same sha256, so what is published is
+what was measured. Both channels were read back anonymously after the upload:
+`releases/latest/download/version.json` and
+`releases/download/channel-beta/version.json` each answer `version_code 35`,
+that size, that sha256 and 1.0.34's own note. That APK was also installed over
+the running app on the reader's own phone (`23124RA7EO`, a Redmi Note 13, in
+place, data kept) before this was written, and the 1.0.34 measures below were
+taken on it.
+
+1.0.34 is the release that makes **fullscreen work in both embed areas** — one
+crash and one dead button, and they are not the same bug (§8.0.9). Both the
+anime area and films & series play through a third-party embed in an iframe, and
+the corner button belongs to that embed. On the anime one it worked, and killed
+the app: `MainActivity`'s `WebChromeClient` override called `onShowCustomView`
+unqualified, which resolved to the *inherited* method — itself — so every press
+recursed until the stack was gone (`StackOverflowError` in `at
+app.hanime.shell.K.onShowCustomView`). The override is a method of its own name
+now (`showFullscreenView`), so it cannot be shadowed that way. On the films one
+the button did nothing at all, and the embed is why: vidcore.net serves a
+permissions policy that denies fullscreen to its own document, so
+`document.fullscreenEnabled` is false inside the frame and the request is
+dropped on the floor before anything the shell could do. The page that owns the
+frame still holds the permission, so the control is the page's own — one chip
+and one in-frame exit control built by one function both areas mount
+(`embedStageHtml`/`mountEmbedStage`), which is also what stops the next embed
+area from quietly losing the button.
 
 1.0.33 is the release that takes the phone's history off the device — the last
 list that only existed on one phone — and stops a write from being a request.
@@ -1645,6 +1667,87 @@ Before the fix, on 1.0.30, that same title greyed exactly one row: the Ch. 48
 the reader had tapped, which is the report above. The list itself is unchanged
 in every other way — the greying is the same class, the same colour and the same
 words in the row.
+
+### 8.0.9 Fullscreen: a crash in one area, a dead button in the other (v35 / 1.0.34)
+
+Reported as one symptom and it was two bugs: *"on anime and hentais when i click
+fullscreen it closes the app, on series/movies the button just doesnt seem to do
+anything"*. Both were reproduced and both were measured on the reader's own
+phone (Redmi Note 13, serial `23124RA7EO`) before anything was changed.
+
+Everything here was driven over the WebView's own devtools socket
+(`adb forward tcp:9222 localabstract:webview_devtools_remote_<pid>`, then
+`tools/webview-tap.mjs` / `tools/webview-probe.mjs`). It has to be real touches,
+not `element.click()`: fullscreen is gated on user activation, so a scripted
+click is refused before it reaches the shell — which is the difference between
+measuring this and guessing at it.
+
+**The crash.** The anime area plays through flixcloud.cc in an iframe, and
+pressing the player's own fullscreen control killed the app on the spot. The
+tombstone was unambiguous:
+
+```
+Caused by: java.lang.StackOverflowError
+    at app.hanime.shell.K.onShowCustomView(SourceFile:0)
+```
+
+`MainActivity`'s `ShellChromeClient` overrode `onShowCustomView` and called
+`onShowCustomView(view, callback)` from inside it. That class *inherits* the
+method from `WebChromeClient`, so the unqualified call bound to itself: the
+first fullscreen press recursed until the stack was gone and the window went
+with it. The activity's own handler is a method of its own name now
+(`showFullscreenView`, and the chrome client's override forwards to it), so an
+unqualified call cannot resolve back into the override — the compiler would
+reject a call that resolved to nothing.
+
+**The dead button.** Films & series play through vidcore.net, and there the
+button is inert by the embed's own making. Measured inside the frame:
+
+```
+document.fullscreenEnabled                              false
+document.featurePolicy.allowsFeature('fullscreen')      false
+```
+
+So the request is dropped inside a document that has refused itself the
+permission — the parent page's `allow="… fullscreen …"` on the iframe is not
+enough, and nothing the shell does can matter. A real touch on that button
+changed nothing at all: no `fullscreenchange`, no geometry change, and the page
+never saw a request. The parent still holds the permission, so the control had to
+become the page's own: one chip plus one exit control built by one function
+(`embedStageHtml` / `mountEmbedStage` in `server/client/src/core.js`), mounted by
+*both* embed areas rather than copied into each.
+
+What that measures like on the device, with the frame's own numbers:
+
+| where | pressed | result |
+|---|---|---|
+| films (`vidcore.net`) | our chip | `.lx-frame` is the fullscreen element, 393×839 at the top of a 392×838 viewport, label flips to *Exit fullscreen* |
+| films | the in-fullscreen exit control (drawn only while the wrapper is the fullscreen element, at 228,12) | back to 359×202 on the page, app alive |
+| anime (`flixcloud.cc`) | our chip | `.lx-frame` fullscreen, 393×839, exit control reachable and working |
+| anime | the embed's **own** artplayer control (`.art-control-fullscreen`) | the iframe becomes the fullscreen element and the player's video measures 393×839 — the press that used to kill the app now does what it says, and the app stays up (`pidof` unchanged after it) |
+| 18+ (`<video controls>`) | our chip | `fullscreenElement` is `#vid`, 393×839, label flips to *Exit fullscreen* |
+
+The exit control is not decoration. While the wrapper *is* the fullscreen
+element the rest of the document is not rendered, so the chip that started it is
+not reachable — a fullscreen with no way out on a phone is worse than the dead
+button it replaced. When the embed's own control is what goes fullscreen (the
+anime row above) the element is the iframe, outside that subtree, and the way out
+is the embed's own control or Android's back — which the shell already routes to
+`hideFullscreenView()` before the press is used for anything else.
+
+Client tests pin the shape, not the pixels: one test asserts the whole client
+builds the frame in exactly one place, that the exit control is drawn only in the
+fullscreen state, that the request asks the shell to hide its chrome
+(`navigationUI: 'hide'`), and that both embed areas mount that one stage instead
+of carrying a frame of their own. Those assertions run against
+`server/public/index.html` — the bundle that ships — with the rest of the client
+suite (`npm run selftest` in `server/`, 342 tests, all passing on this tree).
+
+**Not verified here:** the hardware back press that leaves fullscreen. MIUI on
+this phone refuses injected key events from adb (`SecurityException: Injecting
+input events requires the caller … to have the INJECT_EVENTS permission`), so the
+harness could not send one; the path it would take is the one in `handleBack`
+above, and the video's own controls were used to leave fullscreen instead.
 
 ### 8.1 What is not verified here
 

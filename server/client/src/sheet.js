@@ -6,7 +6,7 @@
 // mechanically once — they are ordinary code now, not something a tool
 // rebuilds.
 
-import { $, $$, api, clock, esc, fmtCount } from './core.js';
+import { $, $$, api, bindFullscreen, clock, esc, fmtCount } from './core.js';
 import { cardHtml } from './cards.js';
 import { lib, recordHistory, remember } from './library.js';
 import { clearPosition, favPill, savePosition } from './positions.js';
@@ -178,11 +178,13 @@ async function mountPlayer(slug) {
       .map((s, i) => `<button class="q-btn" data-i="${i}" aria-pressed="${i === 0}">${esc(s.label)}</button>`)
       .join('')}</div>
     <div class="lib-tools">
+      <button class="chip" id="fs-btn" type="button">Fullscreen</button>
       ${pipWanted ? '<button class="chip" id="pip-btn" type="button">Picture in picture</button>' : ''}
       <span class="sec-count" id="player-note"></span>
     </div>`;
 
   const vid = $('#vid');
+  bindFullscreen($('#fs-btn'), () => vid);
   activeVid = vid;
   activeSlug = slug;
 

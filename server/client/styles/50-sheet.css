@@ -72,8 +72,21 @@
   background: hsl(var(--card) / .4);
 }
 video { width: 100%; display: block; background: #000; aspect-ratio: 16 / 9; }
-.lx-frame { aspect-ratio: 16 / 9; background: #000; }
+.lx-frame { position: relative; aspect-ratio: 16 / 9; background: #000; }
+.fs-exit { display: none; }
+.lx-frame:fullscreen .fs-exit {
+  display: block; position: absolute; top: .75rem; right: .75rem; z-index: 2;
+  padding: .45rem .9rem; border-radius: 999px;
+  background: rgb(0 0 0 / .62); color: #fff;
+  border: 1px solid rgb(255 255 255 / .32);
+  font-size: .75rem; font-weight: 600; letter-spacing: .02em;
+}
 .lx-frame iframe { width: 100%; height: 100%; border: 0; display: block; }
+/* Fullscreen the page owns (see bindFullscreen): the wrapper is the element
+   that goes full, so the frame inside just takes the screen. Left at 16:9 it
+   would sit letterboxed in the middle of a phone held upright. */
+.lx-frame:fullscreen { aspect-ratio: auto; width: 100%; height: 100%; }
+video:fullscreen { aspect-ratio: auto; width: 100%; height: 100%; object-fit: contain; }
 
 .quality { display: flex; flex-wrap: wrap; gap: .375rem; padding: .75rem; }
 .q-btn {

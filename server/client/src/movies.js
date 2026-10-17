@@ -11,7 +11,7 @@
 // seasons arrive with the details, so the strip draws before any episode is
 // fetched. A movie has none of that and plays on arrival.
 
-import { $, $$, esc } from './core.js';
+import { $, $$, embedStageHtml, esc, mountEmbedStage } from './core.js';
 import { noteOpen, renderActivity } from './activity.js';
 import { openSheet } from './sheet.js';
 
@@ -274,13 +274,17 @@ async function loadShowPlayer(seq, ep) {
     // came back to, and one sheet holds one player at a time.
     slot.innerHTML = `${live.length ? ''
       : '<p class="note">None of the site&rsquo;s own players answer right now.</p>'}
-      <div class="lx-frame"><iframe id="lx-frame" allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
-        allowfullscreen referrerpolicy="origin" title="Player"></iframe></div>
+      ${embedStageHtml()}
       <div class="quality">${sources.map((s, i) =>
         `<button class="q-btn" type="button" data-fx-src="${i}" aria-pressed="${s === first}"${
           s.ok === false ? ` disabled title="${esc(`${s.label} is not answering on f-movies right now${s.note ? ` (${s.note})` : ''}`)}"` : ''
         }>${esc(s.label)}</button>`).join('')}</div>`;
-    document.getElementById('lx-frame').src = first.url;
+    // The embed's own corner button cannot work here: vidcore.net serves a
+    // policy that denies fullscreen to its own document, so `fullscreenEnabled`
+    // is false inside the frame and its request is dropped on the floor. The
+    // page around it still holds the permission, so the chip does it instead.
+    const frame = mountEmbedStage(slot);
+    frame.src = first.url;
     // A player resolving for this episode is an episode being watched, so the
     // rail at the top of this area is told — once per title, never backwards.
     // A movie has no episode to resume, so it travels with total 0 (no bar).

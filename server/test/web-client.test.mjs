@@ -1545,3 +1545,44 @@ test('the movies area keeps a library and a continue-watching rail', () => {
   // And the record of what was opened is written where the opening is.
   assert.ok(/function noteShowOpen\(\)/.test(script), 'opening a title is never remembered');
 });
+
+// Fullscreen in the embed areas. Two bugs live in one control: LunarX's and
+// flixcloud's corner button hands the request to the shell (where a recursive
+// WebChromeClient override used to take the whole app down), and vidcore.net
+// denies fullscreen to its own document outright — `fullscreenEnabled` is
+// false inside the frame, so its button does nothing at all. The page that
+// owns the frame can still expand it, so the control is the page's own, and
+// it comes from one builder both embed areas mount: a second hand-rolled
+// frame is how the next embed area quietly loses the button.
+test('an embed goes fullscreen through a control the page owns', () => {
+  const script = inlineScripts(html)[0];
+  const css = stylesheets(html)[0];
+
+  // One frame in the whole client, one chip, one exit control.
+  assert.equal((script.match(/id="lx-frame"/g) ?? []).length, 1,
+    'the embed frame is built in more than one place');
+  assert.ok(/data-player-fs/.test(script), 'the embed has no fullscreen control');
+  assert.ok(/data-fs-exit/.test(script), 'fullscreen has no way back out');
+
+  // The exit control is drawn only while the wrapper *is* the fullscreen
+  // element — the chip that started it sits outside that subtree, so while the
+  // frame fills the screen there is nothing else left to press.
+  assert.ok(/\.lx-frame:fullscreen \.fs-exit/.test(css),
+    'the exit control is not tied to the fullscreen state');
+  assert.ok(/\.lx-frame:fullscreen[^}]*aspect-ratio:\s*auto/.test(css),
+    'a fullscreen frame keeps its 16:9 box and sits letterboxed upright');
+
+  // The request is the page's, on the wrapper, and asks the shell to get the
+  // browser chrome out of the way while it lasts.
+  assert.ok(/requestFullscreen/.test(script) && /navigationUI:\s*["']hide["']/.test(script),
+    'fullscreen is requested without hiding the browser chrome');
+  assert.ok(/document\.exitFullscreen/.test(script), 'fullscreen cannot be left');
+
+  // Both embed areas mount that one stage rather than carrying a copy.
+  assert.ok(/slot\.innerHTML = embedStageHtml\(\)/.test(script),
+    'the anime area draws its own player frame');
+  assert.ok(/\$\{embedStageHtml\(\)\}/.test(script),
+    'the films area draws its own player frame');
+  assert.ok((script.match(/mountEmbedStage\(/g) ?? []).length >= 2,
+    'an embed area mounts the stage without wiring its controls');
+});

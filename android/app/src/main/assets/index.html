@@ -710,8 +710,21 @@ select.filter-select[data-set="true"] {
   background: hsl(var(--card) / .4);
 }
 video { width: 100%; display: block; background: #000; aspect-ratio: 16 / 9; }
-.lx-frame { aspect-ratio: 16 / 9; background: #000; }
+.lx-frame { position: relative; aspect-ratio: 16 / 9; background: #000; }
+.fs-exit { display: none; }
+.lx-frame:fullscreen .fs-exit {
+  display: block; position: absolute; top: .75rem; right: .75rem; z-index: 2;
+  padding: .45rem .9rem; border-radius: 999px;
+  background: rgb(0 0 0 / .62); color: #fff;
+  border: 1px solid rgb(255 255 255 / .32);
+  font-size: .75rem; font-weight: 600; letter-spacing: .02em;
+}
 .lx-frame iframe { width: 100%; height: 100%; border: 0; display: block; }
+/* Fullscreen the page owns (see bindFullscreen): the wrapper is the element
+   that goes full, so the frame inside just takes the screen. Left at 16:9 it
+   would sit letterboxed in the middle of a phone held upright. */
+.lx-frame:fullscreen { aspect-ratio: auto; width: 100%; height: 100%; }
+video:fullscreen { aspect-ratio: auto; width: 100%; height: 100%; object-fit: contain; }
 
 .quality { display: flex; flex-wrap: wrap; gap: .375rem; padding: .75rem; }
 .q-btn {
@@ -2469,6 +2482,54 @@ select.filter-select.sort-select {
     const days = Math.floor(hours / 24);
     if (days < 30) return `${days}d ago`;
     return new Date(then).toISOString().slice(0, 10);
+  };
+  function bindFullscreen(btn, target, label2 = "Fullscreen") {
+    var _a10, _b, _c;
+    if (!btn) return false;
+    const here = document.fullscreenEnabled !== false;
+    if (!here || typeof ((_a10 = target()) == null ? void 0 : _a10.requestFullscreen) !== "function") {
+      btn.remove();
+      return false;
+    }
+    const on = () => document.fullscreenElement != null;
+    const paint2 = () => {
+      btn.textContent = on() ? "Exit fullscreen" : label2;
+      btn.setAttribute("aria-pressed", String(on()));
+    };
+    btn.onclick = () => {
+      var _a11, _b2, _c2, _d, _e, _f;
+      if (on()) {
+        (_c2 = (_b2 = (_a11 = document.exitFullscreen) == null ? void 0 : _a11.call(document)) == null ? void 0 : _b2.catch) == null ? void 0 : _c2.call(_b2, () => {
+        });
+        return;
+      }
+      const el = target();
+      (_f = (_e = (_d = el == null ? void 0 : el.requestFullscreen) == null ? void 0 : _d.call(el, { navigationUI: "hide" })) == null ? void 0 : _e.catch) == null ? void 0 : _f.call(_e, () => {
+        btn.textContent = "Fullscreen unavailable";
+      });
+    };
+    document.addEventListener("fullscreenchange", paint2);
+    const exit = (_c = (_b = target()) == null ? void 0 : _b.querySelector) == null ? void 0 : _c.call(_b, "[data-fs-exit]");
+    if (exit) {
+      exit.addEventListener("click", () => {
+        var _a11, _b2, _c2;
+        return (_c2 = (_b2 = (_a11 = document.exitFullscreen) == null ? void 0 : _a11.call(document)) == null ? void 0 : _b2.catch) == null ? void 0 : _c2.call(_b2, () => {
+        });
+      });
+    }
+    paint2();
+    return true;
+  }
+  var embedStageHtml = () => `
+      <div class="lx-frame"><iframe id="lx-frame" title="Player"
+        allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+        allowfullscreen referrerpolicy="origin"></iframe>
+        <button class="fs-exit" type="button" data-fs-exit>Exit fullscreen</button>
+      </div>
+      <div class="lib-tools"><button class="chip" data-player-fs type="button">Fullscreen</button></div>`;
+  var mountEmbedStage = (slot) => {
+    bindFullscreen($("[data-player-fs]", slot), () => $(".lx-frame", slot));
+    return $("#lx-frame", slot);
   };
 
   // client/src/prefs.js
@@ -9037,10 +9098,12 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     <video id="vid" controls playsinline preload="metadata"></video>
     <div class="quality">${sources.map((s, i) => `<button class="q-btn" data-i="${i}" aria-pressed="${i === 0}">${esc(s.label)}</button>`).join("")}</div>
     <div class="lib-tools">
+      <button class="chip" id="fs-btn" type="button">Fullscreen</button>
       ${pipWanted ? '<button class="chip" id="pip-btn" type="button">Picture in picture</button>' : ""}
       <span class="sec-count" id="player-note"></span>
     </div>`;
     const vid = $("#vid");
+    bindFullscreen($("#fs-btn"), () => vid);
     activeVid = vid;
     activeSlug = slug;
     const attach = (url) => {
@@ -9218,9 +9281,8 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
       if (!src) throw new Error("no source");
       let frame = document.getElementById("lx-frame");
       if (!frame) {
-        slot.innerHTML = `<div class="lx-frame"><iframe id="lx-frame" allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
-          allowfullscreen referrerpolicy="origin" title="Player"></iframe></div>`;
-        frame = document.getElementById("lx-frame");
+        slot.innerHTML = embedStageHtml();
+        frame = mountEmbedStage(slot);
       }
       frame.src = src;
       autoAdvance("anime", (_c = dState2.details) == null ? void 0 : _c.malId, ep, (_d = dState2.details) == null ? void 0 : _d.title);
@@ -9654,10 +9716,10 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
       const live = sources.filter((s) => s.ok !== false);
       const first = live[0] ?? sources[0];
       slot.innerHTML = `${live.length ? "" : '<p class="note">None of the site&rsquo;s own players answer right now.</p>'}
-      <div class="lx-frame"><iframe id="lx-frame" allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
-        allowfullscreen referrerpolicy="origin" title="Player"></iframe></div>
+      ${embedStageHtml()}
       <div class="quality">${sources.map((s, i) => `<button class="q-btn" type="button" data-fx-src="${i}" aria-pressed="${s === first}"${s.ok === false ? ` disabled title="${esc(`${s.label} is not answering on f-movies right now${s.note ? ` (${s.note})` : ""}`)}"` : ""}>${esc(s.label)}</button>`).join("")}</div>`;
-      document.getElementById("lx-frame").src = first.url;
+      const frame = mountEmbedStage(slot);
+      frame.src = first.url;
       noteOpen("show", {
         id: dState3.ref,
         title: (_a10 = dState3.details) == null ? void 0 : _a10.title,

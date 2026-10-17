@@ -18,6 +18,7 @@ import android.util.Rational;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewParent;
 import android.webkit.ConsoleMessage;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
@@ -664,7 +665,7 @@ public class MainActivity extends Activity {
 
         if (customView != null) {
             // Leave fullscreen video before anything else.
-            onHideCustomView();
+            hideFullscreenView();
             lastBackConsumed = true;
             return true;
         }
@@ -766,8 +767,21 @@ public class MainActivity extends Activity {
 
     // ------------------------------------------------------ fullscreen video
 
-    private void onShowCustomView(View view, WebChromeClient.CustomViewCallback callback) {
+    /**
+     * Take over the window with the page's own fullscreen view.
+     *
+     * Named `showFullscreenView`, not `onShowCustomView`, and that is not a
+     * style choice. The chrome client below *inherits* `onShowCustomView` from
+     * `WebChromeClient`, so an unqualified call from inside that class binds to
+     * the inherited method — itself — and recurses until the stack is gone. It
+     * did exactly that: `StackOverflowError` in the trace, every fullscreen
+     * press, and a window that disappears (reported as "fullscreen closes the
+     * app"). A distinct name cannot be shadowed that way; the compiler would
+     * reject a call that resolved to nothing.
+     */
+    private void showFullscreenView(View view, WebChromeClient.CustomViewCallback callback) {
         if (customView != null) {
+            // A second request while one is showing is a request to leave.
             callback.onCustomViewHidden();
             return;
         }
@@ -776,11 +790,19 @@ public class MainActivity extends Activity {
 
         FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+        // The view is Chromium's, and on the built-in video path it can arrive
+        // still attached to a parent of its own. Adding it to another one throws
+        // `IllegalStateException: The specified child already has a parent` —
+        // the app dying at the same moment as the video was asked to go big.
+        ViewParent parent = view.getParent();
+        if (parent instanceof ViewGroup) ((ViewGroup) parent).removeView(view);
         root.addView(customView, params);
         web.setVisibility(View.GONE);
+        Log.i(TAG, "fullscreen: showing the page's own video view");
     }
 
-    private void onHideCustomView() {
+    /** Give the window back to the page. Safe to call when nothing is showing. */
+    private void hideFullscreenView() {
         if (customView == null) return;
         root.removeView(customView);
         customView = null;
@@ -789,6 +811,7 @@ public class MainActivity extends Activity {
             customViewCallback.onCustomViewHidden();
             customViewCallback = null;
         }
+        Log.i(TAG, "fullscreen: back to the page");
     }
 
     // ------------------------------------------------------------ web client
@@ -956,14 +979,21 @@ public class MainActivity extends Activity {
             progress.setVisibility(newProgress >= 100 ? View.GONE : View.VISIBLE);
         }
 
+        /**
+         * Fullscreen, handed to the activity.
+         *
+         * `MainActivity.this.` is load-bearing twice over: without it this call
+         * binds to the method inherited right here — the one being written — and
+         * recurses until the stack overflows. See `showFullscreenView`.
+         */
         @Override
         public void onShowCustomView(View view, CustomViewCallback callback) {
-            onShowCustomView(view, callback);
+            MainActivity.this.showFullscreenView(view, callback);
         }
 
         @Override
         public void onHideCustomView() {
-            MainActivity.this.onHideCustomView();
+            MainActivity.this.hideFullscreenView();
         }
 
         @Override
