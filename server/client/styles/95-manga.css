@@ -244,7 +244,16 @@
   font-size: .6875rem; color: hsl(var(--muted-foreground));
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
 }
-.rd-end-done { margin: 1rem 0 0; font-size: .75rem; color: hsl(var(--muted-foreground)); }
+.rd-end-done {
+  margin: 1rem 0 0; font-size: .75rem; line-height: 1.5;
+  color: hsl(var(--muted-foreground));
+}
+/* Caught up: the one line at the end of the newest chapter a reader is
+   actually looking for, so it leads rather than sitting in the small print. */
+.rd-end-done b {
+  display: block; margin-bottom: .375rem;
+  font-size: .8125rem; font-weight: 700; color: hsl(var(--primary));
+}
 
 /* The wash the Image tab's "Dim screen" draws — over the pages, under the
    controls, and never in the way of a tap. */

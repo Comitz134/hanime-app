@@ -1376,7 +1376,16 @@ h2 .area-chip { font-size: .5625rem; }
   font-size: .6875rem; color: hsl(var(--muted-foreground));
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
 }
-.rd-end-done { margin: 1rem 0 0; font-size: .75rem; color: hsl(var(--muted-foreground)); }
+.rd-end-done {
+  margin: 1rem 0 0; font-size: .75rem; line-height: 1.5;
+  color: hsl(var(--muted-foreground));
+}
+/* Caught up: the one line at the end of the newest chapter a reader is
+   actually looking for, so it leads rather than sitting in the small print. */
+.rd-end-done b {
+  display: block; margin-bottom: .375rem;
+  font-size: .8125rem; font-weight: 700; color: hsl(var(--primary));
+}
 
 /* The wash the Image tab's "Dim screen" draws — over the pages, under the
    controls, and never in the way of a tap. */
@@ -8616,21 +8625,25 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     const total = dState.chapters.length;
     const ch = dState.chapters[rState.idx];
     if (!ch) return;
-    const newer = stepIndex(dState.chapters, rState.idx, -1);
-    const older = stepIndex(dState.chapters, rState.idx, 1);
-    const next = older >= 0 ? dState.chapters[older] : null;
+    const nextIdx = stepIndex(dState.chapters, rState.idx, -1);
+    const prevIdx = stepIndex(dState.chapters, rState.idx, 1);
+    const next = nextIdx >= 0 ? dState.chapters[nextIdx] : null;
+    const prev = prevIdx >= 0 ? dState.chapters[prevIdx] : null;
     const pos = $("#rd-ui-pos");
     if (pos) pos.textContent = `Ch. ${Number(ch.number)} / ${total}`;
     const uiPrev = $("#rd-ui-prev");
-    if (uiPrev) uiPrev.disabled = newer < 0;
+    if (uiPrev) uiPrev.disabled = !prev;
     const uiNext = $("#rd-ui-next");
-    if (uiNext) uiNext.disabled = older < 0;
+    if (uiNext) uiNext.disabled = !next;
     const prevB = $("#rd-prev-b");
-    if (prevB) prevB.disabled = newer < 0;
+    if (prevB) {
+      prevB.disabled = !prev;
+      prevB.textContent = prev ? `\u2190 Ch. ${Number(prev.number)}` : "\u2190 Previous";
+    }
     const nextB = $("#rd-next-b");
     if (nextB) {
       nextB.disabled = !next;
-      nextB.textContent = next ? `Ch. ${Number(next.number)} \u2192` : "Older \u2192";
+      nextB.textContent = next ? `Ch. ${Number(next.number)} \u2192` : "Next \u2192";
     }
     const sub = $("#rd-end-sub");
     if (sub) {
@@ -8642,7 +8655,22 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
       cont.innerHTML = next ? `<b>Next chapter</b><span>Ch. ${esc(String(next.number))}${next.name ? " \xB7 " + esc(next.name) : ""}</span>` : "";
     }
     const done = $("#rd-end-done");
-    if (done) done.hidden = !!next;
+    if (done) {
+      done.hidden = !!next;
+      if (!next) done.innerHTML = caughtUpText();
+    }
+  }
+  function caughtUpText() {
+    var _a10;
+    const status = String(((_a10 = dState.detail) == null ? void 0 : _a10.status) ?? "").toLowerCase();
+    const est = nextChapterEstimate(visibleChapters(dState.chapters, true), { status });
+    if (est) {
+      const day = new Date(est.at).toISOString().slice(0, 10);
+      const when2 = est.at <= Date.now() ? "and the next chapter is due any day now" : `and the next chapter is ${estimateChip(est)} \u2014 around ${day}`;
+      return `<b>You're caught up</b> \u2014 ${when2}, read off the rhythm of the chapters already posted.`;
+    }
+    const word = label(status);
+    return `<b>You're caught up</b> \u2014 ${word ? `this title is ${esc(word)}, so nothing newer is coming.` : "nothing newer has been posted yet."}`;
   }
   function nearTail() {
     const ch = dState.chapters[rState.idx];
@@ -8661,7 +8689,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
       const box = s.el.getBoundingClientRect();
       if (slot.getBoundingClientRect().bottom < box.top + 1) return;
     }
-    const nextIdx = stepIndex(dState.chapters, rState.idx, 1);
+    const nextIdx = stepIndex(dState.chapters, rState.idx, -1);
     if (nextIdx < 0) return;
     if (rdMount.some((m) => m.idx === nextIdx && m.failed)) return;
     if (nearTail()) extendReader();
@@ -8670,7 +8698,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     var _a10;
     if (rdExtending) return;
     const slot = $("#rd-pages");
-    const nextIdx = stepIndex(dState.chapters, rState.idx, 1);
+    const nextIdx = stepIndex(dState.chapters, rState.idx, -1);
     if (!slot || nextIdx < 0) return;
     const ch = dState.chapters[rState.idx];
     const next = dState.chapters[nextIdx];
@@ -8725,7 +8753,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     }
   }
   async function prefetchNext(from) {
-    const nextIdx = stepIndex(dState.chapters, Number.isFinite(from) ? from : rState.idx, 1);
+    const nextIdx = stepIndex(dState.chapters, Number.isFinite(from) ? from : rState.idx, -1);
     if (nextIdx < 0) return;
     const ch = dState.chapters[nextIdx];
     if (!ch || pagesCache.has(ch.id)) return;
@@ -8962,8 +8990,8 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
       panel.hidden = false;
       $("[data-rd-close]", panel).onclick = closePanel;
     };
-    $("#rd-ui-prev").onclick = () => go(-1);
-    $("#rd-ui-next").onclick = () => go(1);
+    $("#rd-ui-prev").onclick = () => go(1);
+    $("#rd-ui-next").onclick = () => go(-1);
     const jumpPanel = () => `<div class="rd-jump">${dState.chapters.map((c, i) => `
       <button class="ch-card rd-jump-row" type="button" data-rd-jump="${esc(String(c.id))}"
               ${i === rState.idx ? 'aria-current="true"' : ""}>
@@ -8992,11 +9020,13 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     <ul class="rd-help">
       <li>Tap the middle of the page to bring these controls up, and again to put them away.</li>
       <li>Scroll to read \u2014 the controls hide themselves as soon as the pages move.</li>
-      <li>The pill at the top steps to the newer and older chapter; a chapter posted twice is not two steps.</li>
+      <li>The pill at the top steps to the next chapter and the one before it \u2014 the right arrow is the chapter you read next, the left is the one you came from. A chapter posted twice is not two steps.</li>
+      <li>The newest chapter is the end of what has been posted: it says you are caught up, and when the title's own rhythm puts the next chapter due \u2014 read off the gaps between the chapters already posted.</li>
       <li>The rail on the right: the shelf, this title's page, a jump to any chapter, the reading settings, this list, and where to go when a chapter will not load.</li>
       <li>The reading settings are two tabs \u2014 <b>Layout</b> (one page, two, or a long strip; the margin; a progress bar; whether a single or a double tap brings these controls up) and <b>Image</b> (how a page is sized, grayscale, and how far the screen is dimmed).</li>
       <li>A chapter reopens where it was left, not at its first page.</li>
       <li>A chapter runs into the next one at its end: scroll on and the next chapter is already there. The join between them is labelled, the bar and the pill move to the chapter being read, and the finished one is filed as read.</li>
+      <li>The end of a chapter offers the next one as a button, which stitches it in and slides to it rather than rebuilding the reader.</li>
     </ul>`);
     const showProblem = () => {
       openPanel("Chapter will not load?", `
@@ -9352,10 +9382,10 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     const seq = ++rSeq;
     const ch = dState.chapters[rState.idx];
     rdMount.length = 0;
-    const newer = stepIndex(dState.chapters, rState.idx, -1);
-    const older = stepIndex(dState.chapters, rState.idx, 1);
-    const atNewest = newer < 0;
-    const atOldest = older < 0;
+    const nextIdx = stepIndex(dState.chapters, rState.idx, -1);
+    const prevIdx = stepIndex(dState.chapters, rState.idx, 1);
+    const hasNext = nextIdx >= 0;
+    const hasPrev = prevIdx >= 0;
     $("#sheet-count").hidden = false;
     $("#sheet-count").textContent = `Ch. ${Number(ch.number)}`;
     $("#sheet").dataset.reader = "true";
@@ -9364,22 +9394,22 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     <div class="rd-end">
       <div class="rd-end-title">${esc(((_a10 = dState.detail) == null ? void 0 : _a10.title) ?? "")}</div>
       <div class="rd-end-sub" id="rd-end-sub">Chapter ${esc(String(ch.number))} of ${dState.chapters.length}${ch.name ? " \xB7 " + esc(ch.name) : ""}</div>
-      <button class="rd-continue" id="rd-continue" type="button" ${atOldest ? "hidden" : ""}></button>
-      <p class="rd-end-done" id="rd-end-done" ${atOldest ? "" : "hidden"}>That was the last chapter \u2014 the end of this title.</p>
+      <button class="rd-continue" id="rd-continue" type="button" ${hasNext ? "" : "hidden"}></button>
+      <p class="rd-end-done" id="rd-end-done" ${hasNext ? "hidden" : ""}></p>
       <div class="rd-nav">
-        <button class="page-btn" id="rd-prev-b" type="button" ${atNewest ? "disabled" : ""}>\u2190 Newer</button>
+        <button class="page-btn" id="rd-prev-b" type="button" ${hasPrev ? "" : "disabled"}>\u2190 Previous</button>
         <button class="page-btn" id="rd-chapters-b" type="button">Chapters</button>
-        <button class="page-btn" id="rd-next-b" type="button" ${atOldest ? "disabled" : ""}>Older \u2192</button>
+        <button class="page-btn" id="rd-next-b" type="button" ${hasNext ? "" : "disabled"}>Next \u2192</button>
       </div>
     </div>
     <div class="rd-ui" id="rd-ui" hidden aria-hidden="true">
       <div class="rd-pill">
-        <button class="rd-pill-btn" id="rd-ui-prev" type="button" aria-label="Newer chapter" ${atNewest ? "disabled" : ""}>
+        <button class="rd-pill-btn" id="rd-ui-prev" type="button" aria-label="Previous chapter" ${hasPrev ? "" : "disabled"}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 5.5 8 12l6.5 6.5"/></svg>
         </button>
         <span class="rd-pill-pos" id="rd-ui-pos">Ch. ${esc(String(ch.number))} / ${dState.chapters.length}</span>
-        <button class="rd-pill-btn" id="rd-ui-next" type="button" aria-label="Older chapter" ${atOldest ? "disabled" : ""}>
+        <button class="rd-pill-btn" id="rd-ui-next" type="button" aria-label="Next chapter" ${hasNext ? "" : "disabled"}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.5 5.5 16 12l-6.5 6.5"/></svg>
         </button>
@@ -9401,21 +9431,21 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
       const next = dState.chapters[stepIndex(dState.chapters, rState.idx, delta)];
       if (next) openChapter(Number(next.id));
     };
-    $("#rd-prev-b").onclick = () => go(-1);
-    $("#rd-next-b").onclick = () => go(1);
+    $("#rd-prev-b").onclick = () => go(1);
+    $("#rd-next-b").onclick = () => go(-1);
     $("#rd-chapters-b").onclick = () => {
       saveReadSpot();
       goBack();
     };
     const cont = $("#rd-continue");
     if (cont) cont.onclick = async () => {
-      const nextIdx = stepIndex(dState.chapters, rState.idx, 1);
-      if (nextIdx < 0) return;
-      const next = dState.chapters[nextIdx];
+      const idx = stepIndex(dState.chapters, rState.idx, -1);
+      if (idx < 0) return;
+      const next = dState.chapters[idx];
       saveReadSpot();
       await extendReader();
       if (seq !== rSeq) return;
-      if (!scrollToChapter(next.id)) go(1);
+      if (!scrollToChapter(next.id)) go(-1);
     };
     paintChapterChrome();
     bindReaderControls({ go, chapter: ch });

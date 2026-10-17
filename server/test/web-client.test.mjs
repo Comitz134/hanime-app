@@ -1442,10 +1442,12 @@ test('a chapter posted twice is one row, and a step never lands on its twin', ()
 
   // The reader steps by chapter, and the ends are read the same way the step
   // is — a disabled button that still had a twin to land on would be worse
-  // than either mistake on its own.
-  assert.match(script, /const newer = stepIndex\(dState\.chapters, rState\.idx, -1\)/,
+  // than either mistake on its own. The two steps are the two directions of
+  // reading: the next chapter is a step down the newest-first list, the one
+  // before it a step up the list.
+  assert.match(script, /const nextIdx = stepIndex\(dState\.chapters, rState\.idx, -1\)/,
     'the reader steps by row, not by chapter');
-  assert.match(script, /const older = stepIndex\(dState\.chapters, rState\.idx, 1\)/,
+  assert.match(script, /const prevIdx = stepIndex\(dState\.chapters, rState\.idx, 1\)/,
     'the reader steps by row, not by chapter');
   assert.match(script, /const next = dState\.chapters\[stepIndex\(/,
     'the step that skips a twin is not the one the buttons press');
@@ -1634,10 +1636,31 @@ test('the manga reader brings its controls up from the middle of the screen', ()
   for (const [re, what] of actions) assert.ok(re.test(flat), `${what} does nothing`);
 
   // A chapter posted twice is not two steps: the pill walks the same chapter
-  // walk the Newer/Older rows do, which is what keeps a step from landing on
+  // walk the end card's rows do, which is what keeps a step from landing on
   // an upload of the chapter already open.
   assert.ok(/const next = dState\.chapters\[stepIndex\(dState\.chapters, rState\.idx, delta\)\]/.test(flat),
     'the pill steps through chapters without the duplicate rule');
+
+  // And it steps the way a reader reads. The list is newest first, so the next
+  // chapter is the row above this one — which means the *right* arrow has to be
+  // the next chapter, and the left the one before it. It used to be the
+  // opposite, and a reader at chapter 1 pressing right was sent to the chapter
+  // they had already read.
+  assert.ok(/id="rd-ui-prev" type="button" aria-label="Previous chapter"/.test(flat),
+    'the left arrow is not named for the chapter before this one');
+  assert.ok(/id="rd-ui-next" type="button" aria-label="Next chapter"/.test(flat),
+    'the right arrow is not named for the chapter to read next');
+  assert.ok(/\$\((["'])#rd-ui-prev\1\)\.onclick = \(\) => go\(1\);/.test(flat),
+    'the left arrow does not step back to the chapter before this one');
+  assert.ok(/\$\((["'])#rd-ui-next\1\)\.onclick = \(\) => go\(-1\);/.test(flat),
+    'the right arrow does not step on to the next chapter');
+  assert.ok(/\$\((["'])#rd-prev-b\1\)\.onclick = \(\) => go\(1\);/.test(flat)
+    && /\$\((["'])#rd-next-b\1\)\.onclick = \(\) => go\(-1\);/.test(flat),
+    'the end card\'s two rows step the wrong way');
+  // The hand-on runs the same way, because it is the same direction: what is
+  // stitched under a chapter is the next chapter to read, not the one before it.
+  assert.ok(/const nextIdx = stepIndex\(dState\.chapters, rState\.idx, -1\);/.test(flat),
+    'the hand-on stitches the chapter the reader has already read');
 
   // What a middle tap is, and what it is not.
   assert.ok(/Math\.hypot\(e\.clientX - start\.x, e\.clientY - start\.y\) > 12/.test(flat),
@@ -1971,10 +1994,26 @@ test('a chapter runs into the next one at its end', () => {
   // title, and hands on in place: stitched and slid to, not rebuilt.
   assert.ok(/class="rd-continue" id="rd-continue"/.test(flat), 'the end of a chapter offers no next chapter');
   assert.ok(/<b>Next chapter<\/b>/.test(flat), 'the next chapter is not named on the end card');
-  assert.ok(/id="rd-end-done"/.test(flat), 'the last chapter of a title says nothing about being the last');
-  assert.ok(/if \(!scrollToChapter\(next\.id\)\) go\(1\);/.test(flat),
+  assert.ok(/if \(!scrollToChapter\(next\.id\)\) go\(-1\);/.test(flat),
     'the end card rebuilds the reader instead of handing on where the reader stands');
   assert.ok(/function scrollToChapter\(chapterId\)/.test(flat), 'nothing can slide to the next chapter');
+
+  // And where there is no next chapter — the newest one — it says the reader is
+  // caught up, with when the title's own rhythm puts the next one due. The
+  // rhythm is the estimate module's, the same one the title page's chip reads,
+  // and a title that has stopped is not given a date it cannot keep.
+  assert.ok(/id="rd-end-done"/.test(flat), 'the newest chapter says nothing about being the newest');
+  const caught = body('caughtUpText', 1200);
+  assert.ok(/nextChapterEstimate\(visibleChapters\(dState\.chapters, true\), \{ status \}\)/.test(caught),
+    'the caught-up notice names a date nothing estimated');
+  assert.ok(/const day = new Date\(est\.at\)\.toISOString\(\)\.slice\(0, 10\)/.test(caught),
+    'the caught-up notice has no date to print');
+  assert.ok(/estimateChip\(est\)/.test(caught), 'the caught-up notice has no reading of how far off it is');
+  assert.ok(/this title is \$\{esc\(word\)\}, so nothing newer is coming\./.test(caught),
+    'a title that has stopped is still promised another chapter');
+  assert.ok(/if \(!next\) done\.innerHTML = caughtUpText\(\);/.test(body('paintChapterChrome', 2000)),
+    'the caught-up notice is never drawn');
+  assert.ok(/\.rd-end-done b \{/.test(css), 'the caught-up headline is drawn as small print');
 
   // And the join is drawn, on both axes: a labelled band in a long strip, and a
   // slide of its own in the two paged layouts.

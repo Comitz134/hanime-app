@@ -11,11 +11,20 @@
 // chapter replaces it with the reader, and every one of those steps is a
 // line on the history stack the back button walks.
 //
-// A chapter does not stop at its last page. The next one is fetched as the
-// reader nears the end and stitched underneath it, so carrying on scrolling is
-// carrying on reading — the join between the two is announced, the finished
-// chapter is filed as finished, and the rail's record follows the reader into
-// the chapter being read now (see the hand-on section below).
+// Reading runs *up* the chapter numbers — 1, then 2, then 3 — which is the
+// opposite of how mangafire lists them: the list is newest first, so the next
+// chapter to read is the row above this one and the one just read is the row
+// below. Every control in the reader that steps is pointed that way (the pill's
+// right arrow is the next chapter, its left is the one before), because a
+// reader who presses right at the end of chapter 12 means chapter 13.
+//
+// So a chapter does not stop at its last page either: the next one is fetched
+// as the reader nears the end and stitched underneath it, and carrying on
+// scrolling is carrying on reading. The join between the two is announced, the
+// finished chapter is filed as finished, and the rail's record follows the
+// reader into the chapter being read now (see the hand-on section below). At
+// the newest chapter there is nothing to hand on to, and that is where being
+// caught up is said — with when the title's own rhythm puts the next one due.
 
 import { $, $$, esc, fmtCount } from './core.js';
 import { noteOpen, renderActivity } from './activity.js';
@@ -444,8 +453,9 @@ function readToTheEnd(spot) {
 /* ---- one chapter running into the next ----------------------------------
    A long strip ends at its last page, and a reader who has just read forty of
    them wants the next chapter, not a screen offering to fetch it. So the next
-   chapter is fetched as the reader nears the end of this one and stitched
-   underneath it: the pages below the last page *are* the next chapter's first
+   chapter — the next number up, the row above this one in the newest-first
+   list — is fetched as the reader nears the end of this one and stitched
+   underneath it: the pages below the last page *are* that chapter's first
    page, and scrolling on is reading on.
 
    What the join has to do besides look seamless:
@@ -465,7 +475,11 @@ function readToTheEnd(spot) {
      * never fight the reader. A chapter that will not load leaves its seam
        where it is, with the reason on it and a button, rather than putting a
        spinner in the middle of a strip.
-*/
+
+   The one place this cannot help is the newest chapter: nothing is posted
+   after it, which is the end of what reading can reach, so that is where the
+   reader is told they are caught up and when the next chapter is due (see
+   caughtUpText). */
 
 /** Chapters kept mounted at once. Reached only by a reader who is not
  *  stopping, and the trim is always behind them. */
@@ -553,21 +567,29 @@ function paintChapterChrome() {
   const total = dState.chapters.length;
   const ch = dState.chapters[rState.idx];
   if (!ch) return;
-  const newer = stepIndex(dState.chapters, rState.idx, -1);
-  const older = stepIndex(dState.chapters, rState.idx, 1);
-  const next = older >= 0 ? dState.chapters[older] : null;
+  // Reading runs up the chapter numbers, so "next" is the row above this one in
+  // the newest-first list and "previous" the row below. Every control that
+  // steps is painted from here rather than from the chapter renderReader was
+  // built for, because the reader hands on without being rebuilt.
+  const nextIdx = stepIndex(dState.chapters, rState.idx, -1);
+  const prevIdx = stepIndex(dState.chapters, rState.idx, 1);
+  const next = nextIdx >= 0 ? dState.chapters[nextIdx] : null;
+  const prev = prevIdx >= 0 ? dState.chapters[prevIdx] : null;
   const pos = $('#rd-ui-pos');
   if (pos) pos.textContent = `Ch. ${Number(ch.number)} / ${total}`;
   const uiPrev = $('#rd-ui-prev');
-  if (uiPrev) uiPrev.disabled = newer < 0;
+  if (uiPrev) uiPrev.disabled = !prev;
   const uiNext = $('#rd-ui-next');
-  if (uiNext) uiNext.disabled = older < 0;
+  if (uiNext) uiNext.disabled = !next;
   const prevB = $('#rd-prev-b');
-  if (prevB) prevB.disabled = newer < 0;
+  if (prevB) {
+    prevB.disabled = !prev;
+    prevB.textContent = prev ? `← Ch. ${Number(prev.number)}` : '← Previous';
+  }
   const nextB = $('#rd-next-b');
   if (nextB) {
     nextB.disabled = !next;
-    nextB.textContent = next ? `Ch. ${Number(next.number)} →` : 'Older →';
+    nextB.textContent = next ? `Ch. ${Number(next.number)} →` : 'Next →';
   }
   const sub = $('#rd-end-sub');
   if (sub) {
@@ -581,8 +603,41 @@ function paintChapterChrome() {
       ? `<b>Next chapter</b><span>Ch. ${esc(String(next.number))}${next.name ? ' · ' + esc(next.name) : ''}</span>`
       : '';
   }
+  // Nothing newer to read: the end of the newest chapter is where a reader is
+  // caught up, and that is what it says — with when the next one is due.
   const done = $('#rd-end-done');
-  if (done) done.hidden = !!next;
+  if (done) {
+    done.hidden = !!next;
+    if (!next) done.innerHTML = caughtUpText();
+  }
+}
+
+/**
+ * What stands at the end of the newest chapter, where the next one would be.
+ *
+ * Reading runs up the numbers, so the chapter with nothing after it is the
+ * newest one — the whole of what has been posted — and the honest thing to put
+ * there is that the reader is caught up, plus when the title's own rhythm says
+ * the next chapter is due. That rhythm is read off the gaps between the
+ * chapters already posted (manga-eta.js), which is the only source there is:
+ * mangafire has no schedule. A title that has stopped is not projected at all,
+ * so it says which way it has stopped instead of naming a date.
+ */
+function caughtUpText() {
+  const status = String(dState.detail?.status ?? '').toLowerCase();
+  const est = nextChapterEstimate(visibleChapters(dState.chapters, true), { status });
+  if (est) {
+    const day = new Date(est.at).toISOString().slice(0, 10);
+    const when = est.at <= Date.now()
+      ? 'and the next chapter is due any day now'
+      : `and the next chapter is ${estimateChip(est)} — around ${day}`;
+    return `<b>You're caught up</b> — ${when}, read off the rhythm of the `
+      + 'chapters already posted.';
+  }
+  const word = label(status);
+  return `<b>You're caught up</b> — ${word
+    ? `this title is ${esc(word)}, so nothing newer is coming.`
+    : 'nothing newer has been posted yet.'}`;
 }
 
 /**
@@ -617,7 +672,7 @@ function maybeExtend() {
     const box = s.el.getBoundingClientRect();
     if (slot.getBoundingClientRect().bottom < box.top + 1) return;
   }
-  const nextIdx = stepIndex(dState.chapters, rState.idx, 1);
+  const nextIdx = stepIndex(dState.chapters, rState.idx, -1);
   if (nextIdx < 0) return;
   // A seam that already failed said its piece: it carries its own button, and
   // retrying on every scroll frame is a request per frame.
@@ -637,7 +692,7 @@ function maybeExtend() {
 async function extendReader() {
   if (rdExtending) return;
   const slot = $('#rd-pages');
-  const nextIdx = stepIndex(dState.chapters, rState.idx, 1);
+  const nextIdx = stepIndex(dState.chapters, rState.idx, -1);
   if (!slot || nextIdx < 0) return;
   const ch = dState.chapters[rState.idx];
   const next = dState.chapters[nextIdx];
@@ -699,7 +754,7 @@ async function extendReader() {
 /** The chapter this one hands on to has its pages asked for before the reader
  *  gets there, so the seam has nothing to wait for when it goes in. */
 async function prefetchNext(from) {
-  const nextIdx = stepIndex(dState.chapters, Number.isFinite(from) ? from : rState.idx, 1);
+  const nextIdx = stepIndex(dState.chapters, Number.isFinite(from) ? from : rState.idx, -1);
   if (nextIdx < 0) return;
   const ch = dState.chapters[nextIdx];
   if (!ch || pagesCache.has(ch.id)) return;
@@ -983,8 +1038,8 @@ function bindReaderControls({ go, chapter }) {
   // Asked of the button rather than of the chapter this was bound for: the
   // reader hands on to the next chapter without this being bound again, and
   // the step that was dead at the newest chapter is alive two chapters later.
-  $('#rd-ui-prev').onclick = () => go(-1);
-  $('#rd-ui-next').onclick = () => go(1);
+  $('#rd-ui-prev').onclick = () => go(1);
+  $('#rd-ui-next').onclick = () => go(-1);
 
   const jumpPanel = () => `<div class="rd-jump">${dState.chapters.map((c, i) => `
       <button class="ch-card rd-jump-row" type="button" data-rd-jump="${esc(String(c.id))}"
@@ -1020,11 +1075,13 @@ function bindReaderControls({ go, chapter }) {
     <ul class="rd-help">
       <li>Tap the middle of the page to bring these controls up, and again to put them away.</li>
       <li>Scroll to read — the controls hide themselves as soon as the pages move.</li>
-      <li>The pill at the top steps to the newer and older chapter; a chapter posted twice is not two steps.</li>
+      <li>The pill at the top steps to the next chapter and the one before it — the right arrow is the chapter you read next, the left is the one you came from. A chapter posted twice is not two steps.</li>
+      <li>The newest chapter is the end of what has been posted: it says you are caught up, and when the title's own rhythm puts the next chapter due — read off the gaps between the chapters already posted.</li>
       <li>The rail on the right: the shelf, this title's page, a jump to any chapter, the reading settings, this list, and where to go when a chapter will not load.</li>
       <li>The reading settings are two tabs — <b>Layout</b> (one page, two, or a long strip; the margin; a progress bar; whether a single or a double tap brings these controls up) and <b>Image</b> (how a page is sized, grayscale, and how far the screen is dimmed).</li>
       <li>A chapter reopens where it was left, not at its first page.</li>
       <li>A chapter runs into the next one at its end: scroll on and the next chapter is already there. The join between them is labelled, the bar and the pill move to the chapter being read, and the finished one is filed as read.</li>
+      <li>The end of a chapter offers the next one as a button, which stitches it in and slides to it rather than rebuilding the reader.</li>
     </ul>`);
 
   const showProblem = () => {
@@ -1523,15 +1580,15 @@ async function renderReader() {
   // A reader being opened fresh is a reader with nothing stitched under it:
   // the chapter that was mounted here is gone with the markup below.
   rdMount.length = 0;
-  // The list is newest first: index 0 is the newest chapter, so stepping
-  // toward it is "Newer" and away from it is "Older". A step lands on the next
-  // *chapter*, never on another upload of this one — and the ends are read the
-  // same way, because the last row of a title can be the twin of its last
-  // chapter (manga-dupes.js).
-  const newer = stepIndex(dState.chapters, rState.idx, -1);
-  const older = stepIndex(dState.chapters, rState.idx, 1);
-  const atNewest = newer < 0;
-  const atOldest = older < 0;
+  // The list is newest first and reading runs the other way: a step *down* the
+  // list is the chapter to read next, a step *up* it is the one read before
+  // this. A step lands on the next *chapter*, never on another upload of this
+  // one — and the ends are read the same way, because the newest row of a title
+  // can be the twin of its newest chapter (manga-dupes.js).
+  const nextIdx = stepIndex(dState.chapters, rState.idx, -1);
+  const prevIdx = stepIndex(dState.chapters, rState.idx, 1);
+  const hasNext = nextIdx >= 0;
+  const hasPrev = prevIdx >= 0;
 
   $('#sheet-count').hidden = false;
   $('#sheet-count').textContent = `Ch. ${Number(ch.number)}`;
@@ -1548,22 +1605,22 @@ async function renderReader() {
     <div class="rd-end">
       <div class="rd-end-title">${esc(dState.detail?.title ?? '')}</div>
       <div class="rd-end-sub" id="rd-end-sub">Chapter ${esc(String(ch.number))} of ${dState.chapters.length}${ch.name ? ' · ' + esc(ch.name) : ''}</div>
-      <button class="rd-continue" id="rd-continue" type="button" ${atOldest ? 'hidden' : ''}></button>
-      <p class="rd-end-done" id="rd-end-done" ${atOldest ? '' : 'hidden'}>That was the last chapter — the end of this title.</p>
+      <button class="rd-continue" id="rd-continue" type="button" ${hasNext ? '' : 'hidden'}></button>
+      <p class="rd-end-done" id="rd-end-done" ${hasNext ? 'hidden' : ''}></p>
       <div class="rd-nav">
-        <button class="page-btn" id="rd-prev-b" type="button" ${atNewest ? 'disabled' : ''}>← Newer</button>
+        <button class="page-btn" id="rd-prev-b" type="button" ${hasPrev ? '' : 'disabled'}>← Previous</button>
         <button class="page-btn" id="rd-chapters-b" type="button">Chapters</button>
-        <button class="page-btn" id="rd-next-b" type="button" ${atOldest ? 'disabled' : ''}>Older →</button>
+        <button class="page-btn" id="rd-next-b" type="button" ${hasNext ? '' : 'disabled'}>Next →</button>
       </div>
     </div>
     <div class="rd-ui" id="rd-ui" hidden aria-hidden="true">
       <div class="rd-pill">
-        <button class="rd-pill-btn" id="rd-ui-prev" type="button" aria-label="Newer chapter" ${atNewest ? 'disabled' : ''}>
+        <button class="rd-pill-btn" id="rd-ui-prev" type="button" aria-label="Previous chapter" ${hasPrev ? '' : 'disabled'}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 5.5 8 12l6.5 6.5"/></svg>
         </button>
         <span class="rd-pill-pos" id="rd-ui-pos">Ch. ${esc(String(ch.number))} / ${dState.chapters.length}</span>
-        <button class="rd-pill-btn" id="rd-ui-next" type="button" aria-label="Older chapter" ${atOldest ? 'disabled' : ''}>
+        <button class="rd-pill-btn" id="rd-ui-next" type="button" aria-label="Next chapter" ${hasNext ? '' : 'disabled'}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.5 5.5 16 12l-6.5 6.5"/></svg>
         </button>
@@ -1581,13 +1638,16 @@ async function renderReader() {
     <div class="rd-dim" id="rd-dim-layer" aria-hidden="true"></div>
     <div class="rd-bar" id="rd-bar" data-shape="off" aria-hidden="true"><span id="rd-bar-fill"></span></div>`;
 
+  // A step is list-relative — `-1` is the next chapter to read, `1` the one
+  // read before this one — and the buttons are named for reading, not for the
+  // list: right is forward, whatever order upstream posted the rows in.
   const go = (delta) => {
     saveReadSpot();   // the chapter being left keeps where the reader got to
     const next = dState.chapters[stepIndex(dState.chapters, rState.idx, delta)];
     if (next) openChapter(Number(next.id));
   };
-  $('#rd-prev-b').onclick = () => go(-1);
-  $('#rd-next-b').onclick = () => go(1);
+  $('#rd-prev-b').onclick = () => go(1);
+  $('#rd-next-b').onclick = () => go(-1);
   $('#rd-chapters-b').onclick = () => { saveReadSpot(); goBack(); };
   // The end card's next chapter, handed on in place: the chapter is fetched
   // and its seam put in, then the reader slides to its first page. Rebuilding
@@ -1595,15 +1655,15 @@ async function renderReader() {
   // of the strip at the exact moment the reader asked to stay in it.
   const cont = $('#rd-continue');
   if (cont) cont.onclick = async () => {
-    const nextIdx = stepIndex(dState.chapters, rState.idx, 1);
-    if (nextIdx < 0) return;
-    const next = dState.chapters[nextIdx];
+    const idx = stepIndex(dState.chapters, rState.idx, -1);
+    if (idx < 0) return;
+    const next = dState.chapters[idx];
     saveReadSpot();
     await extendReader();
     if (seq !== rSeq) return;
     // Pages that never arrived leave the seam's own retry button to speak for
     // them; the plain step is the way on when there is nothing to slide to.
-    if (!scrollToChapter(next.id)) go(1);
+    if (!scrollToChapter(next.id)) go(-1);
   };
   paintChapterChrome();
   bindReaderControls({ go, chapter: ch });
