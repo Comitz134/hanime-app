@@ -31,7 +31,7 @@ import { noteOpen, renderActivity } from './activity.js';
 import { autoAdvance, configured, onTrackedProgress } from './mal.js';
 import { goBack, pushNav } from './nav-history.js';
 import { estimateChip, estimateDetail, estimateTitle, hasStopped, nextChapterEstimate } from './manga-eta.js';
-import { duplicateCount, stepIndex, visibleChapters } from './manga-dupes.js';
+import { chapterTotal, duplicateCount, stepIndex, visibleChapters } from './manga-dupes.js';
 import { dropSpot, noteSpot, spotFor } from './manga-pos.js';
 import { isRead, markRead, setProgress } from './manga-read.js';
 import { prefs, savePrefs } from './prefs.js';
@@ -542,7 +542,7 @@ function adoptChapter(idx) {
     title: dState.detail?.title,
     cover: posterFor(dState.detail, 'medium'),
     number: Number(ch.number),
-    total: dState.chapters.length,
+    total: chapterTotal(dState.chapters),
     ref: ch.id,
   });
   renderActivity('manga');
@@ -564,7 +564,10 @@ function adoptChapter(idx) {
  *  written into the markup, because the chapter under the reader changes
  *  without the markup being rebuilt. */
 function paintChapterChrome() {
-  const total = dState.chapters.length;
+  // What "out of" means here is how many chapters the title has — the number
+  // on its newest chapter — so a re-upload does not make the pill claim there
+  // are more chapters to go than there are.
+  const total = chapterTotal(dState.chapters);
   const ch = dState.chapters[rState.idx];
   if (!ch) return;
   // Reading runs up the chapter numbers, so "next" is the row above this one in
@@ -1322,10 +1325,13 @@ function renderDetail() {
   // it came from: the area is one shelf, but a title is mangafire's, and the
   // WebView button below is what opens it there.
   const kicker = [d.type, d.year, label(d.status), 'Mangafire'].filter(Boolean).map(esc).join(' · ');
+  // Counted by the number on the newest chapter, not by the rows below: a
+  // chapter posted twice is one chapter (see chapterTotal in manga-dupes.js).
+  const total = chapterTotal(dState.chapters);
   const meta = [
     d.rating ? `★ ${Number(d.rating).toFixed(1)}` : null,
     d.follows ? `${fmtCount(d.follows)} follows` : null,
-    dState.chapters.length ? `${dState.chapters.length} chapters` : null,
+    total ? `${total} chapters` : null,
   ].filter(Boolean).map(esc).join(' · ');
   // Read once here, shown in three places: the tile under the header, the
   // details row, and the sentence the tile is announced with. The rhythm is
@@ -1348,8 +1354,8 @@ function renderDetail() {
   ].filter(([, v]) => v);
 
   $('#sheet-count').hidden = false;
-  $('#sheet-count').textContent = dState.chapters.length
-    ? `${dState.chapters.length} chapters` : label(d.status);
+  $('#sheet-count').textContent = total
+    ? `${total} chapters` : label(d.status);
 
   $('#sheet-body').innerHTML = `
     <div class="detail-hero">
@@ -1507,11 +1513,12 @@ function renderChapterList() {
   }).join('');
   const count = $('#manga-ch-count');
   if (count) {
-    // What is on screen first — that is the number the reader can check — and
-    // how many rows were left out to get it.
+    // The size of the title, counted in chapter numbers rather than rows, and
+    // how many rows were left out to get there.
+    const total = chapterTotal(dState.chapters);
     count.textContent = hidden
-      ? `${rowsOut.length} chapters · ${hidden} duplicates hidden`
-      : `${rowsOut.length} chapters`;
+      ? `${total} chapters · ${hidden} duplicates hidden`
+      : `${total} chapters`;
   }
 }
 
@@ -1575,7 +1582,7 @@ async function openChapter(chId) {
     title: dState.detail?.title,
     cover: posterFor(dState.detail, 'medium'),
     number: Number(ch?.number),
-    total: dState.chapters.length,
+    total: chapterTotal(dState.chapters),
     ref: ch?.id,
   });
   renderActivity('manga');
@@ -1584,6 +1591,9 @@ async function openChapter(chId) {
 async function renderReader() {
   const seq = ++rSeq;
   const ch = dState.chapters[rState.idx];
+  // The size of the title, in chapter numbers — what "of" is measured against
+  // in the end card and the pill (manga-dupes.js).
+  const total = chapterTotal(dState.chapters);
   // A reader being opened fresh is a reader with nothing stitched under it:
   // the chapter that was mounted here is gone with the markup below.
   rdMount.length = 0;
@@ -1611,7 +1621,7 @@ async function renderReader() {
     <div class="rd-pages" id="rd-pages"><div class="center-spin"><div class="spinner"></div></div></div>
     <div class="rd-end">
       <div class="rd-end-title">${esc(dState.detail?.title ?? '')}</div>
-      <div class="rd-end-sub" id="rd-end-sub">Chapter ${esc(String(ch.number))} of ${dState.chapters.length}${ch.name ? ' · ' + esc(ch.name) : ''}</div>
+      <div class="rd-end-sub" id="rd-end-sub">Chapter ${esc(String(ch.number))} of ${total}${ch.name ? ' · ' + esc(ch.name) : ''}</div>
       <button class="rd-continue" id="rd-continue" type="button" ${hasNext ? '' : 'hidden'}></button>
       <p class="rd-end-done" id="rd-end-done" ${hasNext ? 'hidden' : ''}></p>
       <div class="rd-nav">
@@ -1626,7 +1636,7 @@ async function renderReader() {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 5.5 8 12l6.5 6.5"/></svg>
         </button>
-        <span class="rd-pill-pos" id="rd-ui-pos">Ch. ${esc(String(ch.number))} / ${dState.chapters.length}</span>
+        <span class="rd-pill-pos" id="rd-ui-pos">Ch. ${esc(String(ch.number))} / ${total}</span>
         <button class="rd-pill-btn" id="rd-ui-next" type="button" aria-label="Next chapter" ${hasNext ? '' : 'disabled'}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.5 5.5 16 12l-6.5 6.5"/></svg>
@@ -1789,7 +1799,7 @@ document.addEventListener('click', (e) => {
       cover: posterFor(dState.detail, 'medium'),
       type: dState.detail?.type,
       year: dState.detail?.year,
-      chapters: dState.chapters.length,
+      chapters: chapterTotal(dState.chapters),
     });
     return;
   }

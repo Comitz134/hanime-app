@@ -60,6 +60,39 @@ function visibleChapters(chapters, hideDuplicates) {
   });
 }
 
+/**
+ * How many chapters a title has, counted the way a reader counts them: by the
+ * number on its newest one, not by the rows it took to list them.
+ *
+ * The row count is the one number here that a duplicate corrupts: a title of
+ * 254 chapters with a second upload of forty of them is 294 rows, and "294
+ * chapters" is simply not true of it. The chapter number is: the list ends at
+ * `Ch. 254`, and that is the size of the title whether one upload of a chapter
+ * came back or three did.
+ *
+ * A row with no readable number cannot be counted that way — it is a chapter
+ * whose number the catalogue never said, so it is added on top rather than
+ * lost. A half chapter (`14.5`) is rounded to the nearest whole chapter: a
+ * title whose newest is `Ch. 254.5` has 255 chapters' worth of reading in it,
+ * and a screen that says "254.5 chapters" is answering a question nobody asked.
+ * `14.001` is a special that belongs to chapter 14, so it still counts as 14.
+ */
+function chapterTotal(chapters) {
+  const rows = Array.isArray(chapters) ? chapters : [];
+  let last = 0;
+  let unnumbered = 0;
+  for (const row of rows) {
+    const key = numberKey(row);
+    // A prologue numbered zero is where the run of chapters starts, not a
+    // chapter in front of it: the newest number is already the title's size.
+    if (key === null) unnumbered += 1;
+    else last = Math.max(last, Number(key));
+  }
+  const total = Math.round(last) + unnumbered;
+  // A title whose only chapter is the prologue still has one chapter in it.
+  return rows.length && total < 1 ? 1 : total;
+}
+
 /** How many rows hiding the duplicates would leave out — 0 when there are none. */
 function duplicateCount(chapters) {
   const rows = Array.isArray(chapters) ? chapters : [];
@@ -97,4 +130,4 @@ function stepIndex(chapters, from, delta) {
   return i;
 }
 
-export { duplicateCount, stepIndex, visibleChapters };
+export { chapterTotal, duplicateCount, stepIndex, visibleChapters };

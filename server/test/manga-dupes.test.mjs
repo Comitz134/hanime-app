@@ -7,7 +7,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { duplicateCount, stepIndex, visibleChapters } from '../client/src/manga-dupes.js';
+import { chapterTotal, duplicateCount, stepIndex, visibleChapters } from '../client/src/manga-dupes.js';
 
 /** Rows newest first, the way mangafire returns them. */
 function row(number, id, createdAt = 0) {
@@ -54,6 +54,37 @@ test('a row whose number cannot be read is not merged with anything', () => {
   const kept = visibleChapters(rows, true);
   assert.deepEqual(kept.map((c) => c.id), ['a', 'b', 'c', 'd']);
   assert.equal(duplicateCount(rows), 1);
+});
+
+test('a title is as long as its newest chapter number, not as long as its rows', () => {
+  // Seven rows, four chapters — the number the title page prints is 156.
+  assert.equal(chapterTotal(LIST), 156);
+  assert.equal(chapterTotal(visibleChapters(LIST, true)), 156);
+  assert.equal(chapterTotal(LIST), visibleChapters(LIST, true).length + 152,
+    'the count came from the rows instead of the numbers');
+});
+
+test('a count is the chapter numbers even where the numbering has holes', () => {
+  // A dropped scanlation leaves gaps; the title still ends at 156.
+  const gappy = [row(156, 'a'), row(140, 'b'), row(120, 'c'), row(119, 'd')];
+  assert.equal(chapterTotal(gappy), 156);
+});
+
+test('a half chapter is a chapter, and a special belongs to its own number', () => {
+  assert.equal(chapterTotal([row(254, 'a'), row(254.5, 'b')]), 255);
+  // `14.001` is chapter fourteen's special, not a fifteenth chapter.
+  assert.equal(chapterTotal([row(14, 'a'), row(14.001, 'b')]), 14);
+  // A prologue numbered zero is one chapter, and the count never says zero.
+  assert.equal(chapterTotal([row(0, 'a')]), 1);
+});
+
+test('a row with no readable number is a chapter the numbering cannot count', () => {
+  assert.equal(chapterTotal([row(9, 'a'), row(undefined, 'b'), row('', 'c')]), 11);
+  // Nothing numbered at all: the rows are the only count there is.
+  assert.equal(chapterTotal([row('special', 'a'), row('special', 'b')]), 2);
+  assert.equal(chapterTotal([]), 0);
+  assert.equal(chapterTotal(null), 0);
+  assert.equal(chapterTotal(undefined), 0);
 });
 
 test('a step lands on the next chapter, never on the twin of this one', () => {

@@ -1421,6 +1421,29 @@ test('a chapter posted twice is one row, and a step never lands on its twin', ()
   assert.ok(/function duplicateCount\(/.test(script),
     'the list cannot say how many rows it left out');
   assert.ok(/function stepIndex\(/.test(script), 'the reader has no step that skips a twin');
+  assert.ok(/function chapterTotal\(/.test(script),
+    'nothing counts a title in chapter numbers instead of rows');
+
+  // How big a title is, is the number on its newest chapter — never the rows
+  // the list came in, which a re-upload inflates. Every place that prints the
+  // size asks the one function, so the chip, the meta line, the list's own
+  // count, the reader's pill and the saved card cannot disagree.
+  assert.match(script, /const total = chapterTotal\(dState\.chapters\)/,
+    'the title page counts rows');
+  assert.match(script, /total \? `\$\{total\} chapters` : label\(d\.status\)/,
+    'the sheet bar counts rows');
+  assert.match(script, /total \? `\$\{total\} chapters` : null/,
+    'the meta line counts rows');
+  assert.match(script, /total\} chapters \\xB7 \$\{hidden\} duplicates hidden`/,
+    'the chapter list counts rows');
+  assert.match(script, /`Ch\. \$\{Number\(ch\.number\)\} \/ \$\{total\}`/,
+    'the reader pill counts rows');
+  assert.match(script, /chapters: chapterTotal\(dState\.chapters\)/,
+    'a saved title is filed with a row count');
+  // The one place the row count is still right: deciding whether to say
+  // "no chapters were returned", and how many rows were folded away.
+  assert.equal((script.match(/dState\.chapters\.length/g) ?? []).length, 2,
+    'a row count survived somewhere it is a chapter count');
 
   // The control sits on the title page, and it is a preference: it rides the
   // same guarded store as the theme, so it survives a restart.
@@ -1614,8 +1637,12 @@ test('the manga reader brings its controls up from the middle of the screen', ()
   // The pill and the rail, and the pill's own words: where in the title this
   // chapter is, with a step either side of it.
   assert.ok(/class="rd-pill"/.test(flat), 'the reader has no chapter pill');
-  assert.ok(/id="rd-ui-pos">Ch\. \$\{esc\(String\(ch\.number\)\)\} \/ \$\{dState\.chapters\.length\}/.test(flat),
+  assert.ok(/id="rd-ui-pos">Ch\. \$\{esc\(String\(ch\.number\)\)\} \/ \$\{total\}/.test(flat),
     'the pill does not say which chapter of how many');
+  // "How many" is the title's newest chapter number, not its row count: a
+  // chapter posted twice is one chapter (manga-dupes.js).
+  assert.ok(/const total = chapterTotal\(dState\.chapters\);/.test(flat),
+    'the pill counts rows, so a re-upload inflates the title');
   assert.ok(/id="rd-ui-prev"/.test(flat) && /id="rd-ui-next"/.test(flat),
     'the pill has no step either side of it');
   assert.ok(/class="rd-rail"/.test(flat), 'the reader has no rail');
@@ -1958,8 +1985,12 @@ test('a chapter runs into the next one at its end', () => {
   assert.ok(/dropSpot\(prev\.id\)/.test(adopt),
     'a chapter scrolled out of is still offered as the place to resume');
   assert.ok(/markRead\(dState\.hid, ch\.number\)/.test(adopt), 'a chapter handed on to is not filed as read');
-  assert.ok(/noteOpen\((["'])manga\1, \{ id: dState\.hid, title: .{0,80}?cover: posterFor\(dState\.detail, (["'])medium\2\), number: Number\(ch\.number\), total: dState\.chapters\.length, ref: ch\.id \}\)/.test(adopt),
+  assert.ok(/noteOpen\((["'])manga\1, \{ id: dState\.hid, title: .{0,80}?cover: posterFor\(dState\.detail, (["'])medium\2\), number: Number\(ch\.number\), total: chapterTotal\(dState\.chapters\), ref: ch\.id \}\)/.test(adopt),
     'the rail keeps pointing at the chapter that was finished');
+  // And the "of" it carries is the title's size in chapters, so the bar under
+  // the rail card is not measured against rows that include re-uploads.
+  assert.ok(!/total: dState\.chapters\.length/.test(adopt),
+    'the rail files a row count as the title\'s size');
   assert.ok(/renderActivity\((["'])manga\1\)/.test(adopt), 'the rail is not redrawn when the reader hands on');
   assert.ok(/autoAdvance\((["'])manga\1, .{0,80}?malId, ch\.number, .{0,80}?title\);/.test(adopt),
     'the account is not told which chapter the reader is in now');

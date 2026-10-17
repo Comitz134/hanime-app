@@ -5127,6 +5127,18 @@ select.filter-select.sort-select {
       return true;
     });
   }
+  function chapterTotal(chapters) {
+    const rows = Array.isArray(chapters) ? chapters : [];
+    let last = 0;
+    let unnumbered = 0;
+    for (const row of rows) {
+      const key = numberKey(row);
+      if (key === null) unnumbered += 1;
+      else last = Math.max(last, Number(key));
+    }
+    const total = Math.round(last) + unnumbered;
+    return rows.length && total < 1 ? 1 : total;
+  }
   function duplicateCount(chapters) {
     const rows = Array.isArray(chapters) ? chapters : [];
     return rows.length - visibleChapters(rows, true).length;
@@ -8613,7 +8625,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
       title: (_a10 = dState.detail) == null ? void 0 : _a10.title,
       cover: posterFor(dState.detail, "medium"),
       number: Number(ch.number),
-      total: dState.chapters.length,
+      total: chapterTotal(dState.chapters),
       ref: ch.id
     });
     renderActivity("manga");
@@ -8625,7 +8637,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     prefetchNext(idx);
   }
   function paintChapterChrome() {
-    const total = dState.chapters.length;
+    const total = chapterTotal(dState.chapters);
     const ch = dState.chapters[rState.idx];
     if (!ch) return;
     const nextIdx = stepIndex(dState.chapters, rState.idx, -1);
@@ -9201,10 +9213,11 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     slotHome = null;
     const genres = (d.genres ?? []).map((g) => `<span class="hero-tag">${esc(g.title ?? g.name ?? String(g))}</span>`).join("");
     const kicker = [d.type, d.year, label(d.status), "Mangafire"].filter(Boolean).map(esc).join(" \xB7 ");
+    const total = chapterTotal(dState.chapters);
     const meta = [
       d.rating ? `\u2605 ${Number(d.rating).toFixed(1)}` : null,
       d.follows ? `${fmtCount(d.follows)} follows` : null,
-      dState.chapters.length ? `${dState.chapters.length} chapters` : null
+      total ? `${total} chapters` : null
     ].filter(Boolean).map(esc).join(" \xB7 ");
     const eta = nextChapterEstimate(visibleChapters(dState.chapters, true), { status: d.status });
     const dupes = duplicateCount(dState.chapters);
@@ -9218,7 +9231,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
       ["Artists", (d.artists ?? []).map((a) => a.title ?? String(a)).join(", ")]
     ].filter(([, v]) => v);
     $("#sheet-count").hidden = false;
-    $("#sheet-count").textContent = dState.chapters.length ? `${dState.chapters.length} chapters` : label(d.status);
+    $("#sheet-count").textContent = total ? `${total} chapters` : label(d.status);
     $("#sheet-body").innerHTML = `
     <div class="detail-hero">
       <div class="detail-poster"><img src="${esc(posterFor(d, "large") || posterFor(d))}" alt="" loading="lazy"></div>
@@ -9332,7 +9345,8 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     }).join("");
     const count = $("#manga-ch-count");
     if (count) {
-      count.textContent = hidden ? `${rowsOut.length} chapters \xB7 ${hidden} duplicates hidden` : `${rowsOut.length} chapters`;
+      const total = chapterTotal(dState.chapters);
+      count.textContent = hidden ? `${total} chapters \xB7 ${hidden} duplicates hidden` : `${total} chapters`;
     }
   }
   async function openManga(hid, chapter) {
@@ -9377,7 +9391,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
       title: (_c = dState.detail) == null ? void 0 : _c.title,
       cover: posterFor(dState.detail, "medium"),
       number: Number(ch == null ? void 0 : ch.number),
-      total: dState.chapters.length,
+      total: chapterTotal(dState.chapters),
       ref: ch == null ? void 0 : ch.id
     });
     renderActivity("manga");
@@ -9386,6 +9400,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     var _a10;
     const seq = ++rSeq;
     const ch = dState.chapters[rState.idx];
+    const total = chapterTotal(dState.chapters);
     rdMount.length = 0;
     const nextIdx = stepIndex(dState.chapters, rState.idx, -1);
     const prevIdx = stepIndex(dState.chapters, rState.idx, 1);
@@ -9398,7 +9413,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     <div class="rd-pages" id="rd-pages"><div class="center-spin"><div class="spinner"></div></div></div>
     <div class="rd-end">
       <div class="rd-end-title">${esc(((_a10 = dState.detail) == null ? void 0 : _a10.title) ?? "")}</div>
-      <div class="rd-end-sub" id="rd-end-sub">Chapter ${esc(String(ch.number))} of ${dState.chapters.length}${ch.name ? " \xB7 " + esc(ch.name) : ""}</div>
+      <div class="rd-end-sub" id="rd-end-sub">Chapter ${esc(String(ch.number))} of ${total}${ch.name ? " \xB7 " + esc(ch.name) : ""}</div>
       <button class="rd-continue" id="rd-continue" type="button" ${hasNext ? "" : "hidden"}></button>
       <p class="rd-end-done" id="rd-end-done" ${hasNext ? "hidden" : ""}></p>
       <div class="rd-nav">
@@ -9413,7 +9428,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 5.5 8 12l6.5 6.5"/></svg>
         </button>
-        <span class="rd-pill-pos" id="rd-ui-pos">Ch. ${esc(String(ch.number))} / ${dState.chapters.length}</span>
+        <span class="rd-pill-pos" id="rd-ui-pos">Ch. ${esc(String(ch.number))} / ${total}</span>
         <button class="rd-pill-btn" id="rd-ui-next" type="button" aria-label="Next chapter" ${hasNext ? "" : "disabled"}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.5 5.5 16 12l-6.5 6.5"/></svg>
@@ -9550,7 +9565,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
         cover: posterFor(dState.detail, "medium"),
         type: (_b = dState.detail) == null ? void 0 : _b.type,
         year: (_c = dState.detail) == null ? void 0 : _c.year,
-        chapters: dState.chapters.length
+        chapters: chapterTotal(dState.chapters)
       });
       return;
     }
