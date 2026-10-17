@@ -1312,6 +1312,72 @@ h2 .area-chip { font-size: .5625rem; }
   flex: 0 0 50%; width: 50%; height: 100%; object-fit: contain; scroll-snap-align: center;
 }
 
+/* ---- one chapter running into the next ----------------------------------
+   The join at the end of a chapter, between its last page and the next
+   chapter's first. It is a band and not a stop: the pages under it are already
+   the next chapter, so a reader who keeps scrolling keeps reading — what the
+   band is for is saying so, naming what finished and what is starting, and
+   holding the spinner while the next chapter's pages are on their way. */
+.rd-seam {
+  display: flex; align-items: center; gap: .875rem;
+  padding: 1.25rem 1rem; background: hsl(var(--background));
+  color: hsl(var(--muted-foreground));
+}
+.rd-seam-rule { flex: 1 1 auto; height: 1px; background: hsl(var(--border) / .8); }
+.rd-seam-text {
+  display: flex; flex-direction: column; align-items: center; gap: .1875rem;
+  text-align: center; min-width: 0;
+}
+.rd-seam-text b { font-size: .75rem; font-weight: 700; color: hsl(var(--foreground)); }
+.rd-seam-text em {
+  font-size: .6875rem; font-style: normal;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
+}
+.rd-seam-spin {
+  flex: 0 0 auto; width: .875rem; height: .875rem; border-radius: 999px;
+  border: 2px solid hsl(var(--muted-foreground) / .35); border-top-color: transparent;
+  animation: rd-spin .8s linear infinite;
+}
+@keyframes rd-spin { to { transform: rotate(360deg); } }
+/* A chapter that will not arrive: the band stays where it is, says so, and
+   carries the button that asks again — a strip with a hole in it beats a
+   reader thrown back to a spinner over pages they have already read. */
+.rd-seam--failed .rd-seam-text em { color: hsl(var(--destructive, 0 72% 51%)); }
+.rd-seam-retry {
+  flex: 0 0 auto; padding: .375rem .625rem; border-radius: 999px;
+  border: 1px solid hsl(var(--border)); background: hsl(var(--card));
+  font-size: .6875rem; font-weight: 600; color: hsl(var(--primary));
+}
+/* In the two paged layouts the join is a slide of its own, sized like a page,
+   so the swipe at the end of a chapter lands on the next chapter's first page
+   instead of snapping back. */
+.rd-pages[data-layout="single"] .rd-seam,
+.rd-pages[data-layout="double"] .rd-seam {
+  flex: 0 0 100%; width: 100%; height: 100%;
+  flex-direction: column; justify-content: center; gap: .875rem;
+  scroll-snap-align: center;
+}
+.rd-pages[data-layout="double"] .rd-seam { flex-basis: 50%; width: 50%; }
+.rd-pages[data-layout="single"] .rd-seam .rd-seam-rule,
+.rd-pages[data-layout="double"] .rd-seam .rd-seam-rule { flex: 0 0 1px; width: 40%; height: 1px; }
+
+/* The finish line, when there is nothing to hand on to: the chapter's own
+   end card, with the next chapter offered as one button rather than buried in
+   the row of steps. */
+.rd-continue {
+  display: flex; flex-direction: column; align-items: center; gap: .125rem;
+  width: 100%; margin: .875rem 0 0; padding: .75rem 1rem;
+  border-radius: .75rem; border: 1px solid hsl(var(--primary) / .55);
+  background: hsl(var(--primary) / .12); color: hsl(var(--primary));
+}
+.rd-continue[hidden] { display: none; }
+.rd-continue b { font-size: .8125rem; font-weight: 700; }
+.rd-continue span {
+  font-size: .6875rem; color: hsl(var(--muted-foreground));
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
+}
+.rd-end-done { margin: 1rem 0 0; font-size: .75rem; color: hsl(var(--muted-foreground)); }
+
 /* The wash the Image tab's "Dim screen" draws — over the pages, under the
    controls, and never in the way of a tap. */
 .rd-dim { position: fixed; inset: 0; z-index: 5; pointer-events: none; background: #000; opacity: 0; }
@@ -8362,11 +8428,18 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     };
   }
   function readProgress() {
+    const ch = dState.chapters[rState.idx];
+    const list = ch ? chapterPages(ch.id) : [];
     const s = readScroll();
-    if (!s.el) return 0;
-    const max = s.el[s.size] - s.el[s.span];
-    if (!(max > 0)) return 0;
-    return clamp(s.el[s.pos] / max, 0, 1);
+    if (!s.el || !list.length) return 0;
+    const box = s.el.getBoundingClientRect();
+    const head = list[0].getBoundingClientRect();
+    const tail = list[list.length - 1].getBoundingClientRect();
+    const start = s.paged ? head.left - box.left : head.top - box.top;
+    const end = s.paged ? tail.right - box.left : tail.bottom - box.top;
+    const span = end - start;
+    if (!(span > 0)) return 0;
+    return clamp(-start / span, 0, 1);
   }
   function paintReadProgress() {
     const fill = $("#rd-bar-fill");
@@ -8392,10 +8465,14 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     paintReadProgress();
     bindReaderScroll();
   }
-  var pagesHtml = (pages) => pages.length ? pages.map((p, i) => `<img class="rd-page" loading="lazy" decoding="async" src="${esc(proxied(p.url))}" alt="Page ${i + 1}">`).join("") : '<p class="note">No pages came back for this chapter.</p>';
-  function currentSpot() {
+  var pagesHtml = (pages, chapterId) => pages.length ? pages.map((p, i) => `<img class="rd-page" data-ch="${esc(String(chapterId))}" loading="lazy" decoding="async" src="${esc(proxied(p.url))}" alt="Page ${i + 1}">`).join("") : '<p class="note">No pages came back for this chapter.</p>';
+  function chapterPages(chapterId) {
+    const slot = $("#rd-pages");
+    if (!slot) return [];
+    return $$(`.rd-page[data-ch="${String(chapterId)}"]`, slot);
+  }
+  function spotIn(pages) {
     const s = readScroll();
-    const pages = $$(".rd-page", $("#rd-pages"));
     if (!s.el || !pages.length) return null;
     const box = s.el.getBoundingClientRect();
     for (let i = 0; i < pages.length; i++) {
@@ -8406,6 +8483,10 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     }
     return null;
   }
+  function currentSpot() {
+    const ch = dState.chapters[rState.idx];
+    return spotIn(ch ? chapterPages(ch.id) : []);
+  }
   function saveReadSpot() {
     const ch = dState.chapters[rState.idx];
     if (!ch || !$("#rd-ui")) return;
@@ -8413,7 +8494,9 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     if (!s.el || !s.el[s.span]) return;
     const spot = currentSpot();
     if (!spot) return;
-    const record = { hid: dState.hid, p: spot.p, f: spot.f, n: $$(".rd-page", $("#rd-pages")).length };
+    const list = chapterPages(ch.id);
+    if (!list.length) return;
+    const record = { hid: dState.hid, p: spot.p, f: spot.f, n: list.length };
     if (readToTheEnd(record)) {
       dropSpot(ch.id);
       return;
@@ -8435,7 +8518,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     if (!ch) return;
     const spot = spotFor(ch.id);
     if (!spot || !spot.p && !spot.f) return;
-    const pages = $$(".rd-page", $("#rd-pages"));
+    const pages = chapterPages(ch.id);
     const target = pages[spot.p];
     if (!target) return;
     target.loading = "eager";
@@ -8469,6 +8552,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
       rdRestoring = false;
       if (slot) slot.removeEventListener("load", wake, true);
       clearInterval(timer);
+      maybeExtend();
     };
     const timer = setInterval(() => {
       if (stopped) {
@@ -8485,6 +8569,217 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
   }
   function readToTheEnd(spot) {
     return !!spot && spot.n > 1 && spot.p >= spot.n - 1 && spot.f > 0.5;
+  }
+  var RD_MAX_MOUNT = 8;
+  var RD_TAIL_PAGES = 3;
+  var rdMount = [];
+  var rdExtending = false;
+  function mountedPosition() {
+    const s = readScroll();
+    if (!s.el) return 0;
+    const box = s.el.getBoundingClientRect();
+    let at = 0;
+    for (let i = 1; i < rdMount.length; i++) {
+      const seam = rdMount[i].seam;
+      if (!seam || !seam.isConnected) continue;
+      const r = seam.getBoundingClientRect();
+      const along = s.paged ? r.left - box.left : r.top - box.top;
+      if (along <= 0.5) at = i;
+    }
+    return at;
+  }
+  function adoptChapter(idx) {
+    var _a10, _b, _c;
+    const prev = dState.chapters[rState.idx];
+    const ch = dState.chapters[idx];
+    if (!prev || !ch || idx === rState.idx) return;
+    dropSpot(prev.id);
+    rState.idx = idx;
+    markRead(dState.hid, ch.number);
+    noteOpen("manga", {
+      id: dState.hid,
+      title: (_a10 = dState.detail) == null ? void 0 : _a10.title,
+      cover: posterFor(dState.detail, "medium"),
+      number: Number(ch.number),
+      total: dState.chapters.length,
+      ref: ch.id
+    });
+    renderActivity("manga");
+    autoAdvance("manga", (_b = dState.detail) == null ? void 0 : _b.malId, ch.number, (_c = dState.detail) == null ? void 0 : _c.title);
+    setSheetOrigin({ kind: "manga", ref: dState.hid, chapter: String(ch.id) });
+    const count = $("#sheet-count");
+    if (count) count.textContent = `Ch. ${Number(ch.number)}`;
+    paintChapterChrome();
+    prefetchNext(idx);
+  }
+  function paintChapterChrome() {
+    const total = dState.chapters.length;
+    const ch = dState.chapters[rState.idx];
+    if (!ch) return;
+    const newer = stepIndex(dState.chapters, rState.idx, -1);
+    const older = stepIndex(dState.chapters, rState.idx, 1);
+    const next = older >= 0 ? dState.chapters[older] : null;
+    const pos = $("#rd-ui-pos");
+    if (pos) pos.textContent = `Ch. ${Number(ch.number)} / ${total}`;
+    const uiPrev = $("#rd-ui-prev");
+    if (uiPrev) uiPrev.disabled = newer < 0;
+    const uiNext = $("#rd-ui-next");
+    if (uiNext) uiNext.disabled = older < 0;
+    const prevB = $("#rd-prev-b");
+    if (prevB) prevB.disabled = newer < 0;
+    const nextB = $("#rd-next-b");
+    if (nextB) {
+      nextB.disabled = !next;
+      nextB.textContent = next ? `Ch. ${Number(next.number)} \u2192` : "Older \u2192";
+    }
+    const sub = $("#rd-end-sub");
+    if (sub) {
+      sub.textContent = `Chapter ${Number(ch.number)} of ${total}` + (ch.name ? ` \xB7 ${ch.name}` : "");
+    }
+    const cont = $("#rd-continue");
+    if (cont) {
+      cont.hidden = !next;
+      cont.innerHTML = next ? `<b>Next chapter</b><span>Ch. ${esc(String(next.number))}${next.name ? " \xB7 " + esc(next.name) : ""}</span>` : "";
+    }
+    const done = $("#rd-end-done");
+    if (done) done.hidden = !!next;
+  }
+  function nearTail() {
+    const ch = dState.chapters[rState.idx];
+    const list = ch ? chapterPages(ch.id) : [];
+    if (!list.length) return false;
+    const spot = spotIn(list);
+    if (!spot) return false;
+    return list.length - (spot.p + 1) <= RD_TAIL_PAGES;
+  }
+  function maybeExtend() {
+    if (!rdMount.length || rdExtending || rdRestoring) return;
+    const slot = $("#rd-pages");
+    const s = readScroll();
+    if (!s.el || !slot) return;
+    if (!s.paged) {
+      const box = s.el.getBoundingClientRect();
+      if (slot.getBoundingClientRect().bottom < box.top + 1) return;
+    }
+    const nextIdx = stepIndex(dState.chapters, rState.idx, 1);
+    if (nextIdx < 0) return;
+    if (rdMount.some((m) => m.idx === nextIdx && m.failed)) return;
+    if (nearTail()) extendReader();
+  }
+  async function extendReader() {
+    var _a10;
+    if (rdExtending) return;
+    const slot = $("#rd-pages");
+    const nextIdx = stepIndex(dState.chapters, rState.idx, 1);
+    if (!slot || nextIdx < 0) return;
+    const ch = dState.chapters[rState.idx];
+    const next = dState.chapters[nextIdx];
+    const known2 = rdMount.find((m) => m.idx === nextIdx);
+    if (known2 && !known2.failed) return;
+    const seq = rSeq;
+    rdExtending = true;
+    let seam = (known2 == null ? void 0 : known2.seam) ?? null;
+    if (seam) {
+      known2.failed = false;
+      (_a10 = seam.querySelector(".rd-seam-retry")) == null ? void 0 : _a10.remove();
+      seam.classList.remove("rd-seam--failed");
+    } else {
+      slot.insertAdjacentHTML("beforeend", seamHtml(ch, next));
+      seam = $$("[data-rd-seam]", slot).pop();
+      rdMount.push({ idx: nextIdx, id: next.id, seam, failed: false });
+    }
+    seam.dataset.loading = "true";
+    const spin = document.createElement("span");
+    spin.className = "rd-seam-spin";
+    spin.setAttribute("aria-hidden", "true");
+    seam.appendChild(spin);
+    try {
+      let list = pagesCache.get(next.id);
+      if (!list) {
+        list = await mangaPages(next.id);
+        trimCache(pagesCache, 60);
+        pagesCache.set(next.id, list);
+      }
+      if (seq !== rSeq || !seam.isConnected) return;
+      delete seam.dataset.loading;
+      spin.remove();
+      seam.insertAdjacentHTML("afterend", pagesHtml(list, next.id));
+      trimMount();
+    } catch (e) {
+      if (seq !== rSeq || !seam.isConnected) return;
+      const record = rdMount.find((m) => m.idx === nextIdx);
+      if (record) record.failed = true;
+      delete seam.dataset.loading;
+      spin.remove();
+      seam.classList.add("rd-seam--failed");
+      const again = document.createElement("button");
+      again.type = "button";
+      again.className = "rd-seam-retry";
+      again.textContent = "Could not load \u2014 tap to try again";
+      again.onclick = () => {
+        extendReader();
+      };
+      seam.appendChild(again);
+    } finally {
+      rdExtending = false;
+    }
+  }
+  async function prefetchNext(from) {
+    const nextIdx = stepIndex(dState.chapters, Number.isFinite(from) ? from : rState.idx, 1);
+    if (nextIdx < 0) return;
+    const ch = dState.chapters[nextIdx];
+    if (!ch || pagesCache.has(ch.id)) return;
+    try {
+      const list = await mangaPages(ch.id);
+      if (!list) return;
+      trimCache(pagesCache, 60);
+      pagesCache.set(ch.id, list);
+    } catch (e) {
+    }
+  }
+  function seamHtml(done, next) {
+    return `<div class="rd-seam" data-rd-seam="${esc(String(next.id))}">
+      <span class="rd-seam-rule" aria-hidden="true"></span>
+      <span class="rd-seam-text">
+        <b>Ch. ${esc(String(done.number))} finished</b>
+        <em>Ch. ${esc(String(next.number))}${next.name ? " \xB7 " + esc(next.name) : ""}</em>
+      </span>
+      <span class="rd-seam-rule" aria-hidden="true"></span>
+    </div>`;
+  }
+  function scrollToChapter(chapterId) {
+    const s = readScroll();
+    const first = chapterPages(chapterId)[0];
+    if (!s.el || !first) return false;
+    const box = s.el.getBoundingClientRect();
+    const r = first.getBoundingClientRect();
+    const to = clamp(
+      s.el[s.pos] + (s.paged ? r.left - box.left : r.top - box.top),
+      0,
+      Math.max(0, s.el[s.size] - s.el[s.span])
+    );
+    if (s.el.scrollTo) s.el.scrollTo({ [s.paged ? "left" : "top"]: to, behavior: "smooth" });
+    else s.el[s.pos] = to;
+    return true;
+  }
+  function trimMount() {
+    if (rdMount.length <= RD_MAX_MOUNT) return;
+    const s = readScroll();
+    if (!s.el) return;
+    if (mountedPosition() < 3) return;
+    const gone = rdMount.shift();
+    const head = rdMount[0];
+    const nodes = [...(head == null ? void 0 : head.seam) ? [head.seam] : [], ...chapterPages(gone.id)];
+    const before = s.el[s.size];
+    nodes.forEach((n) => n.remove());
+    if (head) head.seam = null;
+    s.el[s.pos] = Math.max(0, s.el[s.pos] - (before - s.el[s.size]));
+  }
+  function syncReaderChapter() {
+    if (rdMount.length < 2) return;
+    const at = mountedPosition();
+    const m = rdMount[at];
+    if (m && m.idx !== rState.idx) adoptChapter(m.idx);
   }
   var RD_LAYOUT_ICONS = {
     single: '<rect x="7" y="3.5" width="10" height="17" rx="1.6"/><path d="M11 8.5h2"/>',
@@ -8642,7 +8937,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     prefs.readerDim = clamp(percent, 0, RD_DIM_MAX);
     if (layer) layer.style.opacity = String(prefs.readerDim / 100);
   }
-  function bindReaderControls({ go, chapter, atNewest, atOldest }) {
+  function bindReaderControls({ go, chapter }) {
     const ui = $("#rd-ui");
     const panel = $("#rd-panel");
     if (!ui || !panel) return;
@@ -8667,12 +8962,8 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
       panel.hidden = false;
       $("[data-rd-close]", panel).onclick = closePanel;
     };
-    $("#rd-ui-prev").onclick = () => {
-      if (!atNewest) go(-1);
-    };
-    $("#rd-ui-next").onclick = () => {
-      if (!atOldest) go(1);
-    };
+    $("#rd-ui-prev").onclick = () => go(-1);
+    $("#rd-ui-next").onclick = () => go(1);
     const jumpPanel = () => `<div class="rd-jump">${dState.chapters.map((c, i) => `
       <button class="ch-card rd-jump-row" type="button" data-rd-jump="${esc(String(c.id))}"
               ${i === rState.idx ? 'aria-current="true"' : ""}>
@@ -8705,6 +8996,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
       <li>The rail on the right: the shelf, this title's page, a jump to any chapter, the reading settings, this list, and where to go when a chapter will not load.</li>
       <li>The reading settings are two tabs \u2014 <b>Layout</b> (one page, two, or a long strip; the margin; a progress bar; whether a single or a double tap brings these controls up) and <b>Image</b> (how a page is sized, grayscale, and how far the screen is dimmed).</li>
       <li>A chapter reopens where it was left, not at its first page.</li>
+      <li>A chapter runs into the next one at its end: scroll on and the next chapter is already there. The join between them is labelled, the bar and the pill move to the chapter being read, and the finished one is filed as read.</li>
     </ul>`);
     const showProblem = () => {
       openPanel("Chapter will not load?", `
@@ -8780,13 +9072,19 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
   var rdRestoring = false;
   var rdBoundScrollers = typeof WeakSet === "function" ? /* @__PURE__ */ new WeakSet() : null;
   document.addEventListener("htv:sheet-closed", saveReadSpot);
+  document.addEventListener("htv:sheet-closed", () => {
+    rSeq += 1;
+    rdMount.length = 0;
+  });
   function scheduleSpot(ms) {
     if (rdRestoring) return;
     clearTimeout(rdSaveTimer);
     rdSaveTimer = setTimeout(saveReadSpot, ms);
   }
   function onReaderScroll(e) {
+    syncReaderChapter();
     paintReadProgress();
+    maybeExtend();
     if (e.target && scrolledFar(e.target)) hideReaderChrome();
     scheduleSpot(700);
   }
@@ -8802,6 +9100,10 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     if (!pages || pages.dataset.rdPagesBound === "true") return;
     pages.dataset.rdPagesBound = "true";
     pages.addEventListener("load", () => scheduleSpot(400), true);
+    pages.addEventListener("load", () => {
+      syncReaderChapter();
+      maybeExtend();
+    }, true);
   }
   function bindReaderTap() {
     const sheet = $("#sheet");
@@ -9049,6 +9351,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     var _a10;
     const seq = ++rSeq;
     const ch = dState.chapters[rState.idx];
+    rdMount.length = 0;
     const newer = stepIndex(dState.chapters, rState.idx, -1);
     const older = stepIndex(dState.chapters, rState.idx, 1);
     const atNewest = newer < 0;
@@ -9060,7 +9363,9 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     <div class="rd-pages" id="rd-pages"><div class="center-spin"><div class="spinner"></div></div></div>
     <div class="rd-end">
       <div class="rd-end-title">${esc(((_a10 = dState.detail) == null ? void 0 : _a10.title) ?? "")}</div>
-      <div class="rd-end-sub">Chapter ${esc(String(ch.number))} of ${dState.chapters.length}${ch.name ? " \xB7 " + esc(ch.name) : ""}</div>
+      <div class="rd-end-sub" id="rd-end-sub">Chapter ${esc(String(ch.number))} of ${dState.chapters.length}${ch.name ? " \xB7 " + esc(ch.name) : ""}</div>
+      <button class="rd-continue" id="rd-continue" type="button" ${atOldest ? "hidden" : ""}></button>
+      <p class="rd-end-done" id="rd-end-done" ${atOldest ? "" : "hidden"}>That was the last chapter \u2014 the end of this title.</p>
       <div class="rd-nav">
         <button class="page-btn" id="rd-prev-b" type="button" ${atNewest ? "disabled" : ""}>\u2190 Newer</button>
         <button class="page-btn" id="rd-chapters-b" type="button">Chapters</button>
@@ -9102,7 +9407,18 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
       saveReadSpot();
       goBack();
     };
-    bindReaderControls({ go, chapter: ch, atNewest, atOldest });
+    const cont = $("#rd-continue");
+    if (cont) cont.onclick = async () => {
+      const nextIdx = stepIndex(dState.chapters, rState.idx, 1);
+      if (nextIdx < 0) return;
+      const next = dState.chapters[nextIdx];
+      saveReadSpot();
+      await extendReader();
+      if (seq !== rSeq) return;
+      if (!scrollToChapter(next.id)) go(1);
+    };
+    paintChapterChrome();
+    bindReaderControls({ go, chapter: ch });
     try {
       let pages = pagesCache.get(ch.id);
       if (!pages) {
@@ -9113,10 +9429,12 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
       if (seq !== rSeq) return;
       const slot = $("#rd-pages");
       if (!slot) return;
-      slot.innerHTML = pagesHtml(pages);
+      slot.innerHTML = pagesHtml(pages, ch.id);
+      rdMount.push({ idx: rState.idx, id: ch.id, seam: null, failed: false });
       applyReadPrefs();
       openAtTop();
       restoreReadSpot();
+      prefetchNext();
     } catch (e) {
       if (seq !== rSeq) return;
       const slot = $("#rd-pages");

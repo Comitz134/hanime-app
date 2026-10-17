@@ -180,6 +180,72 @@
   flex: 0 0 50%; width: 50%; height: 100%; object-fit: contain; scroll-snap-align: center;
 }
 
+/* ---- one chapter running into the next ----------------------------------
+   The join at the end of a chapter, between its last page and the next
+   chapter's first. It is a band and not a stop: the pages under it are already
+   the next chapter, so a reader who keeps scrolling keeps reading — what the
+   band is for is saying so, naming what finished and what is starting, and
+   holding the spinner while the next chapter's pages are on their way. */
+.rd-seam {
+  display: flex; align-items: center; gap: .875rem;
+  padding: 1.25rem 1rem; background: hsl(var(--background));
+  color: hsl(var(--muted-foreground));
+}
+.rd-seam-rule { flex: 1 1 auto; height: 1px; background: hsl(var(--border) / .8); }
+.rd-seam-text {
+  display: flex; flex-direction: column; align-items: center; gap: .1875rem;
+  text-align: center; min-width: 0;
+}
+.rd-seam-text b { font-size: .75rem; font-weight: 700; color: hsl(var(--foreground)); }
+.rd-seam-text em {
+  font-size: .6875rem; font-style: normal;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
+}
+.rd-seam-spin {
+  flex: 0 0 auto; width: .875rem; height: .875rem; border-radius: 999px;
+  border: 2px solid hsl(var(--muted-foreground) / .35); border-top-color: transparent;
+  animation: rd-spin .8s linear infinite;
+}
+@keyframes rd-spin { to { transform: rotate(360deg); } }
+/* A chapter that will not arrive: the band stays where it is, says so, and
+   carries the button that asks again — a strip with a hole in it beats a
+   reader thrown back to a spinner over pages they have already read. */
+.rd-seam--failed .rd-seam-text em { color: hsl(var(--destructive, 0 72% 51%)); }
+.rd-seam-retry {
+  flex: 0 0 auto; padding: .375rem .625rem; border-radius: 999px;
+  border: 1px solid hsl(var(--border)); background: hsl(var(--card));
+  font-size: .6875rem; font-weight: 600; color: hsl(var(--primary));
+}
+/* In the two paged layouts the join is a slide of its own, sized like a page,
+   so the swipe at the end of a chapter lands on the next chapter's first page
+   instead of snapping back. */
+.rd-pages[data-layout="single"] .rd-seam,
+.rd-pages[data-layout="double"] .rd-seam {
+  flex: 0 0 100%; width: 100%; height: 100%;
+  flex-direction: column; justify-content: center; gap: .875rem;
+  scroll-snap-align: center;
+}
+.rd-pages[data-layout="double"] .rd-seam { flex-basis: 50%; width: 50%; }
+.rd-pages[data-layout="single"] .rd-seam .rd-seam-rule,
+.rd-pages[data-layout="double"] .rd-seam .rd-seam-rule { flex: 0 0 1px; width: 40%; height: 1px; }
+
+/* The finish line, when there is nothing to hand on to: the chapter's own
+   end card, with the next chapter offered as one button rather than buried in
+   the row of steps. */
+.rd-continue {
+  display: flex; flex-direction: column; align-items: center; gap: .125rem;
+  width: 100%; margin: .875rem 0 0; padding: .75rem 1rem;
+  border-radius: .75rem; border: 1px solid hsl(var(--primary) / .55);
+  background: hsl(var(--primary) / .12); color: hsl(var(--primary));
+}
+.rd-continue[hidden] { display: none; }
+.rd-continue b { font-size: .8125rem; font-weight: 700; }
+.rd-continue span {
+  font-size: .6875rem; color: hsl(var(--muted-foreground));
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
+}
+.rd-end-done { margin: 1rem 0 0; font-size: .75rem; color: hsl(var(--muted-foreground)); }
+
 /* The wash the Image tab's "Dim screen" draws — over the pages, under the
    controls, and never in the way of a tap. */
 .rd-dim { position: fixed; inset: 0; z-index: 5; pointer-events: none; background: #000; opacity: 0; }

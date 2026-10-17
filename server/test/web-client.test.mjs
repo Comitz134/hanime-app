@@ -1656,8 +1656,11 @@ test('the manga reader brings its controls up from the middle of the screen', ()
   assert.ok(/rdLastTap = paired \? 0 : now/.test(flat), 'a double tap is read as two single ones');
 
   // And it puts itself away: the first scroll of the pages closes the panel
-  // and the chrome, so a chapter is never read through a floating pill.
-  assert.ok(/function onReaderScroll\(e\) \{ paintReadProgress\(\); if \(e\.target && scrolledFar\(e\.target\)\) hideReaderChrome\(\);/.test(flat),
+  // and the chrome, so a chapter is never read through a floating pill. (What
+  // the scroll does before that is the hand-on's bookkeeping — which chapter is
+  // on screen, how far into it the reader is, whether the next one is due —
+  // which the test below is about.)
+  assert.ok(/function onReaderScroll\(e\) \{ .{0,400}?scrolledFar\(e\.target\)\) hideReaderChrome\(\);/.test(flat),
     'the controls stay up over a chapter being read');
   // …but a page arriving and shifting the layout is not the reader scrolling:
   // without this guard the chrome closed itself in the same frame it opened.
@@ -1843,6 +1846,144 @@ test('a chapter reopens where the reader stopped', () => {
   assert.ok(said > -1, 'closing the sheet never tells the reader it is closing');
   assert.ok(torn > -1 && said < torn,
     'the strip is reflowed before the reading spot is measured');
+});
+
+// A chapter used to end at its last page. A reader who had just read forty of
+// them was shown a card offering to fetch the next chapter, and taking it
+// rebuilt the reader at the top of that chapter. Now the next chapter's pages
+// are stitched under this one's as the reader nears its end, so carrying on
+// scrolling is carrying on reading — and the join is where the finished chapter
+// is filed and the rail's record moves on, because the chapter at the top of
+// the screen is the chapter being read.
+test('a chapter runs into the next one at its end', () => {
+  const flat = inlineScripts(html)[0].replace(/\s+/g, ' ');
+  const css = stylesheets(html)[0].replace(/\s+/g, ' ');
+
+  // One function body, by name, for the assertions that are about what it says
+  // rather than about the words existing somewhere in the bundle.
+  const body = (name, len = 2400) => {
+    const at = flat.indexOf(`function ${name}(`);
+    assert.ok(at > -1, `there is no ${name} at all`);
+    return flat.slice(at, at + len);
+  };
+
+  // The pages of a chapter know which chapter they are: more than one chapter's
+  // pages are mounted at once, and the spot, the progress bar and the chapter
+  // being read all have to keep to one of them.
+  assert.ok(/pagesHtml = \(pages, chapterId\) => .{0,80}?<img class="rd-page" data-ch="\$\{esc\(String\(chapterId\)\)\}"/.test(flat),
+    'a page does not say which chapter it belongs to');
+  assert.ok(/function chapterPages\(chapterId\)/.test(flat),
+    'nothing finds one chapter among the mounted pages');
+  assert.ok(/const ch = dState\.chapters\[rState\.idx\]; const list = ch \? chapterPages\(ch\.id\) : \[\]; const s = readScroll\(\)/.test(body('readProgress', 700)),
+    'the progress bar measures the whole mounted run, so it reads half-full at the end of the first chapter');
+  assert.ok(/const end = s\.paged \? tail\.right - box\.left : tail\.bottom - box\.top;/.test(body('readProgress', 700)),
+    'the progress bar is measured without an end to the chapter');
+  assert.ok(/return clamp\(-start \/ span, 0, 1\);/.test(body('readProgress', 700)),
+    'a chapter the reader has scrolled all the way past reads as unread');
+  assert.ok(/function currentSpot\(\) \{ const ch = dState\.chapters\[rState\.idx\]; return spotIn\(ch \? chapterPages\(ch\.id\) : \[\]\); \}/.test(flat),
+    'the spot is measured against whichever mounted chapter comes first');
+  assert.ok(/const list = chapterPages\(ch\.id\); if \(!list\.length\) return;/.test(body('saveReadSpot', 500)),
+    'the spot is filed with the page count of something other than its chapter');
+
+  // The hand-on is asked for when the end of the chapter is close, and it is
+  // asked in *pages*: a page has no height until its image lands, so a window
+  // measured in pixels reads as "finished" on the frame a chapter is opened.
+  assert.ok(/RD_TAIL_PAGES = 3/.test(flat), 'there is no window before the end of a chapter');
+  assert.ok(/return list\.length - \(spot\.p \+ 1\) <= RD_TAIL_PAGES;/.test(flat),
+    'the next chapter is asked for by pixel rather than by page');
+  assert.ok(/if \(nearTail\(\)\) extendReader\(\);/.test(flat), 'nothing asks the next chapter for its pages');
+  assert.ok(/pages\.addEventListener\((["'])load\1, \(\) => \{ syncReaderChapter\(\); maybeExtend\(\); \}, true\)/.test(flat),
+    'a chapter short enough to fit on one screen never notices it was finished');
+  const maybe = body('maybeExtend', 900);
+  assert.ok(/rdMount\.some\(\(m\) => m\.idx === nextIdx && m\.failed\)\) return;/.test(maybe),
+    'a chapter whose pages failed is asked for again on every scroll frame');
+  assert.ok(/slot\.getBoundingClientRect\(\)\.bottom < box\.top \+ 1\) return;/.test(maybe),
+    'the strip grows under a reader who is already at the end card, shoving it away');
+
+  // What arrives is stitched under the chapter, not onto another screen: the
+  // seam goes in first, this chapter's pages after it, and the reader's own run
+  // of mounted chapters records it.
+  const extend = body('extendReader', 2400);
+  assert.ok(/slot\.insertAdjacentHTML\((["'])beforeend\1, seamHtml\(ch, next\)\)/.test(extend),
+    'the join is not put in while the next chapter is on its way');
+  assert.ok(/seam\.insertAdjacentHTML\((["'])afterend\1, pagesHtml\(list, next\.id\)\)/.test(extend),
+    'the next chapter is not stitched under the join');
+  assert.ok(/rdMount\.push\(\{ idx: nextIdx, id: next\.id, seam, failed: false \}\)/.test(extend),
+    'the mounted run does not record what is under the reader');
+  assert.ok(/if \(seq !== rSeq \|\| !seam\.isConnected\) return;/.test(extend),
+    'a chapter fetched for a reader who has since left is stitched on anyway');
+  assert.ok(/function prefetchNext\(from\)/.test(flat) && /prefetchNext\(\);/.test(flat),
+    'the next chapter is only fetched once the reader is already at its end');
+
+  // The join says what it is, and it is honest when the pages do not arrive.
+  assert.ok(/function seamHtml\(done, next\)/.test(flat), 'the join between two chapters is not labelled');
+  assert.ok(/Ch\. \$\{esc\(String\(done\.number\)\)\} finished/.test(flat),
+    'the join does not say which chapter finished');
+  assert.ok(/<b>Ch\. \$\{esc\(String\(done\.number\)\)\} finished<\/b>/.test(body('seamHtml', 700)),
+    'the join does not name the chapter that finished');
+  assert.ok(/<em>Ch\. \$\{esc\(String\(next\.number\)\)\}/.test(body('seamHtml', 700)),
+    'the join does not say which chapter is starting');
+  assert.ok(/spin\.className = (["'])rd-seam-spin\1/.test(flat),
+    'the join does not stand in for pages that are still coming');
+  assert.ok(/again\.className = (["'])rd-seam-retry\1/.test(flat) && /again\.textContent = (["'])Could not load/.test(flat),
+    'a chapter that will not load has no way to be asked for again');
+
+  // The chapter left behind is remembered as finished while the reader carries
+  // on: its spot goes, and everything that names "the chapter being read" — the
+  // rail, the account's list, the sheet's own origin — moves to the new one.
+  const adopt = body('adoptChapter');
+  assert.ok(/dropSpot\(prev\.id\)/.test(adopt),
+    'a chapter scrolled out of is still offered as the place to resume');
+  assert.ok(/markRead\(dState\.hid, ch\.number\)/.test(adopt), 'a chapter handed on to is not filed as read');
+  assert.ok(/noteOpen\((["'])manga\1, \{ id: dState\.hid, title: .{0,80}?cover: posterFor\(dState\.detail, (["'])medium\2\), number: Number\(ch\.number\), total: dState\.chapters\.length, ref: ch\.id \}\)/.test(adopt),
+    'the rail keeps pointing at the chapter that was finished');
+  assert.ok(/renderActivity\((["'])manga\1\)/.test(adopt), 'the rail is not redrawn when the reader hands on');
+  assert.ok(/autoAdvance\((["'])manga\1, .{0,80}?malId, ch\.number, .{0,80}?title\);/.test(adopt),
+    'the account is not told which chapter the reader is in now');
+  assert.ok(/setSheetOrigin\(\{ kind: (["'])manga\1, ref: dState\.hid, chapter: String\(ch\.id\) \}\)/.test(adopt),
+    'closing the sheet comes back to the chapter that was finished');
+  assert.ok(/paintChapterChrome\(\)/.test(adopt),
+    'the pill and the end card keep naming the chapter that was finished');
+
+  // Which chapter that is, is decided by the joins: the last seam to have
+  // passed the edge the reading is measured from, on whichever axis is read.
+  const pos = body('mountedPosition', 800);
+  assert.ok(/const along = s\.paged \? r\.left - box\.left : r\.top - box\.top;/.test(pos),
+    'the join is only noticed on one axis');
+  assert.ok(/if \(along <= 0\.5\) at = i;/.test(pos),
+    'a seam passing the edge is not what puts the reader in the next chapter');
+  assert.ok(/syncReaderChapter\(\); paintReadProgress\(\); maybeExtend\(\);/.test(body('onReaderScroll', 400)),
+    'the strip scrolls under the reader without any of that being noticed');
+
+  // And it stays bounded: the chapters trimmed off are the ones left far
+  // behind, and the scroller goes back by exactly what was taken out, so the
+  // page being read never moves under the reader.
+  assert.ok(/RD_MAX_MOUNT = 8/.test(flat), 'the reader keeps every chapter of a title mounted');
+  const trim = body('trimMount', 900);
+  assert.ok(/if \(mountedPosition\(\) < 3\) return;/.test(trim),
+    'a chapter the reader can still scroll back to is trimmed away');
+  assert.ok(/chapterPages\(gone\.id\)/.test(trim) && /head\.seam/.test(trim),
+    'what is trimmed is not the chapter that was left behind');
+  assert.ok(/s\.el\[s\.pos\] = Math\.max\(0, s\.el\[s\.pos\] - \(before - s\.el\[s\.size\]\)\);/.test(trim),
+    'trimming moves the page being read on screen');
+
+  // The end card offers the chapter after this one, is honest at the end of a
+  // title, and hands on in place: stitched and slid to, not rebuilt.
+  assert.ok(/class="rd-continue" id="rd-continue"/.test(flat), 'the end of a chapter offers no next chapter');
+  assert.ok(/<b>Next chapter<\/b>/.test(flat), 'the next chapter is not named on the end card');
+  assert.ok(/id="rd-end-done"/.test(flat), 'the last chapter of a title says nothing about being the last');
+  assert.ok(/if \(!scrollToChapter\(next\.id\)\) go\(1\);/.test(flat),
+    'the end card rebuilds the reader instead of handing on where the reader stands');
+  assert.ok(/function scrollToChapter\(chapterId\)/.test(flat), 'nothing can slide to the next chapter');
+
+  // And the join is drawn, on both axes: a labelled band in a long strip, and a
+  // slide of its own in the two paged layouts.
+  assert.ok(/\.rd-seam \{/.test(css) && /\.rd-seam-rule \{/.test(css),
+    'the join between two chapters draws nothing');
+  assert.ok(/\.rd-pages\[data-layout="single"\] \.rd-seam, \.rd-pages\[data-layout="double"\] \.rd-seam \{/.test(css),
+    'the join is not a slide in the two paged layouts');
+  assert.ok(/\.rd-continue\[hidden\] \{ display: none; \}/.test(css),
+    'the next-chapter button cannot be hidden at the end of a title');
 });
 
 // Every area opens with the thing this device was last on: an episode or a
