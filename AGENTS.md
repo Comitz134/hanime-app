@@ -41,7 +41,17 @@ its own folder when a newer one is published. So a change reaches a reader by
 bumping `shell/overrides/composeApp/Configuration/DesktopVersion.properties` and
 running `cd server && node scripts/publish-desktop.mjs --pack`, which is
 documented in [`shell/README.md`](shell/README.md) along with why those releases
-are published as prereleases.
+are published as prereleases and tagged `desktop-v<version>`.
+
+**Desktop tags are namespaced, and the phone's are not.** The two clients
+version themselves independently, so a bare `v<version>` tag belongs to
+whichever line reached that number first: phone 1.0.9 already existed when the
+desktop line reached 1.0.9, and `publish-desktop.mjs` merged its zip and
+`desktop.json` into that phone release and replaced its notes. Desktop releases
+are tagged `desktop-v<version>` for that reason, and the window strips the
+prefix before comparing versions (`releaseVersionTag` in the updater). The
+prerelease flag is a separate protection: `/releases/latest` is the phone's
+manifest URL, and it resolves by position, not by tag.
 
 **A phone change is two publishes, not one.** `publish-apk.mjs` writes the
 manifest this checkout's own server answers with (`/api/app/version`) and copies

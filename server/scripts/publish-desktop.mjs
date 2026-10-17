@@ -18,12 +18,24 @@
 // installed Node and then report that it could not start its own server. The
 // server's *source* is already inside the app's jar; only the runtime is added.
 //
-// The release is published as a PRERELEASE on purpose. This repository is also
-// where the phone app is published, and the phone reads its manifest from
-// `releases/latest` — a normal release here would become "latest" and hand the
-// phone a manifest with no APK in it. A prerelease keeps `/releases/latest`
-// pointing at the phone's release while the window, which lists prereleases,
-// still finds its own.
+// Desktop tags live in their own namespace — `desktop-v1.0.9`, not `v1.0.9`.
+// This repository publishes two clients that version themselves independently,
+// so the bare `v<version>` tag the phone uses is a name both lines can reach:
+// phone 1.0.9 and desktop 1.0.9 both wanted `v1.0.9`, and the second one
+// published landed on the first one's release page and mixed its assets into it.
+// The prefix makes that impossible by construction — a desktop publish can only
+// ever find a desktop release. The window strips the prefix before comparing
+// versions (`releaseVersionTag` in the updater), and the publish refuses a tag
+// that would not survive that reading, because such a release is one no window
+// is ever offered.
+//
+// The release is also published as a PRERELEASE, and that is a separate
+// requirement: `releases/latest` is a *position*, not a name. It resolves to the
+// newest non-prerelease release in the repository whatever it is called, and the
+// phone reads its manifest from there — a normal desktop release would become
+// "latest" and hand the phone a manifest with no APK in it. A prerelease keeps
+// `/releases/latest` on the phone's release while the window, which lists
+// prereleases, still finds its own.
 //
 // Required environment (only to upload):
 //   GITHUB_TOKEN       a personal access token with `contents: write`
@@ -39,7 +51,7 @@ import zlib from 'node:zlib';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import { resolveRepo, releaseTag } from './publish-github.mjs';
+import { resolveRepo } from './publish-github.mjs';
 // The token lives in the checkout's `.env`, which the server loads for itself —
 // importing it means a publish works from a plain shell instead of only from one
 // where the file happened to be sourced.
@@ -97,6 +109,33 @@ export function readDesktopVersion(text) {
     throw new Error(`DesktopVersion.properties has no usable VERSION_CODE (got "${props.get('VERSION_CODE')}")`);
   }
   return { versionName: name, versionCode: code };
+}
+
+/**
+ * The tag a desktop release is published under: `desktop-v<version>`.
+ *
+ * Not the phone's `v<version>`: the two clients number themselves on their own
+ * schedules, so plain version tags collide — desktop 1.0.9 and phone 1.0.9 are
+ * the same string — and a collision means the second publish lands on the first
+ * one's release page and mixes its assets and notes into it.
+ */
+export function desktopReleaseTag(versionName) {
+  const name = String(versionName ?? '').trim().replace(/^v/i, '');
+  if (!name) throw new Error('desktop release has no version_name');
+  return `desktop-v${name}`;
+}
+
+/**
+ * The version a desktop tag names, or null when the tag is not a desktop one.
+ *
+ * The window compares its own version against this, so the prefix has to come
+ * off before the comparison and not merely be tolerated by it: `desktop-v1.0.10`
+ * parses as no version at all, and `1.0.10` under a leading `v` is what every
+ * other reader of a release tag expects to see.
+ */
+export function desktopTagVersion(tag) {
+  const match = /^desktop-v(.+)$/i.exec(String(tag ?? '').trim());
+  return match ? match[1] : null;
 }
 
 /** The zip's own name on the release: platform and version, nothing else. */
@@ -465,11 +504,12 @@ async function uploadAsset(uploads, owner, repo, releaseId, name, data, contentT
 }
 
 /**
- * Publish the built zip as its own release, tagged with the app's version.
+ * Publish the built zip as its own release, tagged `desktop-v<version>`.
  *
  * Re-publishing the same version replaces its assets rather than failing: a
  * release is rebuilt whenever the tree moves, and a tag that already exists is
- * a normal thing to meet.
+ * a normal thing to meet — and with the namespace in place it can only ever be
+ * this line's own tag that is met.
  */
 export async function publishDesktop(build, options = {}) {
   const { owner, repo } = resolveRepo(options.repo ?? repoArg ?? process.env.GITHUB_REPOSITORY);
@@ -477,9 +517,25 @@ export async function publishDesktop(build, options = {}) {
   const uploads = (process.env.GITHUB_UPLOADS_URL ?? 'https://uploads.github.com').replace(/\/+$/, '');
   const serverUrl = (process.env.GITHUB_SERVER_URL ?? 'https://github.com').replace(/\/+$/, '');
 
-  const tag = releaseTag(build.versionName);
+  const tag = desktopReleaseTag(build.versionName);
+  // A release whose tag the window cannot read back is a release that installs
+  // for nobody: the check compares versions, and a tag it cannot parse is
+  // "nothing new". Refuse here rather than publish one and learn it from a
+  // reader who never got the update.
+  const tagVersion = desktopTagVersion(tag);
+  if (tagVersion !== build.versionName) {
+    throw new Error(
+      `tag ${tag} reads back as ${tagVersion}, not ${build.versionName}`,
+    );
+  }
+  // The page's title, as opposed to its tag: the tag carries the namespace and
+  // is a URL, the title is what a reader sees beside the phone's releases.
+  const title = `SEKAI v${build.versionName}`;
   const body = [
     build.manifest.notes ?? `SEKAI ${build.versionName} for Windows.`,
+    '',
+    `tag: \`${tag}\` (the phone app is published under \`v<version>\`; this is`,
+    `the window's own namespace, so the two never share a release page)`,
     '',
     `version_code: ${build.versionCode}`,
     `platform: ${PLATFORM}`,
@@ -512,7 +568,7 @@ export async function publishDesktop(build, options = {}) {
     htmlUrl = existing.html_url;
     await gh(`${api}/repos/${owner}/${repo}/releases/${releaseId}`, {
       method: 'PATCH',
-      body: { tag_name: tag, name: tag, body, prerelease: true },
+      body: { tag_name: tag, name: title, body, prerelease: true },
     });
     const assets = await gh(`${api}/repos/${owner}/${repo}/releases/${releaseId}/assets`);
     for (const asset of assets ?? []) {
@@ -523,7 +579,7 @@ export async function publishDesktop(build, options = {}) {
   } else {
     const created = await gh(`${api}/repos/${owner}/${repo}/releases`, {
       method: 'POST',
-      body: { tag_name: tag, name: tag, body, draft: false, prerelease: true },
+      body: { tag_name: tag, name: title, body, draft: false, prerelease: true },
     });
     releaseId = created.id;
     htmlUrl = created.html_url;
@@ -561,7 +617,7 @@ async function main() {
     console.log(`  bytes     ${built.size}`);
     console.log(`  sha256    ${built.sha256}`);
     console.log(`  version   ${built.versionName} (${built.versionCode})`);
-    console.log(`  tag       ${releaseTag(built.versionName)} (prerelease)`);
+    console.log(`  tag       ${desktopReleaseTag(built.versionName)} (prerelease)`);
     console.log('');
     console.log(JSON.stringify(built.manifest, null, 2));
     return;

@@ -3,6 +3,7 @@ package com.nuvio.app.features.updater
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * Which release a check settles on, over the list this repository really
@@ -77,6 +78,33 @@ class SharedReleaseSelectionTest {
     }
 
     @Test
+    fun `a desktop tag is read without its namespace`() {
+        // Desktop releases are tagged `desktop-v<version>` so the two clients can
+        // never land on one release page, even on the same version number. What
+        // the window compares itself against is the version, not the tag: a tag
+        // left as-is parses as no version at all, which reads as "nothing new"
+        // for every release this project ever publishes.
+        val body = list(
+            release("v1.0.10", prerelease = false, "sekai-1.0.10.apk" to "application/vnd.android.package-archive"),
+            release("desktop-v1.0.10", prerelease = true, "SEKAI-Windows-x64-1.0.10.zip" to "application/zip"),
+        )
+
+        val update = AppUpdaterRepository.selectUpdate(
+            responseBody = body,
+            channel = UpdateChannel.ALL_RELEASES,
+            supportedAbis = AppUpdaterPlatform.getSupportedAbis(),
+            selector = desktopSelector,
+        )
+
+        assertEquals("v1.0.10", update?.tag)
+        assertEquals("SEKAI-Windows-x64-1.0.10.zip", update?.assetName)
+        assertTrue(
+            VersionUtils.isRemoteNewerLegacy(update?.tag, "1.0.9"),
+            "a namespaced release must still compare as newer than 1.0.9",
+        )
+    }
+
+    @Test
     fun `a list with nothing the window can install offers no update`() {
         val body = list(
             release("v9.9.9", prerelease = false, "sekai-9.9.9.apk" to "application/vnd.android.package-archive"),
@@ -91,6 +119,16 @@ class SharedReleaseSelectionTest {
                 selector = desktopSelector,
             )
         )
+    }
+
+    @Test
+    fun `only the version namespace is stripped from a tag`() {
+        // `desktop-preview` is an ordinary release label, not a namespaced
+        // version tag: stripping it would rename a release the page still calls
+        // by its own tag.
+        assertEquals("desktop-preview", releaseVersionTag("desktop-preview"))
+        assertEquals("v2.0.0", releaseVersionTag("desktop-v2.0.0"))
+        assertEquals("1.0.10", releaseVersionTag("1.0.10"))
     }
 
     @Test

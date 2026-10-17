@@ -70,7 +70,10 @@ actual object AppUpdaterPlatform {
     // from `releases/latest`. Every desktop release is therefore published as a
     // prerelease so that `/releases/latest` keeps resolving to the phone's
     // release, and a check that skipped prereleases would never see a desktop
-    // update at all.
+    // update at all. That positional protection is separate from the tag
+    // namespace: desktop releases are tagged `desktop-v<version>` (see
+    // `releaseVersionTag`), so the two clients cannot share a release page even
+    // while they number themselves independently.
     actual val releaseSource: AppUpdateReleaseSource = AppUpdateReleaseSource(
         owner = "Comitz134",
         repo = "hanime-app",

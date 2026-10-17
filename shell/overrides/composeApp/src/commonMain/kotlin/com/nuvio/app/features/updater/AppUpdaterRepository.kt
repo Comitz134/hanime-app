@@ -29,6 +29,35 @@ internal data class GitHubAssetDto(
     @SerialName("content_type") val contentType: String? = null,
 )
 
+/**
+ * The prefix this project's desktop releases carry in front of their version.
+ *
+ * One repository publishes two clients that number themselves independently, so
+ * a bare `v<version>` tag belongs to whichever line reached that number first —
+ * desktop 1.0.9 and phone 1.0.9 are the same tag, and the second publish to land
+ * there quietly merged itself into the first one's release page. Desktop tags
+ * therefore carry `desktop-`, and everything that compares versions has to read
+ * the tag through [releaseVersionTag] rather than using it raw: `desktop-v1.0.10`
+ * parses as no version at all, so an unstripped tag means an update the window
+ * can never see.
+ */
+internal const val DESKTOP_TAG_PREFIX = "desktop-"
+
+// The namespace proper, as opposed to the `desktop-` some upstream releases use
+// as a plain label: a version tag is `desktop-v` and then a number.
+private val desktopVersionTagPattern = Regex("^desktop-(?=v\\d)", RegexOption.IGNORE_CASE)
+
+/**
+ * A release tag with the desktop namespace removed, when it carries one.
+ *
+ * Only `desktop-v<version>` is stripped. `desktop-preview` is an ordinary
+ * release label with nothing to do with the namespace, and turning it into
+ * `preview` would report a release under a name GitHub does not use — and the
+ * desktop release list is not the only place such a tag can appear.
+ */
+internal fun releaseVersionTag(tag: String): String =
+    tag.trim().replaceFirst(desktopVersionTagPattern, "").trim()
+
 internal class NoChannelReleaseException : IllegalStateException()
 
 internal data class AppUpdateAssetCandidate(
@@ -145,11 +174,14 @@ internal object AppUpdaterRepository {
                 selector = selector,
             ) ?: return@firstNotNullOfOrNull null
             val tag = if (channel == UpdateChannel.ALL_RELEASES) {
-                release.tagName?.takeIf(String::isNotBlank)
+                val raw = release.tagName?.takeIf(String::isNotBlank)
                     ?: release.name?.takeIf(String::isNotBlank)
                     ?: return@firstNotNullOfOrNull null
+                releaseVersionTag(raw)
             } else {
-                release.tagName?.takeIf { VersionUtils.parse(it) != null }
+                release.tagName
+                    ?.let(::releaseVersionTag)
+                    ?.takeIf { VersionUtils.parse(it) != null }
                     ?: release.name.orEmpty()
             }
             AppUpdate(

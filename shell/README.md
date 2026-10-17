@@ -112,20 +112,33 @@ NuvioMedia's are exactly the parts that are not ours:
 
 | what | fork's answer |
 | --- | --- |
-| where a check looks | `Comitz134/hanime-app` releases (`AppUpdaterPlatform.desktop.kt`) |
+| where a check looks | `Comitz134/hanime-app` releases, tagged `desktop-v<version>` (`AppUpdaterPlatform.desktop.kt`) |
 | what it installs | `SEKAI-Windows-x64-<version>.zip` — the portable tree |
 | how it installs | extract beside the install folder, then a batch file mirrors it in place after the window exits |
 | what version it is | `overrides/composeApp/Configuration/DesktopVersion.properties` |
 
-**Releases are published as *prereleases*, and that is not a label of quality.**
-This repository is also where the phone app is published, and the phone reads
-its manifest from `releases/latest` — a normal release of the desktop app would
-become "latest" and hand the phone a manifest with no APK in it. A prerelease
-leaves `/releases/latest` pointing at the phone's release while the window,
-which lists prereleases, still finds its own. For the same reason a check
-considers *every* release it is given rather than only the newest one
-(`AppUpdaterRepository`): the newest release in a shared repository is usually
-the phone's, and it carries nothing the window can install.
+**Desktop releases live in their own tag namespace: `desktop-v<version>`.**
+This repository is also where the phone app is published, and the phone tags its
+releases `v<version>` from its own version name. The two clients number
+themselves independently, so the bare tag is a name both lines can reach — desktop
+1.0.9 and phone 1.0.9 are the same string — and the second publish to land there
+quietly merged into the first one's release page: its zip and `desktop.json`
+beside the phone's APK, its notes replacing the phone's. The prefix makes that
+impossible by construction. The window's check reads tags through
+`releaseVersionTag`, which drops the prefix before anything compares versions:
+`desktop-v1.0.10` parses as no version at all, so an unstripped tag would read as
+"nothing new" for every release this project ever publishes.
+
+**Releases are also published as *prereleases*, and that is not a label of
+quality.** `releases/latest` is a position rather than a name: it resolves to the
+newest non-prerelease release whatever it is called, and the phone reads its
+manifest from there — a normal release of the desktop app would become "latest"
+and hand the phone a manifest with no APK in it. A prerelease leaves
+`/releases/latest` pointing at the phone's release while the window, which lists
+prereleases, still finds its own. For the same reason a check considers *every*
+release it is given rather than only the newest one (`AppUpdaterRepository`): the
+newest release in a shared repository is usually the phone's, and it carries
+nothing the window can install.
 
 What a release carries is the jpackage app-image — the same folder
 `install-desktop.sh` mirrors — plus a **Node runtime** (`<app>/node/node.exe`),
@@ -167,25 +180,31 @@ to publish a release whose app disagrees with its own tag;
 installed app.
 
 The current release is
-[`v1.0.3`](https://github.com/Comitz134/hanime-app/releases/tag/v1.0.3), a
-prerelease carrying `SEKAI-Windows-x64-1.0.3.zip` (230,545,859 bytes) and
-`desktop.json` — the window that serves §8.0.10 of the phone README: the same
-web client, so the MangaFire-shaped reader and the edge-to-edge layout are in
-both. It was packed from this tree, the installed app was re-mirrored and
-verified against the same build, and its manifest was read back anonymously
-afterwards: `desktop.json` answers `version_name 1.0.3`, `version_code 4`, that
-size and sha256
-`d8c6acad135a3d41f65490bccfeac4b2f8d5872ebee2a2a78caa3c68886157f1`.
+[`desktop-v1.0.10`](https://github.com/Comitz134/hanime-app/releases/tag/desktop-v1.0.10),
+a prerelease carrying `SEKAI-Windows-x64-1.0.10.zip` and `desktop.json` — the
+first release published under the desktop tag namespace, and the one whose window
+reads its own tags back. The zip is 230,557,631 bytes, sha256
+`6eefed46a0316cf34308383ef4dee08a8cb5f0ec966a6a37c72d007b00e085a4`, and
+`desktop.json` names `version_name 1.0.10`, `version_code 11`. It was packed from
+this tree, the installed app was re-mirrored and verified against the same build,
+and the main jar inside the published zip (`23e530f7…`) is sha256-identical to
+the installed one — so the release carries this code rather than a warm build.
 
-v1.0.2 is the previous one — `SEKAI-Windows-x64-1.0.2.zip` (230,540,743 bytes),
-sha256 `b1597384d09839169ddc72b66f7aee518d7c930d4d6fccbf64f4e43fc9967d3f` — the
-release whose update stops leaving its own copies behind (above).
+Earlier desktop releases were tagged `v1.0.1`–`v1.0.9`, the same namespace the
+phone uses. `v1.0.9` in particular was already a phone release (code 10,
+2026-10-07) when the desktop line reached 1.0.9, and that publish merged its zip
+and `desktop.json` into the phone's release page and replaced its notes; the page
+has since been put back to the phone's release and the desktop build moved to
+`desktop-v1.0.10`. Those older tags stay where they are: an installed window only
+ever read the tag as a version, so nothing needs renaming.
 
-v1.0.1 is the one before that — `SEKAI-Windows-x64-1.0.1.zip` (230,537,627
-bytes), sha256
-`58ae7ef14c2c44e909ed7aac650781c30ab028254e16061946f750a169d011ca`, the bytes
-downloaded from GitHub again, anonymously, rather than taken from the upload's
-own record.
+`v1.0.2` (`SEKAI-Windows-x64-1.0.2.zip`, 230,540,743 bytes, sha256
+`b1597384d09839169ddc72b66f7aee518d7c930d4d6fccbf64f4e43fc9967d3f`) is the
+release whose update stops leaving its own copies behind (above). `v1.0.1`
+(230,537,627 bytes, sha256
+`58ae7ef14c2c44e909ed7aac650781c30ab028254e16061946f750a169d011ca`) is the one
+before that — the bytes downloaded from GitHub again, anonymously, rather than
+taken from the upload's own record.
 
 What was exercised on this machine, end to end: an installed 1.0.0 window found
 v1.0.1, downloaded it, staged it, wrote its `apply-update.cmd`, exited, mirrored
