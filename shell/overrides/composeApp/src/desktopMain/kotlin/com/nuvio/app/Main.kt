@@ -20,6 +20,7 @@ import androidx.compose.ui.window.rememberWindowState
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.deeplink.handleAppUrl
 import com.nuvio.app.core.diagnostics.SentryInitializer
+import com.nuvio.app.features.updater.pruneStaleUpdateLeftovers
 import com.nuvio.app.core.ui.NuvioTheme
 import com.nuvio.app.core.ui.ProvideDesktopWindowInsets
 import com.nuvio.app.features.discordrpc.DiscordPresenceManager
@@ -42,6 +43,7 @@ import com.nuvio.app.features.settings.AppIconRepository
 import com.nuvio.app.features.settings.applyDesktopRendererPreference
 import com.nuvio.app.features.settings.transparentPreviewResource
 import java.awt.Desktop
+import java.io.File
 import javax.imageio.ImageIO
 import java.awt.Color as AwtColor
 import javax.swing.JComponent
@@ -60,6 +62,16 @@ fun main(args: Array<String>) {
     // The library this app shows lives in server/, so the window brings it up
     // before the first screen asks it for anything.
     HanimeServer.ensure()
+    // An update writes two full copies of the app into app data — the archive
+    // it downloaded and the tree staged out of it — and the batch file removes
+    // its own when it swaps them in. Reclaiming the rest here is what keeps a
+    // swap that failed, a download nobody installed, and the copies older
+    // releases left behind from sitting on a reader's disk for good: ~600 MB,
+    // and the next download would only clear it by filling it again.
+    runCatching { pruneStaleUpdateLeftovers() }
+        .getOrDefault(emptyList())
+        .takeIf { it.isNotEmpty() }
+        ?.let { entries -> println("updater: reclaimed ${entries.size} stale update leftover(s)") }
     SentryInitializer.start()
     configureDesktopQuickJsLibrary()
     configureDesktopChrome()

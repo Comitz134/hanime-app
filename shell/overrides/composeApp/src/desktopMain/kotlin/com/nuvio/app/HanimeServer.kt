@@ -114,6 +114,12 @@ object HanimeServer {
         System.getenv("HANIME_NODE")?.takeIf { it.isNotBlank() && File(it).isFile }?.let { return it }
         val os = System.getProperty("os.name").orEmpty().lowercase()
         val exe = if ("win" in os) "node.exe" else "node"
+        // A Node that travelled with the app beats one that happens to be on the
+        // machine. The reader this app is handed to has installed nothing: a
+        // release carries its own runtime beside the launcher, so the first run
+        // after an unzip is a working app rather than a window that reports it
+        // could not start a server it shipped with.
+        bundledNode(exe)?.let { return it.absolutePath }
         // Is `node` reachable as PATH would resolve it? ProcessBuilder inherits
         // this process's PATH, so a bare name works only if that PATH is intact.
         val onPath = System.getenv("PATH")?.split(File.pathSeparator)
@@ -128,6 +134,24 @@ object HanimeServer {
             listOf(File("/usr/local/bin/$exe"), File("/usr/bin/$exe"))
         }
         return known.firstOrNull { it.isFile }?.absolutePath ?: exe
+    }
+
+    /**
+     * The Node runtime that shipped with this copy of the app, if it has one.
+     *
+     * The packaging script lays a release out as `<app>/node/node.exe` beside
+     * the launcher, and jpackage records that launcher as `jpackage.app-path`
+     * — the one path that is certain to belong to this app, whatever directory
+     * it was installed into and whatever working directory it was started from.
+     */
+    private fun bundledNode(exe: String): File? {
+        val roots = listOfNotNull(
+            System.getProperty("jpackage.app-path")?.takeIf { it.isNotBlank() }?.let(::File)?.parentFile,
+            System.getProperty("user.dir")?.takeIf { it.isNotBlank() }?.let(::File),
+        )
+        return roots.asSequence()
+            .map { root -> File(File(root, "node"), exe) }
+            .firstOrNull { it.isFile }
     }
 
     private fun listening(): Boolean = runCatching {

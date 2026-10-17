@@ -80,7 +80,21 @@ cp -R "$here/overrides/." "$tree/"
 # --- 2. the build ------------------------------------------------------------
 if [ "$build" = 1 ]; then
   echo "install-desktop.sh: :composeApp:createDistributable (this takes a few minutes)"
-  (cd "$tree" && ./gradlew :composeApp:createDistributable --console=plain)
+  # No configuration cache: the version is read while Gradle configures, and a
+  # cached configuration stamps the *previous* release's number into the app.
+  # An app that calls itself 1.0.0 while the release is 1.0.1 offers itself that
+  # same update on every launch — a download loop, discovered the hard way.
+  (cd "$tree" && ./gradlew :composeApp:createDistributable --console=plain --no-configuration-cache)
+
+  # And say so out loud, because the failure is silent otherwise.
+  declared="$(sed -n 's/^VERSION_NAME=//p' "$here/overrides/composeApp/Configuration/DesktopVersion.properties" | tr -d '\r' | head -1)"
+  compiled="$(sed -n 's/.*DESKTOP_VERSION_NAME = "\(.*\)"/\1/p' \
+    "$tree/composeApp/build/generated/runtime-config/kotlin/com/nuvio/app/core/build/AppVersionConfig.kt" 2>/dev/null | head -1)"
+  if [ -n "$declared" ] && [ -n "$compiled" ] && [ "$declared" != "$compiled" ]; then
+    echo "install-desktop.sh: the build calls itself $compiled but this tree declares $declared" >&2
+    exit 1
+  fi
+  [ -n "$compiled" ] && echo "install-desktop.sh: the build calls itself $compiled, as the tree declares"
 fi
 
 binaries="$tree/composeApp/build/compose/binaries/main/app"
@@ -156,14 +170,21 @@ if [ "$on_windows" = 1 ]; then
   dest_native="$(cygpath -w "$dest" 2>/dev/null || printf '%s' "$dest")"
   # MSYS2_ARG_CONV_EXCL: without it Git Bash rewrites `/MIR` into a path of its
   # own (`C:/Program Files/Git/MIR`) and robocopy refuses the whole call.
+  #
+  # `node` is excluded on purpose: it is the runtime a published *release* puts
+  # beside the launcher (publish-desktop.mjs), not something Gradle produces. An
+  # app that has updated itself once therefore has one and this build does not —
+  # and /MIR would delete it, leaving that install dependent on whatever `node`
+  # happens to be on the machine's PATH, which is exactly what the release is
+  # shaped to avoid.
   rc=0
-  MSYS2_ARG_CONV_EXCL='*' robocopy "$src_native" "$dest_native" /MIR /NFL /NDL /NJH /NJS /NP /R:1 /W:1 || rc=$?
+  MSYS2_ARG_CONV_EXCL='*' robocopy "$src_native" "$dest_native" /MIR /XD "$dest_native\node" /NFL /NDL /NJH /NJS /NP /R:1 /W:1 || rc=$?
   if [ "$rc" -ge 8 ]; then
     echo "install-desktop.sh: robocopy failed (exit $rc)" >&2
     exit 1
   fi
 elif command -v rsync >/dev/null 2>&1; then
-  rsync -a --delete "$src/" "$dest/"
+  rsync -a --delete --exclude '/node' "$src/" "$dest/"
 else
   rm -rf "$dest"
   cp -R "$src" "$dest"
@@ -171,7 +192,9 @@ fi
 
 # --- 6. what actually landed, and proof it is what was just built ------------
 if command -v diff >/dev/null 2>&1; then
-  if ! diff -rq "$src" "$dest"; then
+  # Same exclusion as the mirror: a bundled `node` belongs to the install, not
+  # to the build, so its presence is not a mismatch.
+  if ! diff -rq -x node "$src" "$dest"; then
     echo "install-desktop.sh: the installed copy does not match the build above" >&2
     exit 1
   fi
