@@ -1,95 +1,108 @@
-// Films and series (the "movies" area), sourced from f-movies.org.
+// Films and series (the "movies" area), sourced the way cinehd.vc does it.
 //
-// The site is two halves. Its catalog is a TMDB proxy —
-// `/api/search?q=` plus static `/movies` and `/tv-series` listing pages whose
-// cards are `image.tmdb.org` URLs and `★` vote averages — so search is exact
-// and JSON, cheaper than scraping results markup. Its detail and episode
-// pages are static HTML: a JSON-LD block (Movie/TVSeries with name,
-// description, poster, genres, cast, `dateCreated` and, for series,
-// `numberOfSeasons`) plus one `<a href="?season=S&episode=N" title="…">` per
-// episode and a `?season=` link per season.
+// cinehd is a Next.js front end with no catalog of its own: its pages are
+// rendered from TMDB's public API (search, trending, title details, seasons and
+// episodes all arrive as JSON with the key its own bundle carries), and its
+// player is an iframe onto a list of third-party doors — videasy, vidlink,
+// vidfast, vidcore, ythd, vixsrc and a few dozen more — each a URL template
+// filled with the title's TMDB id (and season/episode for a series).
 //
-// Playback is the site's own player page, and the doors it offers are read
-// from the site rather than hard-coded. That page (`/watch/index.html`) names
-// its three servers as `sources = [...]` — embos, vidcore, vidapi — each as a
-// URL template filled with the numeric id in the slug (`…-1396`), the season
-// and the episode. The hosts behind those names rotate, though: the previous
-// three (vidsrc.cc, vidsrc.xyz, vidapi.to) all died within a day of being
-// recorded here — a 522 from the edge, a domain with no DNS left, and a
-// Turnstile gate — and every one of them is a black frame in the player. So
-// the names, and the health of the hosts behind them, are asked of the site
-// every time (with the list below as the fallback for the day its page cannot
-// be read), and a door that does not answer is labelled as such instead of
-// being offered as a way to watch.
+// That is a better source than the static HTML this module used to scrape:
+// metadata is exact instead of parsed out of markup that changes shape, search
+// is one request, and a series' episode list is the real one rather than the
+// anchors a page happened to render. The *f-movies* route names stay: they are
+// the API contract the web client, the addon, the desktop window and the Java
+// twin all speak, and a rename would strand every one of them for a change that
+// is about where the data comes from, not what it looks like.
 //
-// Everything is parsed from the site's real markup shape (verified against
-// live pages on 2026-10-09). No client-side keys, no account, and the same
-// self-contained cache discipline as the anime module: details and episodes
-// change slowly, search quickly, and a rejected fetch is evicted instead of
-// being remembered as an answer.
+// The doors are the six cinehd lists first (Max, Vidpro, V2, Premium, 4K,
+// Vidfast), in its own order. A door is only offered if it answers: hosts
+// rotate and go dark, so each is knocked on when a title is opened (once per
+// ten minutes per URL) and a door that did not answer is a disabled button with
+// its reason, never a black frame the reader has to guess at.
+//
+// No account and no client-side key of our own: TMDB_API_KEY wins if the
+// machine has one, and otherwise the public key cinehd's bundle ships is used,
+// which is the same one every web reader of that site uses.
 
-const SITE = 'https://www.f-movies.org';
+const TMDB_API = 'https://api.themoviedb.org/3';
+const TMDB_IMAGE = 'https://image.tmdb.org/t/p';
+const PUBLIC_TMDB_KEY = 'ef311eb0b9b07b9c73e9fb0a732cc150';
 const TIMEOUT_MS = 12_000;
-const SEARCH_PAGE_SIZE = 20;   // upstream's fixed `/api/search` limit
-
-// The player page that names the doors, and the list to fall back on when it
-// cannot be read. Any id answers here: the page's source table does not depend
-// on what was asked for.
-const WATCH_PAGE = '/watch/index.html?type=tv&id=1&server=1&season=1&episode=1';
+const SEARCH_PAGE_SIZE = 20;   // TMDB's own page size, stated so it is not assumed
 
 import { browserAvailable, resolveDoor } from './browser.mjs';
 import { openSubtitlesTracks } from './opensubs.mjs';
 
 /**
- * Where vidsrc.sh — the player the `embos` door frames — keeps the facts it
- * shows beside a stream: the title's IMDb id and, sometimes, one subtitle of
- * its own. Plain JSON, no key, no referer.
+ * Where vidsrc.sh — the player behind several doors — keeps the facts it shows
+ * beside a stream: the title's IMDb id and, sometimes, one subtitle of its own.
+ * Plain JSON, no key, no referer.
  */
 const VIDSRC_DATA = 'https://data.vidsrc.sh/api.php';
 
-// The doors to fall back on when that page cannot be read, verified against
-// the live page on 2026-10-10 — in our own order, for the reason below.
+/** The doors, in cinehd's order, with its own URL formats. */
 const SERVERS = [
   {
-    id: 'vidcore', label: 'Server 1',
-    movie: 'https://vidcore.net/movie/{id}',
-    tv: 'https://vidcore.net/tv/{id}/{season}/{episode}',
+    id: 'max', label: 'Max',
+    movie: 'https://ythd.org/embed/{id}',
+    tv: 'https://ythd.org/embed/{id}/{season}-{episode}',
   },
   {
-    id: 'vidapi', label: 'Server 2',
-    movie: 'https://vidapi.xyz/embed/movie/{id}',
-    tv: 'https://vidapi.xyz/embed/tv/{id}/{season}/{episode}',
+    id: 'vidpro', label: 'Vidpro',
+    movie: 'https://vixsrc.to/movie/{id}',
+    tv: 'https://vixsrc.to/tv/{id}/{season}/{episode}',
   },
   {
-    id: 'embos', label: 'Server 3',
-    movie: 'https://embos.top/movie/?mid={id}',
-    tv: 'https://embos.top/tv/?mid={id}&s={season}&e={episode}',
+    id: 'v2', label: 'V2',
+    movie: 'https://player2.vidplus.pro/embed/movie/{id}?autoplay=true',
+    tv: 'https://player2.vidplus.pro/embed/tv/{id}/{season}/{episode}',
+  },
+  {
+    id: 'premium', label: 'Premium',
+    movie: 'https://player.vidplus.pro/embed/movie/{id}?autoplay=true&download=true',
+    tv: 'https://player.vidplus.pro/embed/tv/{id}/{season}/{episode}',
+  },
+  {
+    id: '4k', label: '4K',
+    movie: 'https://player.videasy.to/movie/{id}',
+    tv: 'https://player.videasy.to/tv/{id}/{season}/{episode}',
+  },
+  {
+    id: 'vidfast', label: 'Vidfast',
+    movie: 'https://vidfast.vc/movie/{id}?autoplay=true',
+    tv: 'https://vidfast.vc/tv/{id}/{season}/{episode}?autoplay=true',
   },
 ];
 
 /**
- * Which door leads, when the site's own page does not get to say.
+ * Which door the in-app player reaches for first.
  *
- * The site lists embos first, and embos is not a player: it is a picker page
- * that frames one of several providers of its own choosing, and it does not
- * say which. On the phone it landed on one that answers 404, twice in a row,
- * for the same episode that plays through the other two doors — a door that
- * answers our knock and still leaves the reader with nothing. The two that
- * render their own player therefore lead, and the picker comes last. A door the
- * site names that is not in this list keeps its own relative order, after
- * these; a list that names none of them keeps the site's order entirely.
+ * cinehd lists Max first, and Max is the right lead for a framed embed — but the
+ * in-app player does not frame anything: it needs a playlist URL it can serve,
+ * and the door that hands one over is Vidpro. So the walk starts there, and the
+ * rest of cinehd's order follows behind it, tried when Vidpro does not answer.
+ * A reader who names a door in the URL (the player's `src=`) leads with that one
+ * instead; nothing here is a lock, only a preference.
  */
-const DOOR_ORDER = ['vidcore', 'vidapi', 'embos'];
+const IN_APP_FIRST = 'vidpro';
 
-function orderDoors(list) {
-  const rank = (id) => {
-    const i = DOOR_ORDER.indexOf(id);
-    return i === -1 ? DOOR_ORDER.length : i;
-  };
-  return list
-    .map((door, at) => ({ door, at }))
-    .sort((a, b) => rank(a.door.id) - rank(b.door.id) || a.at - b.at)
-    .map((entry) => entry.door);
+/**
+ * The doors in the order the in-app player should try them, with the one asked
+ * for — or Vidpro — at the front. A name that matches no door is not an error:
+ * the list is simply the default one, which is what the caller would have got
+ * by asking for nothing.
+ */
+export function inAppOrder(wanted) {
+  const key = String(wanted ?? '').trim().toLowerCase();
+  const asked = key ? SERVERS.find((s) => s.id === key || s.label.toLowerCase() === key) : null;
+  const first = asked ?? SERVERS.find((s) => s.id === IN_APP_FIRST) ?? SERVERS[0];
+  return [first, ...SERVERS.filter((s) => s !== first)];
+}
+
+/** The TMDB key in force: a configured one first, the public one otherwise. */
+function tmdbKey() {
+  return process.env.TMDB_API_KEY || process.env.HANIME_TMDB_KEY || PUBLIC_TMDB_KEY;
 }
 
 /** How long a health answer about a door is trusted, and how long it may take. */
@@ -102,12 +115,10 @@ const BROWSER_UA =
 
 const TTL = {
   search: 15 * 60_000,     // results move with the catalog
-  catalog: 15 * 60_000,    // the /movies and /tv-series listing pages
-  details: 6 * 3600_000,   // synopses and season lists are near-static
+  catalog: 15 * 60_000,    // the trending shelf behind an empty query
+  details: 6 * 3600_000,   // synopses, cast and season lists are near-static
   episodes: 6 * 3600_000,
-  servers: 30 * 60_000,    // the doors rotate, but not every minute
   health: 10 * 60_000,     // a host that is down is usually down for a while
-  imdb: 12 * 3600_000,     // a TMDB -> IMDb mapping never moves
   subtitles: 6 * 3600_000, // a release's subtitle list moves with the release
 };
 const cache = new Map();
@@ -145,170 +156,123 @@ function memo(kind, key, produce) {
 // ---------------------------------------------------------------- upstream
 
 function upstreamError(status, note) {
-  const e = new Error(`f-movies: ${note ?? `status ${status}`}`);
+  const e = new Error(`tmdb: ${note ?? `status ${status}`}`);
   e.status = status === 404 ? 404 : 502;
   return e;
 }
 
-async function get(path, accept) {
-  let res;
-  try {
-    res = await fetch(SITE + path, {
-      headers: {
-        'user-agent': BROWSER_UA,
-        accept,
-        'accept-language': 'en-US,en;q=0.9',
-      },
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
-  } catch (e) {
-    throw upstreamError(502, e.message);
+/** GET a TMDB path, with the key added and the answer cached per URL. */
+async function tmdb(path, params, kind) {
+  const url = new URL(TMDB_API + path);
+  url.searchParams.set('language', 'en-US');
+  url.searchParams.set('api_key', tmdbKey());
+  for (const [key, value] of Object.entries(params ?? {})) {
+    if (value === undefined || value === null || value === '') continue;
+    url.searchParams.set(key, String(value));
   }
-  if (res.status === 404) throw upstreamError(404);
-  if (!res.ok) throw upstreamError(res.status);
-  return res;
+  const href = url.toString();
+
+  return memo(kind, href, async () => {
+    let res;
+    try {
+      res = await fetch(href, {
+        headers: { accept: 'application/json', 'user-agent': BROWSER_UA },
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+    } catch (e) {
+      throw upstreamError(502, e.message);
+    }
+    if (res.status === 404) throw upstreamError(404, 'not found');
+    if (!res.ok) throw upstreamError(res.status);
+    return res.json();
+  });
 }
 
-const getHtml = (path) => get(path, 'text/html,application/xhtml+xml').then((r) => r.text());
-const getJson = (path) => get(path, 'application/json').then((r) => r.json());
+// ------------------------------------------------------------------ shaping
 
-// ------------------------------------------------------------------ parsing
-
-const ENTITIES = {
-  '&amp;': '&', '&#38;': '&', '&quot;': '"', '&#34;': '"', '&#39;': "'",
-  '&apos;': "'", '&lt;': '<', '&gt;': '>', '&nbsp;': ' ',
-};
-function decode(text) {
-  return String(text)
-    .replace(/&(?:amp|#38|quot|#34|#39|apos|lt|gt|nbsp);/g, (m) => ENTITIES[m] ?? m)
-    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)));
+/** `Breaking Bad` → `breaking-bad`; the id is appended by slugFor. */
+function slugify(text) {
+  return String(text ?? '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60) || 'title';
 }
+
+const titleOf = (type, raw) => (type === 'tv' ? raw.name ?? raw.original_name : raw.title ?? raw.original_title)
+  ?? 'Untitled';
+const yearOf = (raw) => Number(String(raw.release_date ?? raw.first_air_date ?? '').slice(0, 4)) || null;
+
+/** The slug the whole app keys a title by: readable name, then its TMDB id. */
+function slugFor(type, raw) {
+  return `${slugify(titleOf(type, raw))}-${raw.id}`;
+}
+
+const posterUrl = (path, size = 'w500') => (path ? `${TMDB_IMAGE}/${size}${path}` : null);
+
+/** A TMDB row → the card the shelf draws. */
+function shapeItem(raw) {
+  const type = raw?.media_type === 'tv' ? 'tv' : raw?.media_type === 'movie' ? 'movie' : null;
+  if (!type) return null;                          // a person is not a title
+  const score = typeof raw.vote_average === 'number' && raw.vote_average > 0
+    ? Math.round(raw.vote_average * 10) / 10
+    : null;
+  return {
+    type,
+    slug: slugFor(type, raw),
+    title: titleOf(type, raw),
+    year: yearOf(raw),
+    score,
+    poster: posterUrl(raw.poster_path),
+  };
+}
+
 const asList = (v) => (Array.isArray(v) ? v : v == null ? [] : [v]);
 const personName = (v) => (typeof v === 'string' ? v : v?.name ?? null);
 
 /**
- * The JSON-LD block the detail page ships (Movie or TVSeries node, possibly
- * inside an @graph). Returns the node or null; a malformed block is a
- * missing field, never a crash.
+ * The details object the title page renders. One TMDB request carries the
+ * credits and the external ids too (`append_to_response`), which is where the
+ * cast, the director/creator and the IMDb id for subtitles all come from.
  */
-function parseJsonLd(html) {
-  const scripts = html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g);
-  for (const m of scripts) {
-    let data;
-    try {
-      data = JSON.parse(m[1]);
-    } catch {
-      continue;                       // not the block we want
-    }
-    const nodes = Array.isArray(data) ? data : (data['@graph'] ?? [data]);
-    const node = nodes.find((n) => n && (n['@type'] === 'Movie' || n['@type'] === 'TVSeries'));
-    if (node) return node;
-  }
-  return null;
-}
-
-/** `?season=N&episode=…` occurrences → the season numbers the page offers. */
-function parseSeasons(html) {
-  const set = new Set();
-  for (const m of html.matchAll(/\?season=(\d+)(?:&#38;|&amp;|&)episode=\d+/g)) set.add(Number(m[1]));
-  return [...set].sort((a, b) => a - b);
-}
-
-/** Episode anchors for one season, in page order. */
-function parseEpisodes(html, season) {
-  const re = new RegExp(`\\?season=${season}(?:&#38;|&amp;|&)episode=(\\d+)(?:&#38;|&amp;|&)?[^"]*"[^>]*`, 'g');
-  const out = new Map();
-  for (const m of html.matchAll(re)) {
-    const attrs = m[0];
-    const n = Number(m[1]);
-    const title = /title="([^"]*)"/.exec(attrs);
-    // Episode 1 appears twice in the page: once as the active season's
-    // jump button in the nav (no title) and once as the episode row itself
-    // (titled). The titled occurrence is the real one — a duplicate never
-    // overwrites a title, and never replaces a row that has one.
-    const prev = out.get(n);
-    if (prev && (prev.title !== null || !title)) continue;
-    out.set(n, { n, title: title ? decode(title[1]) : null });
-  }
-  return [...out.values()].sort((a, b) => a.n - b.n);
-}
-
-/**
- * Cards in a listing page. Each card is an <a href="/movie/slug" …> block
- * whose text row carries `★ <score> · <year> · EN`. Windows run from one
- * detail link to the next, so the rating row — which sits after the card
- * article, inside the anchor — belongs to the right card.
- */
-function parseCards(html) {
-  const links = [...html.matchAll(/<a href="\/(movie|tv)\/([a-z0-9-]+-\d+)"[^>]*>/g)];
-  const items = [];
-  for (let i = 0; i < links.length; i += 1) {
-    const [, type, slug] = links[i];
-    const window = html.slice(links[i].index, links[i + 1]?.index ?? links[i].index + 4000);
-    const alt = /alt="([^"]*)"/.exec(window);
-    const img = /src="(https:\/\/image\.tmdb\.org[^"]+)"/.exec(window);
-    // The score sits right after the star in the title line (`★ 5.9`) but
-    // inside the *next* span in the meta row (`★</span><span>5.9</span>`) —
-    // both shapes occur on the same page, so accept either.
-    const star = /★(?:<\/span>\s*(?:<span[^>]*>)?)?\s*([\d.]+)/.exec(window);
-    const year = />·<\/span>\s*<span>((?:19|20)\d{2})<\/span>/.exec(window);
-    items.push({
-      type,
-      slug,
-      title: alt ? decode(alt[1]) : slug.replace(/-\d+$/, '').replace(/-/g, ' '),
-      year: year ? Number(year[1]) : null,
-      score: star ? Number(star[1]) : null,
-      poster: img ? img[1] : null,
-    });
-  }
-  return items;
-}
-
-/** TMDB-proxy search row → the same card shape as parseCards. */
-function shapeSearchItem(raw) {
-  const path = String(raw?.href ?? '');
-  const m = /^\/(movie|tv)\/([a-z0-9-]+-\d+)$/.exec(path);
-  if (!m) return null;                             // anything else is not a title
-  return {
-    type: m[1],
-    slug: m[2],
-    title: decode(raw.title || raw.name || 'Untitled'),
-    year: Number(String(raw.release_date || raw.first_air_date || '').slice(0, 4)) || null,
-    score: typeof raw.vote_average === 'number' ? raw.vote_average : null,
-    poster: raw.poster_url ? String(raw.poster_url).replace('/w92/', '/w500/') : null,
-  };
-}
-
-/** The detail page's own IMDb row (`<dt>IMDb:</dt><dd>4.1</dd>`). */
-function parseImdbRow(html) {
-  const m = /IMDb:<\/dt>\s*<dd[^>]*>([\d.]+)</.exec(html);
-  return m ? Number(m[1]) : null;
-}
-
-/**
- * A detail page → the details object the client renders: JSON-LD fields
- * where they exist, the IMDb row for the score, and (series only) the season
- * numbers the page offers so the strip needs no second request to draw.
- */
-function shapeDetails(type, slug, html) {
-  const ld = parseJsonLd(html) ?? {};
-  const ogTitle = /<meta property="og:title" content="([^"]*)"/.exec(html);
+function shapeDetails(type, slug, raw) {
+  const credits = raw.credits ?? {};
+  const crew = asList(credits.crew);
+  // A series names its creators at the top level of its own document; a film
+  // names its directors in the crew list.
+  const creator = type === 'tv'
+    ? asList(raw.created_by ?? credits.created_by).map(personName)
+    : crew.filter((c) => c?.job === 'Director').map(personName);
   return {
     type,
     slug,
-    title: decode(ld.name ?? ogTitle?.[1] ?? slug.replace(/-\d+$/, '').replace(/-/g, ' ')),
-    description: ld.description ? decode(String(ld.description).replace(/<[^>]*>/g, '')) : null,
-    poster: ld.image ?? null,
-    year: ld.dateCreated ? Number(String(ld.dateCreated).slice(0, 4)) : null,
-    score: parseImdbRow(html),
-    genres: asList(ld.genre).map((g) => decode(String(g))),
-    cast: asList(ld.actor).map(personName).filter(Boolean).map(decode),
-    creator: asList(ld.creator).map(personName).filter(Boolean).map(decode),
-    seasons: type === 'tv' ? parseSeasons(html) : [],
-    numberOfSeasons: ld.numberOfSeasons ?? null,
-    numberOfEpisodes: ld.numberOfEpisodes ?? null,
+    title: titleOf(type, raw),
+    description: raw.overview ? String(raw.overview) : null,
+    poster: posterUrl(raw.poster_path),
+    backdrop: posterUrl(raw.backdrop_path, 'original'),
+    year: yearOf(raw),
+    // The score the site shows beside a title is TMDB's own average.
+    score: typeof raw.vote_average === 'number' && raw.vote_average > 0
+      ? Math.round(raw.vote_average * 10) / 10
+      : null,
+    genres: asList(raw.genres).map((g) => g?.name).filter(Boolean),
+    cast: asList(credits.cast).map(personName).filter(Boolean).slice(0, 20),
+    creator: creator.filter(Boolean),
+    // Season 0 is TMDB's bucket for specials, not a season the strip offers.
+    seasons: type === 'tv'
+      ? asList(raw.seasons).map((s) => s?.season_number).filter((n) => Number.isInteger(n) && n > 0)
+      : [],
+    numberOfSeasons: raw.number_of_seasons ?? null,
+    numberOfEpisodes: raw.number_of_episodes ?? null,
+    imdb_id: raw.external_ids?.imdb_id ?? null,
   };
+}
+
+/** The one details request, shared by the title page and the IMDb lookup. */
+function detailsRaw(type, id) {
+  return tmdb(`/${type}/${id}`, { append_to_response: 'credits,external_ids' }, 'details');
 }
 
 // ---------------------------------------------------------------- handlers
@@ -326,105 +290,89 @@ function json(res, status, body) {
 
 /**
  * GET /api/fmovies/search?q=&page=&type=
- * With a q: the site's TMDB search, optionally narrowed to movie or tv.
- * Without one: its `/movies` (default) or `/tv-series` listing page.
+ * With a q: TMDB's multi search, optionally narrowed to movie or tv. Without
+ * one: the week's trending shelf — mixed, or the one type asked for.
+ *
+ * `source` names where the catalog came from. The client prints it, so a
+ * backend that has not moved yet (the Java twin, until it is ported) keeps
+ * naming its own source instead of inheriting this one's label.
  */
 async function handleSearch(url, res) {
   const q = (url.searchParams.get('q') ?? '').trim();
   const page = Math.max(1, Number(url.searchParams.get('page') ?? 1) | 0);
   const type = url.searchParams.get('type') === 'tv' ? 'tv' : url.searchParams.get('type') === 'movie' ? 'movie' : '';
 
-  if (q) {
-    const body = await memo('search', `s:${q}:${page}`, () =>
-      getJson(`/api/search?q=${encodeURIComponent(q)}&page=${page}&limit=${SEARCH_PAGE_SIZE}`));
-    const all = (body.results ?? []).map(shapeSearchItem).filter(Boolean);
-    const items = type ? all.filter((i) => i.type === type) : all;
-    return json(res, 200, { q, page, type, hasNext: all.length === SEARCH_PAGE_SIZE, items });
-  }
+  const body = q
+    ? await tmdb('/search/multi', { query: q, page, include_adult: 'false' }, 'search')
+    : await tmdb(type ? `/trending/${type}/week` : '/trending/all/week', { page }, 'catalog');
 
-  const path = type === 'tv' ? '/tv-series' : '/movies';
-  const html = await memo('catalog', `c:${type}:${page}`, () => getHtml(`${path}?page=${page}`));
-  const items = parseCards(html);
-  return json(res, 200, {
-    q, page, type: type || 'movie',
-    hasNext: html.includes(`?page=${page + 1}`),
+  const all = asList(body.results).map(shapeItem).filter(Boolean);
+  const items = type ? all.filter((i) => i.type === type) : all;
+  const totalPages = Number(body.total_pages ?? 0);
+
+  json(res, 200, {
+    q,
+    page,
+    type,
+    source: 'TMDB',
+    // A page of the mixed search can be narrowed to nothing; the page count is
+    // what upstream says, not what survived the filter.
+    hasNext: Number.isFinite(totalPages) ? page < totalPages : all.length >= SEARCH_PAGE_SIZE,
     items,
   });
 }
 
+/** The id in a slug, or null when the slug carries none. */
+function idFromSlug(slug) {
+  const m = /-(\d+)$/.exec(String(slug));
+  return m ? Number(m[1]) : null;
+}
+
 /** GET /api/fmovies/(movie|tv)/:slug — one title. */
 async function handleDetails(type, slug, res) {
-  const html = await memo('details', `d:${type}:${slug}`, () => getHtml(`/${type}/${slug}`));
-  json(res, 200, { details: shapeDetails(type, slug, html) });
+  const id = idFromSlug(slug);
+  if (id === null) return json(res, 404, { error: 'not_found', slug });
+  const raw = await detailsRaw(type, id);
+  json(res, 200, { details: shapeDetails(type, slug, raw) });
 }
 
 /**
  * GET /api/fmovies/tv/:slug/episodes?season=N — the episode rows of one
- * season. The page is fetched at `?season=N&episode=1`; a season the page
- * does not offer is a 404 rather than silently the first season's list.
+ * season. TMDB answers a season with its real episode numbers and names; a
+ * season the title does not have is a 404, not silently the first one's list.
  */
 async function handleEpisodes(slug, url, res) {
+  const id = idFromSlug(slug);
+  if (id === null) return json(res, 404, { error: 'not_found', slug });
   const season = Math.max(1, Number(url.searchParams.get('season') ?? 1) | 0);
-  const html = await memo('episodes', `e:${slug}:${season}`, () =>
-    getHtml(`/tv/${slug}?season=${season}&episode=1`));
-  if (!parseSeasons(html).includes(season)) {
-    return json(res, 404, { error: 'season_not_found', slug, season });
+
+  let body;
+  try {
+    body = await tmdb(`/tv/${id}/season/${season}`, {}, 'episodes');
+  } catch (e) {
+    if (e.status === 404) return json(res, 404, { error: 'season_not_found', slug, season });
+    throw e;
   }
-  const data = parseEpisodes(html, season);
+
+  const data = asList(body.episodes)
+    .map((ep) => ({
+      n: Number(ep?.episode_number),
+      title: ep?.name ? String(ep.name) : null,
+    }))
+    .filter((ep) => Number.isInteger(ep.n))
+    .sort((a, b) => a.n - b.n);
   if (!data.length) return json(res, 404, { error: 'no_episodes', slug, season });
   json(res, 200, { slug, season, data });
 }
 
 /**
- * Today's player doors, read from the site's own player page.
- *
- * The page carries its server table as plain JavaScript:
- *
- *   var sources = [
- *     { id: 'embos', aliases: [...], movie: 'https://embos.top/movie/?mid={id}',
- *       tv: 'https://embos.top/tv/?mid={id}&s={season}&e={episode}' },
- *     …
- *
- * One object per door, in the order the site itself lists them. A page that
- * cannot be read, or whose table no longer parses, is not an error the reader
- * should see: the built-in list is the answer, cached as though it had been
- * read, so a dead upstream costs one request per TTL rather than one per open.
- */
-function parseServers(html) {
-  const table = /var\s+sources\s*=\s*\[([\s\S]*?)\];/.exec(html);
-  if (!table) return [];
-  const out = [];
-  const row = /id:\s*['"]([^'"]+)['"][^}]*?movie:\s*['"]([^'"]+)['"][^}]*?tv:\s*['"]([^'"]+)['"]/g;
-  let m;
-  while ((m = row.exec(table[1])) !== null) {
-    out.push({ id: m[1], movie: m[2], tv: m[3] });
-  }
-  return out;
-}
-
-function servers() {
-  return memo('servers', 'doors', async () => {
-    try {
-      const list = orderDoors(parseServers(await getHtml(WATCH_PAGE)));
-      if (list.length) {
-        return list.map((s, i) => ({ id: s.id, label: `Server ${i + 1}`, movie: s.movie, tv: s.tv }));
-      }
-    } catch (e) {
-      // The built-in list below is the answer; this is not a failed request.
-    }
-    return SERVERS;
-  });
-}
-
-/**
  * Does this door answer at all — and may it be framed?
  *
- * A dead host is the failure that actually happened: two of the three doors
- * stopped resolving, and the third refused to be framed, so the player showed
- * black and said nothing. Reachability and the framing headers are the two
- * questions the page itself cannot answer for us, so they are answered here,
- * once per door per ten minutes. The body is dropped unread: this is a knock
- * on the door, not a download.
+ * A dead host is the failure that actually happened before: doors stopped
+ * resolving or refused to be framed, so the player showed black and said
+ * nothing. Reachability and the framing headers are the two questions a URL
+ * template cannot answer, so they are answered here, once per URL per ten
+ * minutes. The body is dropped unread: this is a knock, not a download.
  */
 function health(url) {
   return memo('health', `h:${url}`, async () => {
@@ -434,7 +382,6 @@ function health(url) {
         redirect: 'follow',
         headers: {
           'user-agent': BROWSER_UA,
-          referer: `${SITE}/`,
           accept: 'text/html,application/xhtml+xml',
         },
         signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
@@ -458,43 +405,46 @@ function health(url) {
   });
 }
 
-/**
- * GET /api/fmovies/(movie|tv)/:slug/player?season=&episode= — one URL per door
- * the site offers, filled with the numeric id in the slug, plus whether that
- * door answered. The client opens the first one that did, so a door that went
- * dark is a labelled button rather than a black player.
- */
-async function handlePlayer(type, slug, url, res) {
-  const target = requestTarget(type, slug, url);
-  if (!target) return json(res, 404, { error: 'not_found', slug });
-  const { id, season, episode } = target;
-  const sources = await Promise.all((await servers()).map((s) => doorSource(s, target)));
-  json(res, 200, { type, slug, id, season, episode, sources });
-}
-
 /** The slug's id plus the episode asked for — everything a door URL needs. */
 function requestTarget(type, slug, url) {
-  const idMatch = /-(\d+)$/.exec(slug);
-  if (!idMatch) return null;
+  const id = idFromSlug(slug);
+  if (id === null) return null;
   return {
     type,
-    id: Number(idMatch[1]),
+    id,
     season: Math.max(1, Number(url.searchParams.get('season') ?? 1) | 0),
     episode: Math.max(1, Number(url.searchParams.get('episode') ?? 1) | 0),
   };
 }
 
-function doorSource(server, target) {
-  const doorUrl = (target.type === 'tv' ? server.tv : server.movie)
+function doorUrl(server, target) {
+  return (target.type === 'tv' ? server.tv : server.movie)
     .replaceAll('{id}', String(target.id))
     .replaceAll('{season}', String(target.season))
     .replaceAll('{episode}', String(target.episode));
-  return health(doorUrl).then((probe) => ({
+}
+
+function doorSource(server, target) {
+  const url = doorUrl(server, target);
+  return health(url).then((probe) => ({
     label: server.label,
-    url: doorUrl,
+    url,
     ok: probe.ok,
     note: probe.ok ? null : probe.code,
   }));
+}
+
+/**
+ * GET /api/fmovies/(movie|tv)/:slug/player?season=&episode= — one URL per
+ * door, filled with the title's TMDB id, plus whether that door answered. The
+ * client opens the first one that did, so a door that went dark is a labelled
+ * button rather than a black player.
+ */
+async function handlePlayer(type, slug, url, res) {
+  const target = requestTarget(type, slug, url);
+  if (!target) return json(res, 404, { error: 'not_found', slug });
+  const sources = await Promise.all(SERVERS.map((s) => doorSource(s, target)));
+  json(res, 200, { type, slug, id: target.id, season: target.season, episode: target.episode, sources });
 }
 
 /**
@@ -504,29 +454,34 @@ function doorSource(server, target) {
  * without a second copy of the door walk. Doors are tried in order and the
  * first one that plays wins; a title the doors do not carry comes back as a
  * plain "nothing to play", with each door's reason kept for the log.
+ *
+ * `door` is the reader's own choice — a label or an id — and only reorders the
+ * walk: a door that is named and then fails still leaves the others to try, so
+ * a stale preference is a slower answer rather than a broken one.
  */
-export async function resolveFilm(type, slug, { season = 1, episode = 1 } = {}) {
-  const idMatch = /-(\d+)$/.exec(slug);
-  if (!idMatch) return { ok: false, code: 'not_found' };
+export async function resolveFilm(type, slug, { season = 1, episode = 1, door = null } = {}) {
+  const id = idFromSlug(slug);
+  if (id === null) return { ok: false, code: 'not_found' };
   if (!browserAvailable()) return { ok: false, code: 'no_browser' };
 
-  const target = { type, id: Number(idMatch[1]), season, episode };
+  const target = { type, id, season, episode };
   const attempts = [];
 
-  for (const server of await servers()) {
-    const { url: doorUrl } = await doorSource(server, target);
-    const probe = await health(doorUrl);
+  for (const server of inAppOrder(door)) {
+    const url = doorUrl(server, target);
+    const probe = await health(url);
     if (!probe.ok) {
       attempts.push({ door: server.label, code: probe.code });
       continue;
     }
-    const found = await resolveDoor(doorUrl);
+    const found = await resolveDoor(url);
     if (found.ok) {
       return {
         ok: true,
         door: server.label,
+        door_id: server.id,
         url: found.url,
-        referer: found.referer ?? doorUrl,
+        referer: found.referer ?? url,
         attempts,
       };
     }
@@ -564,33 +519,24 @@ async function handleResolve(type, slug, url, res) {
 // ---------------------------------------------------------------- subtitles
 
 /**
- * The IMDb id behind a slug's TMDB id, asked of the door chain's own data API.
- *
- * A film's slug carries its TMDB id and nothing else, and the subtitle addon is
- * keyed by IMDb id; this is the one hop between them. It is also where the
- * embos player gets its own `imdb_id`, so it is the same mapping the site uses.
+ * The IMDb id behind a slug's TMDB id. A film's slug carries its TMDB id and
+ * nothing else, and the subtitle addon is keyed by IMDb id; this is the one hop
+ * between them. It rides the details cache, so a title page that already asked
+ * for the title costs nothing extra here.
  */
-function imdbIdFor(type, tmdbId) {
-  const kind = type === 'tv' ? 'tv' : 'movie';
-  return memo('imdb', `imdb:${kind}:${tmdbId}`, async () => {
-    const res = await fetch(`${VIDSRC_DATA}?type=${kind}&tmdb=${tmdbId}`, {
-      headers: { 'user-agent': BROWSER_UA, accept: 'application/json' },
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
-    if (!res.ok) throw upstreamError(res.status);
-    const body = await res.json();
-    const id = body?.data?.imdb_id;
-    if (typeof id !== 'string' || !/^tt\d+$/.test(id)) throw upstreamError(404, 'no imdb id');
-    return id;
-  });
+async function imdbIdFor(type, tmdbId) {
+  const raw = await detailsRaw(type, tmdbId);
+  const id = raw?.external_ids?.imdb_id;
+  if (typeof id !== 'string' || !/^tt\d+$/.test(id)) throw upstreamError(404, 'no imdb id');
+  return id;
 }
 
 /**
- * The player's own subtitle list — the one the embos door shows in its menu.
+ * The player's own subtitle list — the one several doors show in their menu.
  *
- * It is thin: of thirteen popular titles sampled live on 2026-10-10, exactly
- * one had a track. It is still read, because it costs one request and it is
- * the only list that can name a track the bigger addon does not have.
+ * It is thin: of thirteen popular titles sampled live, exactly one had a track.
+ * It is still read, because it costs one request and it is the only list that
+ * can name a track the bigger addon does not have.
  */
 function vidsrcTracks(type, tmdbId, season, episode) {
   const kind = type === 'tv' ? 'tv' : 'movie';
@@ -625,9 +571,8 @@ function vidsrcTracks(type, tmdbId, season, episode) {
  * nothing to ask with, which is an empty list rather than a failure.
  */
 export async function subtitleTracks(type, slug, { season = 1, episode = 1 } = {}) {
-  const idMatch = /-(\d+)$/.exec(slug);
-  if (!idMatch) return { ok: false, code: 'not_found', tracks: [] };
-  const tmdbId = Number(idMatch[1]);
+  const tmdbId = idFromSlug(slug);
+  if (tmdbId === null) return { ok: false, code: 'not_found', tracks: [] };
   const isEpisode = type === 'tv';
 
   const tracks = [];

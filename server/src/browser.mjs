@@ -1,6 +1,6 @@
 // A real browser, borrowed for one question: what does the player actually play?
 //
-// The film doors (f-movies' "servers") do not expose an API. Their player
+// The film doors (the six embeds behind the movies area) do not expose an API. Their player
 // builds a signed CDN URL at runtime — the signature comes out of their own
 // JavaScript, it changes with every deployment, and the CDN refuses anything
 // that did not come from a page on their site (no referer, 403). What *can* be
@@ -124,6 +124,48 @@ export function isPlaylistUrl(url) {
   return /\.m3u8(\?|#|$)/i.test(url);
 }
 
+/**
+ * A body that *is* a playlist, whatever its URL or content-type says.
+ *
+ * Two of the six doors never ask for a URL ending in `.m3u8`: they fetch their
+ * own playlist endpoint and read base64 out of it (Vidpro), which is why this
+ * resolves by content as well as by name. Returns the string to hand back, or
+ * null when the body is not a playlist at all.
+ */
+export function playlistBody(body) {
+  if (typeof body !== 'string' || !body) return null;
+  if (body.trimStart().startsWith('#EXTM3U')) return body;
+  // Their loader base64-decodes it, and so do we — refused unless what comes
+  // out really is a playlist, so a segment or an image is never mistaken for
+  // one.
+  const text = body.trim();
+  if (!text || text.length > 512 * 1024) return null;
+  if (!/^[A-Za-z0-9+/=\r\n]+$/.test(text)) return null;
+  const decoded = Buffer.from(text, 'base64').toString('latin1');
+  return decoded.trimStart().startsWith('#EXTM3U') ? decoded : null;
+}
+
+/**
+ * A URL that is media rather than a manifest: a segment, a still, a style. The
+ * resolver asks the browser for the bodies of the *other* responses, so this is
+ * what keeps a two-hour film from being read into memory a chunk at a time.
+ */
+export function looksLikeMedia(url) {
+  let path = String(url);
+  try {
+    path = new URL(url).pathname;
+  } catch {
+    return true;                       // unparseable: not worth a read
+  }
+  const lower = path.toLowerCase();
+  if (/\.(m4s|ts|mp4|m4a|mp3|aac|vtt|srt|jpg|jpeg|png|webp|gif|ico|woff2?|ttf|css|svg|js)$/.test(lower)) return true;
+  if (/\/thumbnails?\//.test(lower)) return true;
+  // Their segment counter: `…/video/720p/0000-0750.html`. The extension lies,
+  // the shape does not.
+  if (/\/\d{4}-\d{4}\./.test(lower)) return true;
+  return false;
+}
+
 /** Referer the door page sent, when it sent one. */
 export function refererFromHeaders(headers = {}) {
   const key = Object.keys(headers).find((name) => name.toLowerCase() === 'referer');
@@ -213,7 +255,13 @@ async function resolveInBrowser(doorUrl, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}
     const found = await new Promise((resolve) => {
       socket = new WebSocket(wsUrl);
       let id = 0;
+      let inspected = 0;
       const timer = setTimeout(() => resolve(null), timeoutMs);
+      // Every request seen, by id: a manifest found in a response body still
+      // needs the headers its own request went out with (the referer the door
+      // expects its player's calls to carry).
+      const requests = new Map();
+      const reading = new Map();          // CDP command id -> the request we are reading for
 
       socket.addEventListener('open', () => {
         sendCommand(socket, ++id, 'Network.enable');
@@ -228,11 +276,52 @@ async function resolveInBrowser(doorUrl, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}
         } catch {
           return;
         }
-        if (message.method !== 'Network.requestWillBeSent') return;
-        const request = message.params?.request;
-        if (!request || request.method !== 'GET' || !isPlaylistUrl(request.url)) return;
-        clearTimeout(timer);
-        resolve({ url: request.url, referer: refererFromHeaders(request.headers) });
+
+        // An answer to "what was in that response?" — the second way a playlist
+        // is found.
+        if (message.id && reading.has(message.id)) {
+          const request = reading.get(message.id);
+          reading.delete(message.id);
+          const body = message.result?.body;              // a failure is not an answer
+          if (playlistBody(body)) {
+            clearTimeout(timer);
+            resolve({ url: request.url, referer: request.referer });
+          }
+          return;
+        }
+
+        const params = message.params;
+        if (message.method === 'Network.requestWillBeSent') {
+          const request = params?.request;
+          if (!request) return;
+          requests.set(params.requestId, {
+            url: request.url,
+            referer: refererFromHeaders(request.headers),
+          });
+          // The named way: a URL that says it is a playlist.
+          if (request.method !== 'GET' || !isPlaylistUrl(request.url)) return;
+          clearTimeout(timer);
+          resolve({ url: request.url, referer: refererFromHeaders(request.headers) });
+          return;
+        }
+
+        // The unnamed way: a playlist fetched from an endpoint that does not
+        // look like one, served base64. Bodies are read for a bounded handful
+        // of page-shaped calls — never for media.
+        if (message.method === 'Network.responseReceived') {
+          const type = params?.type;
+          const responseUrl = params?.response?.url ?? '';
+          if (type !== 'XHR' && type !== 'Fetch') return;
+          if (inspected >= 8 || looksLikeMedia(responseUrl)) return;
+          inspected += 1;
+          const request = requests.get(params.requestId);
+          const commandId = ++id;
+          reading.set(commandId, {
+            url: responseUrl,
+            referer: request?.referer ?? null,
+          });
+          sendCommand(socket, commandId, 'Network.getResponseBody', { requestId: params.requestId });
+        }
       });
 
       socket.addEventListener('error', () => {

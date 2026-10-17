@@ -1,10 +1,10 @@
 // movies.js — the films & series area.
 //
-// Catalog comes from f-movies.org through this server's /api/fmovies routes:
-// its TMDB proxy answers queries, its static pages answer details and
-// episode lists, and playback is the same three embeds the site itself
-// offers — built from the title's own id, so there is no stored URL to go
-// stale. The browser talks only to this server.
+// Catalog, details and episode lists come from TMDB through this server's
+// /api/fmovies routes, and playback is the same six embeds cinehd.vc offers —
+// built from the title's own TMDB id, so there is no stored URL to go stale.
+// The browser talks only to this server. (The route prefix is historical: it
+// is the API contract both backends answer, not the name of a source.)
 //
 // The detail page is the anime area's, reshaped: header, player, episode
 // list beside it. A series carries a season strip under the player — the
@@ -67,7 +67,10 @@ async function loadShows(page) {
     mState.page = data.page;
     mState.hasNext = !!data.hasNext;
     grid.innerHTML = (data.items ?? []).map(showCardHtml).join('');
-    $('#movies-count').textContent = `${data.items?.length ?? 0}${mFiltered() ? ' found' : ' on f-movies'}`;
+    // The backend names its own catalog. Until the app shell is ported it keeps
+    // answering with the source it really uses, so this label cannot lie.
+    const source = data.source ?? 'f-movies';
+    $('#movies-count').textContent = `${data.items?.length ?? 0}${mFiltered() ? ' found' : ` on ${source}`}`;
     showsNote((data.items ?? []).length ? '' : (mFiltered()
       ? 'Nothing matched — try another title, or clear the filter.'
       : 'Nothing here right now — try a search.'));
@@ -82,7 +85,7 @@ async function loadShows(page) {
     // Both backends answer these routes (Node in the server, Java in the app
     // shell); a failure here is the network or the upstream, not the place.
     showsNote(`Could not load the catalog (${e.message}). `
-      + 'The catalog comes from f-movies — check the connection and try again.');
+      + 'Check the connection and try again.');
   }
 }
 
@@ -273,11 +276,11 @@ async function loadShowPlayer(seq, ep) {
     // already knows how to stop an embed playing behind the view the reader
     // came back to, and one sheet holds one player at a time.
     slot.innerHTML = `${live.length ? ''
-      : '<p class="note">None of the site&rsquo;s own players answer right now.</p>'}
+      : '<p class="note">None of the players answer right now.</p>'}
       ${embedStageHtml()}
       <div class="quality">${sources.map((s, i) =>
         `<button class="q-btn" type="button" data-fx-src="${i}" aria-pressed="${s === first}"${
-          s.ok === false ? ` disabled title="${esc(`${s.label} is not answering on f-movies right now${s.note ? ` (${s.note})` : ''}`)}"` : ''
+          s.ok === false ? ` disabled title="${esc(`${s.label} is not answering right now${s.note ? ` (${s.note})` : ''}`)}"` : ''
         }>${esc(s.label)}</button>`).join('')}</div>`;
     // The embed's own corner button cannot work here: vidcore.net serves a
     // policy that denies fullscreen to its own document, so `fullscreenEnabled`

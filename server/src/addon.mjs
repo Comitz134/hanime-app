@@ -12,8 +12,8 @@
 // through one string:
 //
 //   ha:an:<anilist id>          an anime title              (type series)
-//   ha:fm:<f-movies slug>       a film                      (type movie)
-//   ha:ft:<f-movies slug>       a series                    (type series)
+//   ha:fm:<title slug>          a film                      (type movie)
+//   ha:ft:<title slug>          a series                    (type series)
 //   ha:ad:<hanime slug>         a video from the 18+ shelf  (type movie)
 //
 // and an episode of a series is `<id>:<season>:<episode>` — the shape Stremio
@@ -413,28 +413,28 @@ async function streams(ref, self, origin) {
     const sources = body?.sources ?? [];
 
     // A source on a provider this server can open by itself (src/providers.mjs)
-    // leads the list as a media URL in the app's own player. Every such source
-    // gets its own entry and the route is told which to try first, so a second
-    // server from LunarX keeps its own row instead of being hidden behind the
-    // first — the entry names the first one as it always did, and the rest say
-    // which server they are. A source no provider claims adds no entry here and
-    // stays what it was: an embed for the browser.
-    const inApp = sources
+    // is a media URL in the app's own player. Every such source gets its own
+    // entry and the route is told which to try first, so a second server from
+    // LunarX keeps its own row instead of being hidden behind the first — the
+    // entry names the first one as it always did, and the rest say which server
+    // they are.
+    //
+    // The embeds are not listed beside them. They were the same sources a second
+    // time, pointing at a browser instead of the player, and every one of them
+    // duplicated an entry above it: the survey behind src/providers.mjs found
+    // flixcloud on all 2,238 episodes sampled, and flixcloud is the provider
+    // this server opens, so the embed was a second button for the same stream.
+    // A source no provider claims now has no entry at all — an addon entry that
+    // throws the reader out of the app is not an answer this one offers — which
+    // is the one case where registering a provider is the fix rather than a
+    // browser tab.
+    return sources
       .filter((s) => isResolvableEmbed(s.url))
       .map((s, i) => ({
         name: i === 0 ? 'Hanime · in-app' : `Hanime · in-app (${s.label ?? i + 1})`,
         description: 'HLS — plays in the player',
         url: `${origin}/play/anime/${seg(ref.key)}?ep=${ep}${s.label ? `&src=${encodeURIComponent(s.label)}` : ''}`,
       }));
-
-    return [
-      ...inApp,
-      ...sources.map((s) => ({
-        name: `Hanime · ${s.label ?? 'player'}`,
-        description: 'embed — opens in your browser',
-        externalUrl: s.url,
-      })),
-    ];
   }
 
   if (ref.area === 'fm' || ref.area === 'ft') {
@@ -451,29 +451,38 @@ async function streams(ref, self, origin) {
     }
     const doors = body?.sources ?? [];
 
+    // Every entry is the app's own player, and nothing else.
+    //
     // The door pages do not hand out a stream; they hand out a player, and the
     // stream URL exists only inside it. `/play/films/…` resolves that on demand
-    // (booting a browser for a few seconds) and answers with the playlist — so
-    // the film plays in the app's own player instead of a browser tab. It leads
-    // the list, because it is the only entry that ends in the app's player; the
-    // doors stay behind it, honestly labelled, for the titles it cannot resolve.
+    // (booting a browser for a few seconds) and answers with the playlist, so
+    // the film plays where the reader is instead of in a browser tab. The doors
+    // themselves used to be listed here as `externalUrl` entries for the titles
+    // the resolver could not reach; they are gone, because an entry that throws
+    // the reader out of the app is not an answer this one offers.
+    //
+    // The first entry asks for no door in particular and gets the server's own
+    // preference (Vidpro); each door that answered gets one of its own behind
+    // it, carrying `door=<label>`, so the reader can pick which server the app's
+    // player goes through. A door that did not answer gets no entry at all —
+    // pressing one would only boot a browser to fail — and a title whose doors
+    // all failed to answer has no streams to offer, which is what the app should
+    // say rather than a list of buttons that leave it.
+    const live = doors.filter((s) => s.ok !== false && s.label);
     const query = type === 'tv' ? `?season=${season}&episode=${episode}` : '';
-    const inApp = doors.some((s) => s.ok !== false)
-      ? [{
-          name: 'Hanime · in-app',
-          description: 'HLS — plays in the player',
-          url: `${origin}/play/films/${type}/${seg(ref.key)}${query}`,
-        }]
-      : [];
-
+    const doorUrl = (label) => `${origin}/play/films/${type}/${seg(ref.key)}${query}`
+      + `${query ? '&' : '?'}door=${encodeURIComponent(label)}`;
+    if (!live.length) return [];
     return [
-      ...inApp,
-      ...doors.map((s) => ({
-        name: `Hanime · ${s.label ?? 'door'}`,
-        description: s.ok === false
-          ? `embed — ${s.note ?? 'not answering'}, opens in your browser`
-          : 'embed — opens in your browser',
-        externalUrl: s.url,
+      {
+        name: 'Hanime · in-app',
+        description: 'HLS — plays in the player',
+        url: `${origin}/play/films/${type}/${seg(ref.key)}${query}`,
+      },
+      ...live.map((s) => ({
+        name: `Hanime · in-app · ${s.label}`,
+        description: 'HLS — plays in the player',
+        url: doorUrl(s.label),
       })),
     ];
   }

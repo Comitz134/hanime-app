@@ -23,8 +23,8 @@
 // they are this device's, not the account's:
 //
 //   * Manga and the films area. They keep their own stores (`htv:manga-read:v1`,
-//     `htv:shows:v1`) with their own ids, and the films library's refs are
-//     f-movies' own — neither is the id space the account speaks (see
+//     `htv:shows:v1`) with their own ids, and the films library's refs are the
+//     catalog's own slugs — neither is the id space the account speaks (see
 //     server/src/addon.mjs), and guessing a translation is how two clients end
 //     up disagreeing about which title a row is.
 //   * Episode marks. The 18+ shelf plays whole videos, and the anime and manga

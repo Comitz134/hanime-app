@@ -65,6 +65,45 @@ The token lives in the checkout-root `.env` (`GITHUB_TOKEN`), which
 `https://github.com/Comitz134/hanime-app/releases/latest/download/version.json`
 must name the version code just built.
 
+## The films & series area speaks TMDB
+
+The `/api/fmovies/*` route family is the contract every client answers — the
+web bundle, the addon, the desktop window and `android/…/Fmovies.java` — so the
+prefix keeps its old name even though the source behind it is no longer
+f-movies.org. `server/src/fmovies.mjs` reads TMDB's public API (the key comes
+from `TMDB_API_KEY`, else the one cinehd.vc's own bundle ships) and offers
+cinehd's six doors — Max, Vidpro, V2, Premium, 4K, Vidfast — knocking on each
+so a dead one is a disabled button rather than a black frame.
+
+**Which door the in-app player uses.** The app's own player cannot frame an
+embed — it needs a playlist URL — so that walk has its own order: **Vidpro**
+first (`IN_APP_FIRST` in `server/src/fmovies.mjs`), then cinehd's order behind
+it. **The films stream list offers nothing else**: the doors used to travel as
+`externalUrl` entries for the titles the resolver could not reach, and the
+reader asked for an app that never hands them a browser tab, so every entry is
+now `/play/films/…` — one per door that answered the knock
+(`Hanime · in-app · Vidfast`), each carrying `door=<label>`, and
+`/play/films/:type/:slug?door=` only *reorders* the walk: a door named and then
+unable to resolve falls through to the others, so a stale choice is slower, not
+broken.
+
+Measured with the resolver on 2026-10-17, and the reason the preference is not
+arbitrary: Vidpro resolves in ~1.6 s and Vidfast in ~2 s; **Max and 4K never ask
+for a playlist at all** in a headless browser, so their in-app entries are a
+detour through the fallback. Two things make Vidpro work and are easy to break
+again: its player serves the whole playlist chain **base64-encoded** (the relay
+decodes it — `decodePlainPlaylist` in `hls.mjs`) and it never requests a URL
+ending in `.m3u8` (the resolver recognises a manifest **by content** —
+`playlistBody` in `browser.mjs`, reading the bodies of page-shaped XHRs only,
+never media).
+
+**The two backends are not in step yet.** Node answers TMDB + the six doors;
+the Java twin still scrapes f-movies.org. Both answer the same shapes, and the
+search response's `source` field is what the client prints (the Java side omits
+it, so the phone still says `f-movies` instead of inheriting the new label).
+Porting `Fmovies.java` is the next step for the phone, and `FmoviesTest` moves
+with it.
+
 ## Where things are
 
 | path | what it is |
@@ -72,6 +111,7 @@ must name the version code just built.
 | `server/` | the Node catalogue server and the web client (`client/` builds `public/index.html`) |
 | `shell/` | the desktop app: `overrides/` is this fork's slice of NuvioDesktop, `sync.sh` fetches upstream and applies it, `install-desktop.sh` installs the result |
 | `android/`, `mobile/` | the phone clients |
+| `server/src/fmovies.mjs` | the films & series area: TMDB for catalog, details and episodes, the six cinehd doors for playback — see the note below |
 | `server/scripts/publish-desktop.mjs` | builds, zips and publishes a desktop release (the window's update source) |
 | `server/scripts/publish-apk.mjs`, `publish-github.mjs` | the same for the phone app |
 | `tools/update-fixture.mjs` | a loopback stand-in for the release API and its downloads, for exercising the updater without publishing |

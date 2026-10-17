@@ -210,6 +210,29 @@ export function isPlaylistResponse(res, body) {
   return body.trimStart().startsWith('#EXTM3U');
 }
 
+/**
+ * A playlist that arrives base64-encoded rather than as text.
+ *
+ * vixsrc — the player behind the Vidpro door — serves its master, its audio
+ * renditions and its variant playlists as base64 of the playlist, because its
+ * own loader decodes them in the page. A player that is handed one of those
+ * URLs without that loader reads a wall of base64 and reports a broken stream,
+ * so the relay decodes it here and rewrites it like any other playlist.
+ *
+ * No key: unlike flixcloud's wrapper this is plain base64. Returns the text, or
+ * null when the body is not one — an image, a segment or a subtitle is left
+ * alone, and random base64 that does not decode to a playlist is refused rather
+ * than passed on as a mangled one.
+ */
+export function decodePlainPlaylist(bytes) {
+  const raw = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
+  const text = raw.toString('latin1').trim();
+  if (!text || text.length > 512 * 1024) return null;          // playlists are small
+  if (!/^[A-Za-z0-9+/=\r\n]+$/.test(text)) return null;
+  const decoded = Buffer.from(text, 'base64').toString('latin1');
+  return decoded.trimStart().startsWith('#EXTM3U') ? decoded : null;
+}
+
 export async function relayPlaylist(url, link, res, text) {
   const rewritten = rewritePlaylist(text, url, link);
   res.writeHead(200, {

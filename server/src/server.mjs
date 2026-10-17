@@ -31,6 +31,7 @@ import {
   fetchUpstream,
   relayPlaylist,
   relayBinary,
+  decodePlainPlaylist,
   subtitleContentType,
 } from './hls.mjs';
 import { account, setCookie, clear as clearSession, sessionInfo, raw as rawSession } from './session.mjs';
@@ -615,15 +616,21 @@ async function handleRelay(url, res, req) {
   }
 
   const asText = bytes.subarray(0, 64).toString('latin1');
+  // Plain text, or plain base64 of it: vixsrc hands its whole playlist chain
+  // over encoded, and a player cannot use either form as-is. Both become the
+  // same rewritten playlist below.
+  const playlistText = asText.trimStart().startsWith('#EXTM3U')
+    ? bytes.toString('latin1')
+    : decodePlainPlaylist(bytes);
 
-  if (asText.trimStart().startsWith('#EXTM3U')) {
+  if (playlistText) {
     const origin = baseUrl(req);
     // Nested URIs inherit the link's own profile: a playlist that needs the
     // door's referer needs it on every variant and segment below it too.
     const relink = link.referer || link.origin
       ? (abs) => `${origin}/relay?${mangleVia(abs, link)}`
       : (abs) => `${origin}/relay?${mangle(abs)}`;
-    return relayPlaylist(target, relink, res, bytes.toString('latin1'));
+    return relayPlaylist(target, relink, res, playlistText.trimStart());
   }
 
   // A subtitle body: served as itself, with the type its own extension — or,
@@ -760,12 +767,19 @@ async function handleRequest(req, res) {
     // resolved here (which may boot a browser for a few seconds) and the answer
     // is a redirect into the relay. Lazy on purpose: the stream list must not
     // wait for a resolution the reader may never ask for.
+    //
+    // `door=<label|id>` names the door to try first, exactly as `src=` does for
+    // an anime episode below: it is how the stream list's "in-app · Vidfast"
+    // entries stay distinct when they all end in the same player. The label
+    // only reorders the walk — a door the reader named and that then fails still
+    // leaves the others to try.
     const play = /^\/play\/films\/(movie|tv)\/([a-z0-9.-]+)$/.exec(pathname);
     if (play) {
       const [, type, slug] = play;
       const found = await resolveFilm(type, slug, {
         season: Math.max(1, Number(url.searchParams.get('season') ?? 1) | 0),
         episode: Math.max(1, Number(url.searchParams.get('episode') ?? 1) | 0),
+        door: url.searchParams.get('door') ?? url.searchParams.get('src'),
       });
       if (!found.ok) {
         // Plain text with the reason: this URL is opened by a media player, so
@@ -848,7 +862,9 @@ async function handleRequest(req, res) {
     // Normal (non-adult) anime: AniList catalog + LunarX episodes/player.
     if (pathname.startsWith('/api/anime/')) return await handleAnime(url, res, pathname);
 
-    // Films & series: f-movies.org (TMDB catalog + static episode pages).
+    // Films & series: TMDB for the catalog, details and episodes; the doors
+    // cinehd.vc plays through for the streams. (The path keeps its old name —
+    // it is the contract the web client, addon and Java twin all answer.)
     if (pathname.startsWith('/api/fmovies/')) return await handleFmovies(url, res, pathname);
     if (pathname === '/api/videos') return await handleVideos(url, res);
     if (pathname === '/api/tags') return await handleTags(res);

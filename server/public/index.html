@@ -2143,14 +2143,14 @@ select.filter-select.sort-select {
       </section>
     </div>
 
-    <!-- movies: films and series from f-movies.org — the TMDB-backed catalog
-         answers searches, static pages answer details and episodes, and the
-         player is the site's own three embeds built from the title's id. -->
+    <!-- movies: films and series — TMDB answers search, details and episodes,
+         and the player is the six embeds cinehd offers, built from the title's
+         id. The route prefix (/api/fmovies) is the contract, not the source. -->
     <div class="view" data-view="movies">
       <section id="movies-browse">
         <div class="sec-head">
           <div class="sec-head-l">
-            <h2>Movies &amp; Series <span class="area-chip">f-movies</span></h2>
+            <h2>Movies &amp; Series <span class="area-chip">tmdb</span></h2>
             <span class="sec-count" id="movies-count">…</span>
           </div>
         </div>
@@ -10900,7 +10900,8 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
       mState2.page = data.page;
       mState2.hasNext = !!data.hasNext;
       grid.innerHTML = (data.items ?? []).map(showCardHtml).join("");
-      $("#movies-count").textContent = `${((_a10 = data.items) == null ? void 0 : _a10.length) ?? 0}${mFiltered2() ? " found" : " on f-movies"}`;
+      const source = data.source ?? "f-movies";
+      $("#movies-count").textContent = `${((_a10 = data.items) == null ? void 0 : _a10.length) ?? 0}${mFiltered2() ? " found" : ` on ${source}`}`;
       showsNote((data.items ?? []).length ? "" : mFiltered2() ? "Nothing matched \u2014 try another title, or clear the filter." : "Nothing here right now \u2014 try a search.");
       pager.hidden = !data.hasNext && mState2.page <= 1;
       $("#movies-prev").disabled = mState2.page <= 1;
@@ -10910,7 +10911,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
       grid.innerHTML = "";
       $("#movies-count").textContent = "";
       pager.hidden = true;
-      showsNote(`Could not load the catalog (${e.message}). The catalog comes from f-movies \u2014 check the connection and try again.`);
+      showsNote(`Could not load the catalog (${e.message}). Check the connection and try again.`);
     }
   }
   function searchShows(q) {
@@ -11071,9 +11072,9 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
       dState3.sources = sources;
       const live = sources.filter((s) => s.ok !== false);
       const first = live[0] ?? sources[0];
-      slot.innerHTML = `${live.length ? "" : '<p class="note">None of the site&rsquo;s own players answer right now.</p>'}
+      slot.innerHTML = `${live.length ? "" : '<p class="note">None of the players answer right now.</p>'}
       ${embedStageHtml()}
-      <div class="quality">${sources.map((s, i) => `<button class="q-btn" type="button" data-fx-src="${i}" aria-pressed="${s === first}"${s.ok === false ? ` disabled title="${esc(`${s.label} is not answering on f-movies right now${s.note ? ` (${s.note})` : ""}`)}"` : ""}>${esc(s.label)}</button>`).join("")}</div>`;
+      <div class="quality">${sources.map((s, i) => `<button class="q-btn" type="button" data-fx-src="${i}" aria-pressed="${s === first}"${s.ok === false ? ` disabled title="${esc(`${s.label} is not answering right now${s.note ? ` (${s.note})` : ""}`)}"` : ""}>${esc(s.label)}</button>`).join("")}</div>`;
       const frame = mountEmbedStage(slot);
       frame.src = first.url;
       noteOpen("show", {

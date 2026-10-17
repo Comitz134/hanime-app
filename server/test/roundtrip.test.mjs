@@ -6,7 +6,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { seal, open } from '../src/token.mjs';
-import { mangle, unmangle, rewritePlaylist, subtitleContentType } from '../src/hls.mjs';
+import { mangle, unmangle, rewritePlaylist, subtitleContentType, decodePlainPlaylist } from '../src/hls.mjs';
 
 // --------------------------------------------------------------------------
 // handshake token envelope
@@ -121,6 +121,26 @@ test('a subtitle URL that names no file is typed by its upstream answer', () => 
   // And the upstream type decides nothing when it is not a subtitle: a segment
   // served as text/html stays a caller-sniffed body (`null` here).
   assert.equal(subtitleContentType('https://cdn/x/seg-1', 'text/html'), null);
+});
+
+// --------------------------------------------------------------------------
+// a playlist that arrives base64-encoded (vixsrc, behind the Vidpro door)
+// --------------------------------------------------------------------------
+
+test('a base64 playlist is decoded, and nothing else is', () => {
+  const playlist = '#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=2000000\nhttps://vixsrc.to/playlist/1?type=video&token=x\n';
+  const encoded = Buffer.from(playlist, 'latin1').toString('base64');
+  assert.equal(decodePlainPlaylist(Buffer.from(encoded, 'latin1')), playlist);
+
+  // Plain text is not this decoder's job: the relay recognises that itself and
+  // an unknown wrapper must not be "decoded" into a mangled playlist.
+  assert.equal(decodePlainPlaylist(Buffer.from(playlist, 'latin1')), null);
+  assert.equal(decodePlainPlaylist(Buffer.from(Buffer.from('{ "src": "/embed/1" }').toString('base64'))), null);
+
+  // A subtitle and a segment are not base64 at all, whatever they decode to.
+  assert.equal(decodePlainPlaylist(Buffer.from('1\n00:00:01,000 --> 00:00:02,000\nhello\n')), null);
+  assert.equal(decodePlainPlaylist(Buffer.from([0x47, 0x40, 0x11, 0x10, 0x00, 0xff, 0xfe])), null);
+  assert.equal(decodePlainPlaylist(Buffer.alloc(0)), null);
 });
 
 // --------------------------------------------------------------------------

@@ -2,7 +2,7 @@
 //
 // The bridge answers out of the server's own routes, so the upstreams stubbed
 // here are the ones those routes already talk to — AniList and LunarX for the
-// anime area, f-movies for films and series. The 18+ routes are shaped in
+// anime area, TMDB for films and series. The 18+ routes are shaped in
 // server.mjs, not here, so they answer from the small table below: what this
 // file tests is the mapping addon.mjs does — ids, shelves, metas and streams.
 
@@ -110,37 +110,62 @@ const lunarxEpisodes = {
 };
 const lunarxPlayer = { data: [{ server: 'sv-2', player_url: 'https://flixcloud.cc/e/abc?v=2' }] };
 
-// The films shelf reads the listing page; the score and year sit in the row
-// after the article, exactly as the site renders them.
-const listingHtml = `
-<a href="/movie/cavegirl-580175" class="group block min-w-0">
-  <article><img src="https://image.tmdb.org/t/p/w500/cave.jpg" alt="Cavegirl"></article>
-  <div><span>★</span><span>5.9</span><span>·</span><span>2021</span></div></a>
-<a href="/tv/breaking-bad-1396" class="group block min-w-0">
-  <article><img src="https://image.tmdb.org/t/p/w500/bb.jpg" alt="Breaking Bad"></article>
-  <div><span>★</span><span>8.9</span><span>·</span><span>2008</span></div></a>`;
+// The films shelf reads TMDB's weekly trending shelf; a person row carries no
+// media_type of its own beyond the word, so it never becomes a card.
+const tmdbTrending = {
+  page: 1,
+  total_pages: 1,
+  results: [
+    { id: 580175, media_type: 'movie', title: 'Cavegirl', poster_path: '/cave.jpg', release_date: '2021-03-01', vote_average: 5.9 },
+    { id: 1396, media_type: 'tv', name: 'Breaking Bad', poster_path: '/bb.jpg', first_air_date: '2008-01-20', vote_average: 8.9 },
+    { id: 287, media_type: 'person', name: 'Someone Famous' },
+  ],
+};
 
-const movieDetailHtml = `
-<script type="application/ld+json">{"@context":"https://schema.org","@graph":[
-{"@type":"Movie","name":"Cavegirl","description":"A cavegirl tale.","genre":["Fantasy"],"dateCreated":"1985-01-01","image":"https://image.tmdb.org/t/p/original/cave.jpg","actor":[{"@type":"Person","name":"Raylon"}]}]}</script>
-<dl><dt>IMDb:</dt><dd class="ml-2 text-sm font-semibold">4.1</dd></dl>`;
+const movieDetailsLite = {
+  id: 580175,
+  title: 'Cavegirl',
+  overview: 'A cavegirl tale.',
+  poster_path: '/cave.jpg',
+  backdrop_path: null,
+  release_date: '1985-01-01',
+  vote_average: 4.1,
+  genres: [{ id: 14, name: 'Fantasy' }],
+  credits: { cast: [{ name: 'Raylon' }], crew: [{ name: 'A Director', job: 'Director' }] },
+  external_ids: { imdb_id: 'tt0081234' },
+};
 
-const tvDetailHtml = `
-<script type="application/ld+json">{"@context":"https://schema.org","@graph":[
-{"@type":"TVSeries","name":"Breaking Bad","description":"A chemistry teacher.","genre":["Crime"],"dateCreated":"2008-01-20","numberOfSeasons":2,"image":"https://image.tmdb.org/t/p/original/bb.jpg","actor":[{"@type":"Person","name":"Bryan Cranston"}]}]}</script>
-<dl><dt>IMDb:</dt><dd class="ml-2 text-sm font-semibold">9.0</dd></dl>
-<a href="?season=1&#38;episode=1">S1</a>
-<a href="?season=2&#38;episode=1">S2</a>
-<a href="?season=1&#38;episode=1" title="Cat&#39;s in the Bag..." class="ep">1</a>
-<a href="?season=2&#38;episode=1" title="Seven Thirty-Seven" class="ep">1</a>
-<a href="?season=2&#38;episode=2" title="Grilled" class="ep">2</a>`;
+const tvDetailsLite = {
+  id: 1396,
+  name: 'Breaking Bad',
+  overview: 'A chemistry teacher.',
+  poster_path: '/bb.jpg',
+  backdrop_path: '/bbb.jpg',
+  first_air_date: '2008-01-20',
+  vote_average: 9.0,
+  genres: [{ id: 80, name: 'Crime' }],
+  number_of_seasons: 2,
+  number_of_episodes: 3,
+  seasons: [{ season_number: 1 }, { season_number: 2 }],
+  created_by: [{ name: 'Vince Gilligan' }],
+  credits: {
+    cast: [{ name: 'Bryan Cranston' }],
+    crew: [],
+  },
+  external_ids: { imdb_id: 'tt0903747' },
+};
 
-const watchPageHtml = `<html><body><script>
-var sources = [
-  { id: 'embos', aliases: ['1'], movie: 'https://embos.top/movie/?mid={id}', tv: 'https://embos.top/tv/?mid={id}&s={season}&e={episode}' },
-  { id: 'vidcore', aliases: ['2'], movie: 'https://vidcore.net/movie/{id}', tv: 'https://vidcore.net/tv/{id}/{season}/{episode}' },
-];
-</script></body></html>`;
+const seasonOne = {
+  season_number: 1,
+  episodes: [{ episode_number: 1, name: "Cat's in the Bag..." }],
+};
+const seasonTwo = {
+  season_number: 2,
+  episodes: [
+    { episode_number: 1, name: 'Seven Thirty-Seven' },
+    { episode_number: 2, name: 'Grilled' },
+  ],
+};
 
 // The 18+ routes live in server.mjs; these are the JSON documents they answer.
 const adultRow = {
@@ -254,7 +279,7 @@ test('a search on the shelf reaches AniList as a search, not a trend', async () 
 
 test('the films shelf keeps only films off a mixed listing page', async () => {
   clearCache();
-  stubFetch([['/movies?page=1', () => htmlResponse(200, listingHtml)]]);
+  stubFetch([['/trending/all/week', () => jsonResponse(200, tmdbTrending)]]);
 
   const res = await call('/addon/catalog/movie/films-listing/films-listing.json');
   assert.deepEqual(res.json.metas.map((m) => [m.id, m.type, m.releaseInfo]), [
@@ -265,10 +290,10 @@ test('the films shelf keeps only films off a mixed listing page', async () => {
 
 test('the series shelf asks for the tv listing and keeps only series', async () => {
   clearCache();
-  stubFetch([['/tv-series?page=1', () => htmlResponse(200, listingHtml)]]);
+  stubFetch([['/trending/tv/week', () => jsonResponse(200, tmdbTrending)]]);
 
   const res = await call('/addon/catalog/series/series-listing/series-listing.json');
-  assert.ok(fetchLog[0].url.includes('/tv-series?page=1'), fetchLog[0].url);
+  assert.ok(fetchLog[0].url.includes('/3/trending/tv/week'), fetchLog[0].url);
   assert.deepEqual(res.json.metas.map((m) => [m.id, m.type]), [['ha:ft:breaking-bad-1396', 'series']]);
 });
 
@@ -307,7 +332,7 @@ test('the 18+ shelf counts pages the way the catalogue behind it does', async ()
 
 test('the plain three-part catalog form is the same request', async () => {
   clearCache();
-  stubFetch([['/movies?page=1', () => htmlResponse(200, listingHtml)]]);
+  stubFetch([['/trending/all/week', () => jsonResponse(200, tmdbTrending)]]);
 
   // Clients that carry no extra ask for /catalog/<type>/<id>.json, with no
   // repetition of the id — the form every Stremio client uses first.
@@ -367,7 +392,7 @@ test('an episode list that fails leaves the page, not the request, empty', async
 
 test('a film meta is a movie with no episode rows', async () => {
   clearCache();
-  stubFetch([['/movie/cavegirl-580175', () => htmlResponse(200, movieDetailHtml)]]);
+  stubFetch([['/3/movie/580175', () => jsonResponse(200, movieDetailsLite)]]);
 
   const res = await call('/addon/meta/movie/ha%3Afm%3Acavegirl-580175.json');
   assert.equal(res.status, 200);
@@ -381,9 +406,9 @@ test('a film meta is a movie with no episode rows', async () => {
 test('a series meta lists every season the page names', async () => {
   clearCache();
   stubFetch([
-    ['/tv/breaking-bad-1396?season=1&episode=1', () => htmlResponse(200, tvDetailHtml)],
-    ['/tv/breaking-bad-1396?season=2&episode=1', () => htmlResponse(200, tvDetailHtml)],
-    ['/tv/breaking-bad-1396', () => htmlResponse(200, tvDetailHtml)],
+    ['/3/tv/1396/season/1', () => jsonResponse(200, seasonOne)],
+    ['/3/tv/1396/season/2', () => jsonResponse(200, seasonTwo)],
+    ['/3/tv/1396', () => jsonResponse(200, tvDetailsLite)],
   ]);
 
   const res = await call('/addon/meta/series/ha%3Aft%3Abreaking-bad-1396.json');
@@ -431,21 +456,16 @@ test('an anime episode leads with the stream this server can open itself', async
   assert.ok(fetchLog[0].url.includes('episode=3'), fetchLog[0].url);
 
   // LunarX named a flixcloud embed, and flixcloud is a provider this server
-  // opens by itself, so the episode is a media URL in the app's player first —
-  // the embed stays behind it, because a stream entry that plays is not a
-  // reason to hide the page the provider also serves. The in-app URL names the
-  // server to try first, so that a second server from LunarX cannot silently
-  // take the first one's place.
+  // opens by itself, so the episode is a media URL in the app's player — and
+  // nothing else. The page the provider also serves is not listed beside it:
+  // that entry was the same stream, one tap away from a browser tab. The in-app
+  // URL names the server to try first, so that a second server from LunarX
+  // cannot silently take the first one's place.
   assert.deepEqual(res.json.streams, [
     {
       name: 'Hanime · in-app',
       description: 'HLS — plays in the player',
       url: 'http://local/play/anime/99001?ep=3&src=sv-2',
-    },
-    {
-      name: 'Hanime · sv-2',
-      description: 'embed — opens in your browser',
-      externalUrl: 'https://flixcloud.cc/e/abc?v=2',
     },
   ]);
 });
@@ -461,8 +481,9 @@ test('a second resolvable server keeps its own in-app entry', async () => {
   const res = await call('/addon/stream/series/ha%3Aan%3A99001%3A1%3A5.json');
   assert.equal(res.status, 200);
 
-  // Both servers are this server's own to open, so both lead — the first as the
-  // plain in-app entry, the second named, each pointing at itself through `src`.
+  // Both servers are this server's own to open, so both are listed — the first
+  // as the plain in-app entry, the second named, each pointing at itself through
+  // `src` — and neither is repeated as an embed.
   assert.deepEqual(res.json.streams, [
     {
       name: 'Hanime · in-app',
@@ -473,16 +494,6 @@ test('a second resolvable server keeps its own in-app entry', async () => {
       name: 'Hanime · in-app (sv-3)',
       description: 'HLS — plays in the player',
       url: 'http://local/play/anime/99001?ep=5&src=sv-3',
-    },
-    {
-      name: 'Hanime · sv-2',
-      description: 'embed — opens in your browser',
-      externalUrl: 'https://flixcloud.cc/e/aaa?v=2',
-    },
-    {
-      name: 'Hanime · sv-3',
-      description: 'embed — opens in your browser',
-      externalUrl: 'https://flixcloud.cc/e/bbb?v=2',
     },
   ]);
 });
@@ -498,42 +509,33 @@ test('a resolvable server leads even when it is not the first one named', async 
   const res = await call('/addon/stream/series/ha%3Aan%3A99001%3A1%3A6.json');
   assert.equal(res.status, 200);
 
-  // Which server comes first is LunarX's order, not ours: an embed this server
-  // can open leads whichever position it was handed in, and the provider it
-  // cannot open keeps its place in the embeds below.
+  // Which server comes first is LunarX's order, not ours: the one this server
+  // can open is what the episode answers with, whichever position it was handed
+  // in, and the provider it cannot open contributes nothing — no embed of its
+  // own, and no browser tab.
   assert.deepEqual(res.json.streams, [
     {
       name: 'Hanime · in-app',
       description: 'HLS — plays in the player',
       url: 'http://local/play/anime/99001?ep=6&src=sv-2',
     },
-    {
-      name: 'Hanime · sv-9',
-      description: 'embed — opens in your browser',
-      externalUrl: 'https://other-provider.example/e/xyz?v=2',
-    },
-    {
-      name: 'Hanime · sv-2',
-      description: 'embed — opens in your browser',
-      externalUrl: 'https://flixcloud.cc/e/ccc?v=2',
-    },
   ]);
 });
 
-test('an embed from a provider this server cannot open stays a browser hand-off', async () => {
+test('a provider this server cannot open is an empty list, not a browser hand-off', async () => {
   stubFetch([['api.lunarx.to/api/3rdprovider', () => jsonResponse(200, {
     data: [{ server: 'sv-9', player_url: 'https://other-provider.example/e/xyz?v=2' }],
   })]]);
 
   const res = await call('/addon/stream/series/ha%3Aan%3A99001%3A1%3A4.json');
   assert.equal(res.status, 200);
-  // No in-app entry at all: offering one that cannot resolve would be a stream
-  // that fails where the embed would have worked.
-  assert.deepEqual(res.json.streams, [{
-    name: 'Hanime · sv-9',
-    description: 'embed — opens in your browser',
-    externalUrl: 'https://other-provider.example/e/xyz?v=2',
-  }]);
+  // Nothing to offer, and nothing pretending otherwise: this is the one case
+  // where the fix is a provider entry (src/providers.mjs), not an embed. The
+  // survey behind that register found flixcloud on all 2,238 episodes sampled,
+  // so a title reaching here is a provider nobody has met yet.
+  assert.deepEqual(res.json.streams, []);
+  assert.equal(fetchLog.filter((c) => c.url.includes('other-provider.example')).length, 0,
+    'the embed was fetched anyway');
 });
 
 // ------------------------------------------------------------- subtitles
@@ -588,7 +590,7 @@ test('a film offers the tracks the subtitle addon has for its IMDb id', async ()
   clearCache();
   clearOpenSubsCache();
   stubFetch([
-    ['data.vidsrc.sh', () => jsonResponse(200, { data: { imdb_id: 'tt0133093' } })],
+    ['/3/movie/603', () => jsonResponse(200, { ...movieDetailsLite, id: 603, external_ids: { imdb_id: 'tt0133093' } })],
     ['opensubtitles-v3.strem.io', () => jsonResponse(200, {
       subtitles: [{ id: '1', url: 'https://subs5.strem.io/en/download/x/file/1', lang: 'eng', movieReleaseName: 'The Matrix' }],
     })],
@@ -613,7 +615,7 @@ test('a series episode asks the subtitle addon as an episode', async () => {
   clearCache();
   clearOpenSubsCache();
   stubFetch([
-    ['data.vidsrc.sh', () => jsonResponse(200, { data: { imdb_id: 'tt0903747' } })],
+    ['/3/tv/1396', () => jsonResponse(200, tvDetailsLite)],
     ['opensubtitles-v3.strem.io', () => jsonResponse(200, {
       subtitles: [{ id: '1', url: 'https://subs5.strem.io/en/download/x/file/1', lang: 'por' }],
     })],
@@ -636,34 +638,58 @@ test('the 18+ shelf has no subtitles, and says so without an upstream call', asy
   assert.equal(fetchLog.length, 0, 'its playlists carry no subtitle tracks, so there is nothing to ask for');
 });
 
-test('a film stream says which door is dark', async () => {
+test('a film stream is the app player, one entry per door that answered', async () => {
   clearCache();
+  // Max and Vidpro answer; 4K is up but refuses to be framed; the rest are
+  // unreachable (unstubbed, so the knock throws).
   stubFetch([
-    ['/watch', () => htmlResponse(200, watchPageHtml)],
-    ['vidcore.net', () => probeResponse(200, {})],
-    ['embos.top', () => probeResponse(200, { 'x-frame-options': 'DENY' })],
+    ['ythd.org', () => probeResponse(200, {})],
+    ['vixsrc.to', () => probeResponse(200, {})],
+    ['player.videasy.to', () => probeResponse(200, { 'x-frame-options': 'DENY' })],
   ]);
 
   const res = await call('/addon/stream/movie/ha%3Afm%3Acavegirl-580175.json');
   assert.equal(res.status, 200);
 
   // The film opens in the app's own player: the first entry is a media URL on
-  // this server, which resolves the door when the player asks for it.
-  const [inApp, ...doors] = res.json.streams;
+  // this server, which resolves the door when the player asks for it — and it
+  // asks for no door in particular, so the server's own preference applies.
+  const [inApp, ...rest] = res.json.streams;
   assert.equal(inApp.name, 'Hanime · in-app');
   assert.equal(inApp.description, 'HLS — plays in the player');
   assert.equal(inApp.url, 'http://local/play/films/movie/cavegirl-580175');
   assert.equal(inApp.externalUrl, undefined);
 
-  // Which door the server prefers is the films area's business (its own test
-  // pins that); here the point is that a refused door still travels — marked,
-  // not hidden — behind the one that plays.
-  assert.equal(doors.length, 2);
-  const descriptions = doors.map((s) => s.description);
-  assert.ok(descriptions.includes('embed — frames_refused, opens in your browser'));
-  assert.ok(descriptions.includes('embed — opens in your browser'));
-  assert.deepEqual(doors.map((s) => s.name), ['Hanime · Server 1', 'Hanime · Server 2']);
-  assert.ok(doors.every((s) => s.externalUrl && !s.url));
+  // Behind it, one in-app entry per door that answered, each naming its own
+  // server: the reader chooses which door the app's player goes through
+  // instead of taking the default. A door that did not answer gets none.
+  assert.deepEqual(rest.map((s) => [s.name, s.url]), [
+    ['Hanime · in-app · Max', 'http://local/play/films/movie/cavegirl-580175?door=Max'],
+    ['Hanime · in-app · Vidpro', 'http://local/play/films/movie/cavegirl-580175?door=Vidpro'],
+  ]);
+
+  // Nothing here opens a browser. The doors themselves used to travel as
+  // `externalUrl` entries — including the ones that had just refused to be
+  // framed — and every entry is now the app's own player.
+  assert.ok(res.json.streams.every((s) => !s.externalUrl),
+    'a film stream still leaves the app for a browser');
+  assert.ok(res.json.streams.every((s) => s.url && s.description === 'HLS — plays in the player'));
+
+  // An episode carries its season and episode through every entry.
+  const episode = await call('/addon/stream/series/ha%3Aft%3Abreaking-bad-1396%3A1%3A1.json');
+  assert.equal(episode.json.streams[0].url,
+    'http://local/play/films/tv/breaking-bad-1396?season=1&episode=1');
+  assert.equal(episode.json.streams[1].url,
+    'http://local/play/films/tv/breaking-bad-1396?season=1&episode=1&door=Max');
+});
+
+test('a film whose doors all failed to answer offers nothing that leaves the app', async () => {
+  clearCache();
+  stubFetch([]);            // every knock fails: nothing answers to play through
+
+  const res = await call('/addon/stream/movie/ha%3Afm%3Acavegirl-580175.json');
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.json.streams, []);
 });
 
 test('a stream request for a title the door cannot resolve answers empty', async () => {

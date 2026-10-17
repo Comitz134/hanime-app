@@ -64,8 +64,9 @@ test('flixcloud embeds are openable, everything else is not', () => {
   assert.equal(isResolvableEmbed('https://flixcloud.cc/e/bo2qdw3m3kjf?v=2'), true);
   assert.equal(isResolvableEmbed('https://flixcloud.to/e/bo2qdw3m3kjf'), true);
 
-  // A provider nobody registered: the stream picker must say no here, and the
-  // embed goes to the browser as `externalUrl` exactly as before.
+  // A provider nobody registered: the stream picker must say no here, so the
+  // episode answers with no entry at all — the register is where a second
+  // provider is added, and a browser hand-off is no longer the fallback.
   assert.equal(isResolvableEmbed('https://other-provider.example/e/xyz?v=2'), false);
   // A flixcloud URL that is not an embed page is still not openable.
   assert.equal(isResolvableEmbed('https://flixcloud.cc/watch/bo2qdw3m3kjf'), false);

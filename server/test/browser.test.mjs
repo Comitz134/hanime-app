@@ -13,6 +13,8 @@ import {
   browserCandidates,
   browserAvailable,
   isPlaylistUrl,
+  looksLikeMedia,
+  playlistBody,
   refererFromHeaders,
 } from '../src/browser.mjs';
 import { mangle, mangleVia, unmangle, unmangleLink } from '../src/hls.mjs';
@@ -73,6 +75,43 @@ test('the first playlist request is the one worth keeping', () => {
   ];
   const first = seen.find(isPlaylistUrl);
   assert.equal(first, 'https://cdn.example/index.m3u8');
+});
+
+test('a playlist is recognised by what it holds, not by its name', () => {
+  const plain = '#EXTM3U\n#EXTINF:1,\n';
+  assert.equal(playlistBody(plain), plain);
+
+  // Vidpro's whole playlist chain arrives base64-encoded, because its own
+  // loader decodes it in the page. A resolver that only watched for `.m3u8`
+  // never saw it, which is why the door looked unplayable.
+  const master = '#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="English",URI="https://vixsrc.to/playlist/1?type=audio"\n';
+  const encoded = Buffer.from(master, 'latin1').toString('base64');
+  assert.equal(playlistBody(encoded), master);
+
+  // What is not a playlist stays not a playlist: their API's own JSON, an
+  // empty body, base64 of some other text, and a body too big to be one.
+  assert.equal(playlistBody('{"src":"/embed/214325?token=x"}'), null);
+  assert.equal(playlistBody(''), null);
+  assert.equal(playlistBody(null), null);
+  assert.equal(playlistBody(Buffer.from('hello world').toString('base64')), null);
+  assert.equal(playlistBody(Buffer.from(`#EXTM3U\n${'x'.repeat(600 * 1024)}`).toString('base64')), null);
+});
+
+test('media is never read looking for a manifest', () => {
+  // Their segments wear a page's extension and a start-time counter: the shape
+  // is what gives them away, not the suffix.
+  assert.ok(looksLikeMedia('https://sc-b1-24.gentlefalcon17.boats/hls/7/2/78/uuid/video/720p/0000-0750.html'));
+  assert.ok(looksLikeMedia('https://sc-b1-24.gentlefalcon17.boats/hls/7/2/78/uuid/audio/eng/0001-0100.m4s?token=x'));
+  assert.ok(looksLikeMedia('https://cdn.example/seg.ts'));
+  assert.ok(looksLikeMedia('https://cdn.example/hls/thumbnails/thumbnails.vtt'));
+  assert.ok(looksLikeMedia('https://cdn.example/still.jpg'));
+  assert.ok(looksLikeMedia('https://cdn.example/app.css'));
+
+  // The endpoint the manifest actually hides behind looks like nothing at all,
+  // and it is read: that is the whole point of the second look.
+  assert.ok(!looksLikeMedia('https://vixsrc.to/playlist/214325?b=1&token=x'));
+  assert.ok(!looksLikeMedia('https://vixsrc.to/api/movie/603'));
+  assert.ok(!looksLikeMedia('https://vixsrc.to/embed/214325?token=x&t=VGhlIE1hdHJpeA%3D%3D'));
 });
 
 // --------------------------------------------------------------------------
