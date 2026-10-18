@@ -311,6 +311,7 @@ JAVA_TOOL_OPTIONS="-Dnuvio.desktop.smokePlayerUrl=http://127.0.0.1:8787/play/ani
 | `HanimeServer.kt` *(new)* | brings up `server/`, waits for a real answer, stops only its own child |
 | `Main.kt` | calls it on boot; window title `SEKAI`; opens past Nuvio's account gate |
 | `AddonPlatform.desktop.kt` | seeds this server's addon bridge as the built-in source |
+| `features/addons/AddonRepository.kt` | the same file as upstream plus one rule: a profile the account holds *no* addon rows for keeps the device's list instead of being emptied, so a sign-up is not a window with no catalogue (and the account is given the seeded addon) |
 | `DesktopStorage.kt` | profile/cache directories named `Hanime`, so an installed Nuvio on the same machine never shares state |
 | `NetworkStatusRepository.kt` | "servers reachable" probes this project's `/api/videos`, not Nuvio's Supabase |
 | `composeApp/build.gradle.kts` | package, vendor and menu name `SEKAI`, plus `syncHanimeServer` — the task that bundles `server/` and the MyAnimeList `.env` into the app — plus one default for the skip button, IntroDB's public endpoint (both below) |
@@ -325,6 +326,14 @@ JAVA_TOOL_OPTIONS="-Dnuvio.desktop.smokePlayerUrl=http://127.0.0.1:8787/play/ani
 The seeded addon (`server/src/addon.mjs`) is what feeds the shell its shelves and
 streams — Stremio addon protocol, which is the interface Nuvio's UI already
 speaks.
+
+Because it is the app's own library rather than a third party's addon, a pull
+cannot take it away. Upstream's account sync treats a profile with no addon rows
+as a profile with no addons; here that is an account that has never synced (a
+fresh sign-up), so the device's list — on a profile never used before, the seeded
+addon — is what the profile keeps, and it is pushed up so the account holds it
+from then on. A *non-empty* account list stays authoritative: deleting the addon
+on another client still deletes it here.
 
 ### The MyAnimeList secret travels with the app
 
@@ -555,10 +564,10 @@ played, which is the tracker's own write.
 
 ### The desktop suite has 8 host-shaped failures on Windows
 
-`:composeApp:desktopTest` runs **1518** tests here (one skipped), and **8 fail —
+`:composeApp:desktopTest` runs **1526** tests here (one skipped), and **8 fail —
 every one of them upstream's and every one of them about the host** (measured on
-this tree, 17 Oct 2026, after the updater work below added 14 tests of its own
-and the leftover pruning added three more).
+this tree, 18 Oct 2026, after the addon-seed rule above added six tests of its
+own; the count was 1518 before them).
 `LinuxUpdateInstallTest` (3) asserts POSIX paths — it is handed
 `F:\tmp\updates\Nuvio.rpm` where it expects `/tmp/updates/Nuvio.rpm`, and the
 rpm asset pick falls over with it; `CollectionCardRemoteImageTest` (3) fails
@@ -573,7 +582,9 @@ finished rows), `NsfwFilterTest` 6/6 (the hide-18+ filter, including that hiding
 a shelf does not delete it), `SkipIntervalLookupTest` 8/8 (this fork's own ids,
 three of the cases added here), `SettingsSearchBarTest` 4/4 (the search bar on
 the page at both window widths, and the words that find the 18+ switch),
-`HomescreenNsfwSwitchTest` 3/3, and the rest of `features/mal`,
+`HomescreenNsfwSwitchTest` 3/3, `AddonPullSeedTest` 6/6 (a fresh account keeps
+the seeded addon instead of being emptied, while a non-empty account list stays
+authoritative), and the rest of `features/mal`,
 `features/tracking`, `features/addons`, `features/player` and
 `features/settings` with them.
 
