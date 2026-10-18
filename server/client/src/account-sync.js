@@ -19,14 +19,17 @@
 // The rules of that merge are in account-model.js, which is pure and tested on
 // its own; this file is the part that talks.
 //
-// Two things deliberately do not sync, and the reason is the same each time —
-// they are this device's, not the account's:
+// The anime and films rails travel the same way, and that is the newest part
+// of this file. Those two areas watch through an embed, so their row carries
+// the episode that was opened and nothing about the second (see
+// account-model.js) — enough for the window to offer the title back, and enough
+// for this phone to show what the window was watching, at the episode it is at.
 //
-//   * Manga and the films area. They keep their own stores (`htv:manga-read:v1`,
-//     `htv:shows:v1`) with their own ids, and the films library's refs are the
-//     catalog's own slugs — neither is the id space the account speaks (see
-//     server/src/addon.mjs), and guessing a translation is how two clients end
-//     up disagreeing about which title a row is.
+// Two things deliberately do not sync, for two different reasons:
+//
+//   * Manga. It keeps its own store (`htv:activity:v1`, kind `manga`, with
+//     mangafire's own chapter refs), and the window has no reader at all — a
+//     chapter would be a row nothing on the other side could ever show.
 //   * Episode marks. The 18+ shelf plays whole videos, and the anime and manga
 //     the phone tracks are tracked on MyAnimeList, which has its own list.
 //
@@ -37,13 +40,23 @@ import {
   CONTENT_TYPE,
   PROFILE_ID,
   accountIdFor,
+  activityEntryForTitle,
+  activityIdentityFor,
+  activityProgressKey,
+  activityProgressPayload,
+  activityTitleGroups,
+  animeKeyFromId,
+  filmKeyFromId,
+  hasRealPosition,
   historyPayload,
   libraryPayload,
   mergePositions,
   progressPayload,
   reconcileFavorites,
   reconcileHistory,
+  seriesKeyFromId,
 } from './account-model.js';
+import { applyActivityFromAccount, listFor, markActivityFromAccount } from './activity.js';
 import { createAccountQueue } from './account-queue.js';
 import { accountNote, accountRpc, onAccountEvent, signedIn } from './account.js';
 import { LIB_MAX_HISTORY, keepCover, lib, libWrite } from './library.js';
@@ -239,6 +252,195 @@ async function send(kind, entries) {
 
 const queue = createAccountQueue({ send });
 
+/* ------------------------------------------- the embed areas' own rails ---- */
+//
+// The anime area and the films area watch through somebody else's document in
+// a frame (account-model.js says why that matters), so what they add to the
+// account is *which episode was opened* — never a second. Both directions live
+// here: their rows are read back onto this device's rails, which is how an
+// episode watched in the window turns up on this phone, and an episode opened
+// here is queued as the row the window's own Continue watching rail reads.
+
+/** The two kinds whose rail is the account's as well as this device's. */
+const ACTIVITY_KINDS = ['anime', 'show'];
+
+/**
+ * What the last pull said each progress key holds, by key — `null` until a pull
+ * has happened in this session.
+ *
+ * It exists for one rule: an episode *opened* here may never replace a *real*
+ * position the window wrote for the same episode (see `hasRealPosition`). The
+ * row itself is not kept, only the one fact the rule needs.
+ */
+let accountProgress = null;
+
+/** The one fact per key that the rule above needs out of a pull's rows. */
+function realPositions(rows) {
+  const out = new Map();
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const key = String(row?.progress_key ?? '');
+    if (key && hasRealPosition(row)) out.set(key, true);
+  }
+  return out;
+}
+
+/**
+ * True when writing this row would replace a real position with "opened it".
+ *
+ * Unknown counts as "would": before a pull this session, the only safe answer
+ * is to leave the row to the next sync, which pulls first and therefore knows.
+ * Nothing is lost by waiting — the entry stays on this device's rail, unowned,
+ * and the sync's own push carries it.
+ */
+function clobbersRealPosition(row) {
+  if (!row) return false;
+  if (accountProgress === null) return true;
+  return accountProgress.has(row.progress_key);
+}
+
+/** How many titles are looked up at once. The server is this app's own — the
+ *  shell's `ApiServer` on the phone, loopback in the window — so a handful in
+ *  flight is plenty, and sixty at once is a stall a reader would see. */
+const TITLE_LOOKUP_CONCURRENCY = 4;
+
+/**
+ * What one title's own page says about it: the two things a progress row does
+ * not carry (a name and a cover), and the one that settles an edge case — how
+ * many episodes it has, which is what tells "the next episode" apart from "the
+ * last one".
+ *
+ * @returns {Promise<{title: string, cover: string, episodes: number}|null>}
+ */
+async function resolveActivityTitle(contentId) {
+  try {
+    const animeKey = animeKeyFromId(contentId);
+    if (animeKey) {
+      const res = await fetch(`/api/anime/${encodeURIComponent(animeKey)}`);
+      if (!res.ok) return null;
+      const details = (await res.json())?.details;
+      if (!details) return null;
+      return {
+        title: String(details.title ?? animeKey),
+        cover: String(details.cover ?? ''),
+        episodes: Number(details.eps) || 0,
+      };
+    }
+
+    const seriesKey = seriesKeyFromId(contentId);
+    const slug = seriesKey ?? filmKeyFromId(contentId);
+    if (!slug) return null;
+    const type = seriesKey ? 'tv' : 'movie';
+    const res = await fetch(`/api/fmovies/${type}/${encodeURIComponent(slug)}`);
+    if (!res.ok) return null;
+    const details = (await res.json())?.details;
+    if (!details) return null;
+    // A series' episode count is per season on this catalogue, and a row does
+    // not say which season's count would be the right one — so it is 0, and a
+    // finished episode of a series is left to the window, whose own rail is
+    // where a reader finds the next one.
+    return { title: String(details.title ?? slug), cover: String(details.poster ?? ''), episodes: 0 };
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * The account's rows for these two areas, as this device's own rail entries.
+ *
+ * A title this phone already has on a rail needs no lookup: it was opened here,
+ * so its name, cover and episode count are already in the record, and the
+ * account's row only adds the episode it is at. The rest — titles watched in
+ * the window and never here — are asked about once, on this app's own server,
+ * and one it cannot answer for is passed over rather than drawn as an id: this
+ * rail is a picture of what the reader can pick up, not a list of what went
+ * wrong.
+ */
+async function activityEntriesFromRows(progress) {
+  const groups = activityTitleGroups(progress);
+  if (groups.size === 0) return [];
+
+  const here = new Map();
+  for (const kind of ACTIVITY_KINDS) {
+    for (const entry of listFor(kind)) here.set(`${entry.kind}:${entry.id}`, entry);
+  }
+
+  const items = [];
+  for (const [contentId, rows] of groups) {
+    const identity = activityIdentityFor(contentId);
+    if (!identity) continue;
+    const local = here.get(`${identity.kind}:${identity.id}`) ?? null;
+    items.push({ contentId, rows, local, resolved: null });
+  }
+
+  const pending = items.filter((item) => !(item.local && item.local.title));
+  let next = 0;
+  const worker = async () => {
+    while (next < pending.length) {
+      const item = pending[next];
+      next += 1;
+      item.resolved = await resolveActivityTitle(item.contentId);
+    }
+  };
+  if (pending.length) {
+    const workers = Math.min(TITLE_LOOKUP_CONCURRENCY, pending.length);
+    await Promise.all(Array.from({ length: workers }, worker));
+  }
+
+  const entries = [];
+  for (const item of items) {
+    const known = item.resolved ?? (item.local?.title
+      ? { title: item.local.title, cover: item.local.cover, episodes: Number(item.local.total) || 0 }
+      : null);
+    if (!known) continue;
+    const entry = activityEntryForTitle(item.rows, known);
+    if (!entry) continue;
+    entry.title = String(known.title || item.local?.title || '');
+    entry.cover = String(known.cover || item.local?.cover || '');
+    if (Number(known.episodes) > 0) entry.total = Number(known.episodes);
+    entries.push(entry);
+  }
+  return entries;
+}
+
+/**
+ * An episode opened on this device, as the account hears it.
+ *
+ * Queued like every other write — an episode opened with the network down is
+ * not lost — and collapsed by key, so a sitting of four episodes is one row:
+ * the rail keeps one card per title, and the account keeps one row per episode.
+ * A manga chapter is refused by the payload builder rather than here.
+ */
+function accountActivityOpened(entry) {
+  if (!signedIn()) return;
+  const row = activityProgressPayload(entry);
+  if (!row || clobbersRealPosition(row)) return;
+  queue.set('progress', row.progress_key, row);
+}
+
+/**
+ * A title taken off this phone's rail, as the account hears it.
+ *
+ * Every row the card stood for goes, not just the one it names: an "up next"
+ * card speaks for the episode that was finished, and a card at episode 5
+ * speaks for the episodes behind it — leaving those would put the title back,
+ * one episode earlier, on the very next pull.
+ */
+function accountActivityDropped(entry) {
+  if (!signedIn() || !entry) return;
+  const keys = Array.isArray(entry.keys) && entry.keys.length
+    ? entry.keys
+    : [activityProgressKey(entry)];
+  for (const key of keys) {
+    if (key) queue.set('progress', key, null);
+  }
+}
+
+/** The rail emptied: every title that was on it is off the account's too. */
+function accountActivityCleared(entries) {
+  if (!signedIn()) return;
+  for (const entry of Array.isArray(entries) ? entries : []) accountActivityDropped(entry);
+}
+
 /* ------------------------------------------------------------------ sync */
 
 /**
@@ -266,9 +468,25 @@ async function syncAccount() {
   }
 
   const [rows, progress] = await Promise.all([pullLibrary(), pullPositions()]);
+  // What the window has really watched, before anything here is written: the
+  // episode openings below are cheaper records than a real position and must
+  // never replace one.
+  accountProgress = realPositions(progress);
 
   const favourites = reconcileFavorites(lib.favorites, rows);
   const positions = mergePositions(lib.positions, progress);
+
+  // The two embed areas' rails, which are the account's as well: a title the
+  // window was watching belongs on this phone's rail at the episode it is at,
+  // and one this phone opened belongs on the window's.
+  const activityEntries = await activityEntriesFromRows(progress);
+  const activityPush = [];
+  for (const kind of ACTIVITY_KINDS) {
+    // Each kind is merged on its own, because each kind is its own rail.
+    activityPush.push(
+      ...applyActivityFromAccount(kind, activityEntries.filter((entry) => entry.kind === kind)),
+    );
+  }
   const past = historyState === 'missing'
     ? { history: lib.history, push: [] }
     : reconcileHistory(lib.history, historyRows, LIB_MAX_HISTORY);
@@ -300,6 +518,19 @@ async function syncAccount() {
     const row = historyPayload(entry);
     if (row) queue.set('history', row.content_id, row);
   }
+  // An episode this phone opened is the same row the window writes when it
+  // plays one, so the two rails carry one list rather than two.
+  const sentActivity = new Set();
+  for (const entry of activityPush) {
+    const row = activityProgressPayload(entry);
+    if (!row) continue;
+    // The account is already further into this episode than "opened it": the
+    // window stopped twelve minutes in, and one second would send the reader
+    // back to the start. Nothing to write — but the account does know the
+    // title, so this is not a row to send again on the next sync.
+    if (!clobbersRealPosition(row)) queue.set('progress', row.progress_key, row);
+    sentActivity.add(`${entry.kind}:${entry.id}`);
+  }
   await queue.flush();
 
   // Pushed is the account's now: the mark is what stops a row being sent again
@@ -312,6 +543,7 @@ async function syncAccount() {
   for (const entry of lib.history) {
     if (sentOpenings.has(entry.slug)) entry.from = 'account';
   }
+  markActivityFromAccount(sentActivity);
 
   libWrite();
   renderLibrary();
@@ -421,7 +653,15 @@ onAccountEvent('signedIn', () => syncAccount().catch((e) => {
 }));
 onAccountEvent('sync', syncAccount);
 // A signed-out phone owes the account nothing, and a write that went out after
-// the session ended would only fail and retry: the queue is emptied with it.
-onAccountEvent('signedOut', () => queue.clear());
+// the session ended would only fail and retry: the queue is emptied with it, and
+// so is what the last account's pull said about its positions.
+onAccountEvent('signedOut', () => {
+  queue.clear();
+  accountProgress = null;
+});
 
-export { syncAccount, accountFavorite, accountOpened, accountPosition, accountHistoryCleared, clientId, CLIENT_KEY };
+export {
+  syncAccount, accountFavorite, accountOpened, accountPosition, accountHistoryCleared,
+  accountActivityOpened, accountActivityDropped, accountActivityCleared,
+  clientId, CLIENT_KEY,
+};

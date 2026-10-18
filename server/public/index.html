@@ -4092,246 +4092,19 @@ select.filter-select.sort-select {
   })();
   watchSlots();
 
-  // client/src/manga-pos.js
-  var MANGA_POS_KEY = "htv:manga-pos:v1";
-  var MAX = 400;
-  function load3() {
-    try {
-      const raw = localStorage.getItem(MANGA_POS_KEY);
-      const rows = raw ? JSON.parse(raw) : {};
-      return rows && typeof rows === "object" ? rows : {};
-    } catch (e) {
-      return {};
-    }
-  }
-  function save3(rows) {
-    try {
-      localStorage.setItem(MANGA_POS_KEY, JSON.stringify(rows));
-    } catch (e) {
-    }
-  }
-  var clampInt = (value, max) => Math.max(0, Math.min(max, Math.round(Number(value) || 0)));
-  function noteSpot(chapterId, { hid, p, f, n } = {}) {
-    const key = String(chapterId ?? "");
-    if (!key) return;
-    const page = clampInt(p, 1e4);
-    const frac = Math.max(0, Math.min(0.999, Number(f) || 0));
-    const count = clampInt(n, 1e4);
-    const rows = load3();
-    rows[key] = {
-      hid: String(hid ?? ""),
-      p: page,
-      f: Math.round(frac * 1e3) / 1e3,
-      n: count,
-      at: Date.now()
-    };
-    const keys = Object.keys(rows);
-    if (keys.length > MAX) {
-      keys.map((k) => {
-        var _a10;
-        return [k, Number((_a10 = rows[k]) == null ? void 0 : _a10.at) || 0];
-      }).sort((a, b) => b[1] - a[1]).slice(MAX).forEach(([k]) => {
-        delete rows[k];
-      });
-    }
-    save3(rows);
-  }
-  function spotFor(chapterId) {
-    const row = load3()[String(chapterId ?? "")];
-    if (!row || !Number.isFinite(Number(row.p))) return null;
-    return {
-      p: clampInt(row.p, 1e4),
-      f: Math.max(0, Math.min(0.999, Number(row.f) || 0)),
-      n: clampInt(row.n, 1e4),
-      hid: String(row.hid ?? ""),
-      at: Number(row.at) || 0
-    };
-  }
-  function readPercent(chapterId) {
-    const spot = spotFor(chapterId);
-    if (!spot || !spot.n) return 0;
-    return Math.min(1, (spot.p + spot.f) / spot.n);
-  }
-  function dropSpot(chapterId) {
-    const key = String(chapterId ?? "");
-    const rows = load3();
-    if (!rows[key]) return;
-    delete rows[key];
-    save3(rows);
-  }
-
-  // client/src/activity.js
-  var KEY2 = "htv:activity:v1";
-  var MAX2 = 60;
-  function load4(key, fallback) {
-    try {
-      const raw = localStorage.getItem(key);
-      return raw ? JSON.parse(raw) : fallback;
-    } catch (e) {
-      return fallback;
-    }
-  }
-  function save4(key, value) {
-    try {
-      localStorage.setItem(key, JSON.stringify(value));
-    } catch (e) {
-    }
-  }
-  var all = () => load4(KEY2, []).filter((e) => e && e.kind && e.id && Number(e.number) >= 0);
-  var listFor = (kind) => all().filter((e) => e.kind === kind);
-  var openers = {};
-  function setOpener(kind, fn) {
-    openers[kind] = fn;
-  }
-  function noteOpen(kind, { id, title, cover, number, total, ref }) {
-    const theId = String(id ?? "");
-    const n = Number(number);
-    if (!theId || !Number.isFinite(n) || n < 0) return;
-    const rows = all().filter((e) => !(e.kind === kind && String(e.id) === theId));
-    rows.unshift({
-      kind,
-      id: theId,
-      title: String(title ?? ""),
-      cover: String(cover ?? ""),
-      number: n,
-      total: Number(total) > 0 ? Number(total) : 0,
-      ref: ref === void 0 || ref === null ? null : String(ref),
-      at: Date.now()
-    });
-    save4(KEY2, rows.slice(0, MAX2));
-  }
-  function forget(kind, id) {
-    save4(KEY2, all().filter((e) => !(e.kind === kind && String(e.id) === String(id))));
-  }
-  function clear(kind) {
-    save4(KEY2, all().filter((e) => e.kind !== kind));
-  }
-  function activityCardHtml(e) {
-    const verb = e.kind === "manga" ? "read" : "watched";
-    const showRef = e.kind === "show" ? /^s(\d+)e(\d+)$/.exec(e.ref ?? "") : null;
-    const unit = e.kind === "manga" ? "Ch." : e.kind === "show" ? showRef ? `S${showRef[1]}E${showRef[2]}` : "Movie" : "Ep.";
-    const where = e.kind === "show" ? unit : `${unit} ${e.number}`;
-    const when2 = ago(e.at);
-    const pct = e.total ? Math.min(100, Math.round(e.number / e.total * 100)) : 0;
-    const into = e.kind === "manga" ? readPercent(e.ref) : 0;
-    const meta = `${into > 0.01 ? `${Math.round(into * 100)}% in \xB7 ` : ""}${verb} ${when2}`;
-    return `<article class="card act-card" data-act="${e.kind}" data-act-id="${esc(e.id)}"
-      data-act-num="${e.number}" data-act-ref="${esc(e.ref ?? "")}" tabindex="0" role="button"
-      aria-label="${esc(`${e.title} \u2014 ${where}, ${meta}`)}">
-    <div class="card-frame">
-      <img loading="lazy" decoding="async" src="${esc(e.cover)}" alt="">
-      <div class="card-fallback" hidden>${esc(e.title)}</div>
-      <div class="card-scrim"></div>
-      <span class="card-badge">${esc(where)}</span>
-      ${pct ? `<div class="card-progress"><span style="width:${pct}%"></span></div>` : ""}
-      <button class="card-drop" type="button" data-act-drop="${e.kind}" data-act-drop-id="${esc(e.id)}"
-        aria-label="Take ${esc(e.title)} off this rail" title="Take off this rail">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
-      </button>
-      <div class="card-play"><span>
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-      </span></div>
-    </div>
-    <div class="card-body">
-      <h3 class="card-title">${esc(e.title)}</h3>
-      <p class="card-meta">${esc(meta)}</p>
-    </div>
-  </article>`;
-  }
-  var RAILS = {
-    anime: {
-      sort: "watch-anime",
-      places: [
-        { rail: "watch-rail", head: "watch-head", count: "watch-count", note: "watch-note" },
-        { rail: "anime-cont-rail", head: "anime-cont-head", count: "anime-cont-count", note: "anime-cont-note" }
-      ],
-      empty: "Episodes you play on this device are listed here, newest first \u2014 pick one up without searching for it again."
-    },
-    manga: {
-      sort: "read-manga",
-      places: [
-        { rail: "read-rail", head: "read-head", count: "read-count", note: "read-note" },
-        { rail: "manga-cont-rail", head: "manga-cont-head", count: "manga-cont-count", note: "manga-cont-note" }
-      ],
-      empty: "Chapters you open are listed here, newest first \u2014 the one you were in the middle of stays one tap away."
-    },
-    // Films & series: the rail lives in the movies view rather than in the
-    // Library, because the resume this area offers is its own page's business.
-    show: {
-      sort: "show-watch",
-      places: [{ rail: "show-watch-rail", head: "show-watch-head", count: "show-watch-count", note: "show-watch-note" }],
-      empty: "Episodes and movies you play on this device are listed here, newest first \u2014 pick one up without searching for it again."
-    }
-  };
-  function renderActivity(kind) {
-    const cfg = RAILS[kind];
-    if (!cfg) return;
-    const rows = sorted(cfg.sort, listFor(kind));
-    const html = rows.map(activityCardHtml).join("");
-    for (const place of cfg.places) {
-      const rail = document.getElementById(place.rail);
-      if (!rail) continue;
-      rail.innerHTML = html;
-      rail.hidden = rows.length === 0;
-      const head = document.getElementById(place.head);
-      if (head) head.hidden = rows.length === 0;
-      const count = document.getElementById(place.count);
-      if (count) count.textContent = String(rows.length);
-      const note2 = document.getElementById(place.note);
-      if (note2) {
-        note2.hidden = rows.length > 0;
-        note2.textContent = rows.length ? "" : cfg.empty;
-      }
-    }
-  }
-  function renderRails() {
-    for (const kind of Object.keys(RAILS)) renderActivity(kind);
-  }
-  document.addEventListener("htv:sort", (e) => {
-    var _a10;
-    const name = (_a10 = e.detail) == null ? void 0 : _a10.name;
-    for (const [kind, cfg] of Object.entries(RAILS)) {
-      if (cfg.sort === name) renderActivity(kind);
-    }
-  });
-  document.addEventListener("click", (e) => {
-    const drop2 = e.target.closest("[data-act-drop]");
-    if (drop2) {
-      e.preventDefault();
-      forget(drop2.dataset.actDrop, drop2.dataset.actDropId);
-      renderActivity(drop2.dataset.actDrop);
-      return;
-    }
-    const wipe = e.target.closest("[data-rail-clear]");
-    if (wipe) {
-      e.preventDefault();
-      clear(wipe.dataset.railClear);
-      renderActivity(wipe.dataset.railClear);
-      return;
-    }
-    const card = e.target.closest("[data-act]");
-    if (!card) return;
-    const kind = card.dataset.act;
-    const open = openers[kind];
-    if (!open) return;
-    e.preventDefault();
-    const ref = card.dataset.actRef || card.dataset.actNum;
-    open(card.dataset.actId, ref);
-  });
-  document.addEventListener("keydown", (e) => {
-    if (e.key !== "Enter" && e.key !== " ") return;
-    const card = e.target.closest("[data-act]");
-    if (!card) return;
-    const open = openers[card.dataset.act];
-    if (!open) return;
-    e.preventDefault();
-    open(card.dataset.actId, card.dataset.actRef || card.dataset.actNum);
-  });
-
   // client/src/account-model.js
   var AREA = "ad";
   var ID_PREFIX = `ha:${AREA}:`;
   var CONTENT_TYPE = "movie";
+  var ANIME_PREFIX = "ha:an:";
+  var SERIES_PREFIX = "ha:ft:";
+  var FILM_PREFIX = "ha:fm:";
+  var ANIME_SEASON = 1;
+  var SERIES_TYPE = "series";
+  var FILM_TYPE = "movie";
+  var STARTED_POSITION_MS = 1e3;
+  var COMPLETE_FRACTION = 0.9;
+  var MIN_REAL_DURATION_MS = 121e3;
   var PROFILE_ID = 1;
   function accountIdFor(slug) {
     const key = String(slug ?? "").trim();
@@ -4343,6 +4116,28 @@ select.filter-select.sort-select {
     const key = value.slice(ID_PREFIX.length);
     return key && !key.includes(":") ? key : null;
   }
+  function animeIdFor(key) {
+    const trimmed = String(key ?? "").trim();
+    return trimmed ? ANIME_PREFIX + trimmed : "";
+  }
+  function showIdFor(ref) {
+    const [type, slug] = String(ref ?? "").split("/");
+    const key = String(slug ?? "").trim();
+    if (!key) return "";
+    if (type === "tv") return SERIES_PREFIX + key;
+    if (type === "movie") return FILM_PREFIX + key;
+    return "";
+  }
+  function areaKeyFromId(id, prefix) {
+    const value = String(id ?? "");
+    if (!value.startsWith(prefix)) return null;
+    const rest = value.slice(prefix.length);
+    const key = rest.split(":")[0];
+    return key || null;
+  }
+  var animeKeyFromId = (id) => areaKeyFromId(id, ANIME_PREFIX);
+  var seriesKeyFromId = (id) => areaKeyFromId(id, SERIES_PREFIX);
+  var filmKeyFromId = (id) => areaKeyFromId(id, FILM_PREFIX);
   var millis = (seconds2) => Math.round(Number(seconds2) * 1e3);
   var seconds = (millis2) => Math.round(Number(millis2) / 1e3);
   function libraryPayload(entry) {
@@ -4530,6 +4325,185 @@ select.filter-select.sort-select {
     }
     return { positions, push };
   }
+  function progressKeyFor(contentId, season, episode) {
+    return season === null || episode === null ? contentId : `${contentId}_s${season}e${episode}`;
+  }
+  function startedProgressRow(contentId, contentType, videoId, season, episode, lastWatched) {
+    return {
+      progress_key: progressKeyFor(contentId, season, episode),
+      content_id: contentId,
+      content_type: contentType,
+      video_id: videoId,
+      season,
+      episode,
+      position: STARTED_POSITION_MS,
+      duration: 0,
+      last_watched: lastWatched
+    };
+  }
+  function activityProgressPayload(entry) {
+    const kind = entry == null ? void 0 : entry.kind;
+    const at = Number(entry == null ? void 0 : entry.at);
+    const lastWatched = Number.isFinite(at) && at > 0 ? Math.round(at) : Date.now();
+    const number = Number(entry == null ? void 0 : entry.number);
+    if (kind === "anime") {
+      const contentId = animeIdFor(entry == null ? void 0 : entry.id);
+      if (!contentId || !Number.isInteger(number) || number < 1) return null;
+      return startedProgressRow(
+        contentId,
+        SERIES_TYPE,
+        `${contentId}:${ANIME_SEASON}:${number}`,
+        ANIME_SEASON,
+        number,
+        lastWatched
+      );
+    }
+    if (kind === "show") {
+      const contentId = showIdFor(entry == null ? void 0 : entry.id);
+      if (!contentId) return null;
+      const ref = /^s(\d+)e(\d+)$/.exec(String((entry == null ? void 0 : entry.ref) ?? ""));
+      if (!ref) return startedProgressRow(contentId, FILM_TYPE, contentId, null, null, lastWatched);
+      const season = Number(ref[1]);
+      const episode = Number(ref[2]);
+      return startedProgressRow(
+        contentId,
+        SERIES_TYPE,
+        `${contentId}:${season}:${episode}`,
+        season,
+        episode,
+        lastWatched
+      );
+    }
+    return null;
+  }
+  function activityProgressKey(entry) {
+    var _a10;
+    return ((_a10 = activityProgressPayload(entry)) == null ? void 0 : _a10.progress_key) ?? null;
+  }
+  function hasRealPosition(row) {
+    const position = Number(row == null ? void 0 : row.position) || 0;
+    const duration = Number(row == null ? void 0 : row.duration) || 0;
+    return position > STARTED_POSITION_MS || duration > 0;
+  }
+  function activityTitleGroups(rows) {
+    const groups = /* @__PURE__ */ new Map();
+    for (const row of Array.isArray(rows) ? rows : []) {
+      const contentId = String((row == null ? void 0 : row.content_id) ?? "");
+      if (!contentId) continue;
+      if (!animeKeyFromId(contentId) && !seriesKeyFromId(contentId) && !filmKeyFromId(contentId)) continue;
+      if (!(Number(row == null ? void 0 : row.last_watched) > 0)) continue;
+      const held = groups.get(contentId);
+      if (held) held.push(row);
+      else groups.set(contentId, [row]);
+    }
+    for (const held of groups.values()) {
+      held.sort((a, b) => (Number(b.last_watched) || 0) - (Number(a.last_watched) || 0));
+    }
+    return groups;
+  }
+  function activityIdentityFor(contentId) {
+    const animeKey = animeKeyFromId(contentId);
+    if (animeKey) return { kind: "anime", id: animeKey };
+    const seriesKey = seriesKeyFromId(contentId);
+    if (seriesKey) return { kind: "show", id: `tv/${seriesKey}` };
+    const filmKey = filmKeyFromId(contentId);
+    if (filmKey) return { kind: "show", id: `movie/${filmKey}` };
+    return null;
+  }
+  function activityEntryForTitle(rows, known2 = {}) {
+    const list = Array.isArray(rows) ? rows : [];
+    const newest = list[0] ?? null;
+    if (!newest) return null;
+    const contentId = String(newest.content_id ?? "");
+    const keys = list.map((row) => String((row == null ? void 0 : row.progress_key) ?? "") || progressKeyFor(contentId, Number(row == null ? void 0 : row.season) || null, Number(row == null ? void 0 : row.episode) || null)).filter(Boolean);
+    const finished = (row) => {
+      const position = Number(row == null ? void 0 : row.position) || 0;
+      const duration = Number(row == null ? void 0 : row.duration) || 0;
+      return position > 0 && duration >= MIN_REAL_DURATION_MS && position / duration >= COMPLETE_FRACTION;
+    };
+    const episodes = Number(known2 == null ? void 0 : known2.episodes);
+    const animeKey = animeKeyFromId(contentId);
+    if (animeKey && finished(newest)) {
+      const done = Number(newest.episode);
+      const next = Number.isInteger(done) && done > 0 ? done + 1 : null;
+      if (next === null || !(Number.isFinite(episodes) && next <= episodes)) return null;
+      return { kind: "anime", id: animeKey, number: next, ref: null, at: Number(newest.last_watched) || 0, from: "account", keys };
+    }
+    const inProgress = list.find((row) => !finished(row)) ?? null;
+    if (!inProgress) return null;
+    const at = Number(inProgress.last_watched) || 0;
+    if (animeKey) {
+      const episode = Number(inProgress.episode);
+      const number = Number.isInteger(episode) && episode > 0 ? episode : 1;
+      return { kind: "anime", id: animeKey, number, ref: null, at, from: "account", keys };
+    }
+    const seriesKey = seriesKeyFromId(contentId);
+    if (seriesKey) {
+      const season = Number(inProgress.season);
+      const episode = Number(inProgress.episode);
+      if (!Number.isInteger(season) || !Number.isInteger(episode)) {
+        return { kind: "show", id: `tv/${seriesKey}`, number: 1, ref: null, at, from: "account", keys };
+      }
+      return {
+        kind: "show",
+        id: `tv/${seriesKey}`,
+        number: episode,
+        ref: `s${season}e${episode}`,
+        at,
+        from: "account",
+        keys
+      };
+    }
+    const filmKey = filmKeyFromId(contentId);
+    if (filmKey) return { kind: "show", id: `movie/${filmKey}`, number: 1, ref: null, at, from: "account", keys };
+    return null;
+  }
+  function reconcileActivity(local, remote, limit) {
+    const theirs = /* @__PURE__ */ new Map();
+    for (const entry of Array.isArray(remote) ? remote : []) {
+      if (!entry || !entry.kind || !entry.id) continue;
+      const key = `${entry.kind}:${entry.id}`;
+      const held = theirs.get(key);
+      if (held && (Number(held.at) || 0) >= (Number(entry.at) || 0)) continue;
+      theirs.set(key, entry);
+    }
+    const entries = [];
+    const push = [];
+    const seen = /* @__PURE__ */ new Set();
+    for (const entry of Array.isArray(local) ? local : []) {
+      if (!entry || !entry.kind || !entry.id) continue;
+      const key = `${entry.kind}:${entry.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const remoteEntry = theirs.get(key);
+      if (!remoteEntry) {
+        if (entry.from === "account") continue;
+        entries.push(entry);
+        push.push(entry);
+        continue;
+      }
+      const fresh = (Number(remoteEntry.at) || 0) > (Number(entry.at) || 0);
+      if (!fresh && (Number(entry.at) || 0) > (Number(remoteEntry.at) || 0)) push.push(entry);
+      entries.push({
+        ...entry,
+        from: "account",
+        at: Math.max(Number(entry.at) || 0, Number(remoteEntry.at) || 0),
+        ...fresh ? { number: remoteEntry.number, ref: remoteEntry.ref } : {},
+        ...fresh && remoteEntry.title ? { title: String(remoteEntry.title) } : {},
+        ...fresh && remoteEntry.cover ? { cover: String(remoteEntry.cover) } : {},
+        ...fresh && Number(remoteEntry.total) > 0 ? { total: Number(remoteEntry.total) } : {},
+        ...Array.isArray(remoteEntry.keys) && remoteEntry.keys.length ? { keys: remoteEntry.keys } : {}
+      });
+    }
+    for (const [key, remoteEntry] of theirs) {
+      if (seen.has(key)) continue;
+      seen.add(key);
+      entries.push(remoteEntry);
+    }
+    entries.sort((a, b) => (Number(b.at) || 0) - (Number(a.at) || 0));
+    const capped = Number.isFinite(limit) && limit > 0 ? entries.slice(0, limit) : entries;
+    return { entries: capped, push };
+  }
 
   // client/src/account-queue.js
   function createAccountQueue({
@@ -4671,7 +4645,7 @@ select.filter-select.sort-select {
   var SUPABASE_KEY = "sb_publishable_nr-W-nQRbUEg7pJ3ipMUxA_fwqw6t5e";
   var ACCOUNT_KEY = "htv:account:v1";
   var RENEW_MARGIN_MS = 6e4;
-  function load5() {
+  function load3() {
     try {
       const raw = localStorage.getItem(ACCOUNT_KEY);
       const session2 = raw ? JSON.parse(raw) : null;
@@ -4681,14 +4655,14 @@ select.filter-select.sort-select {
       return null;
     }
   }
-  function save5(session2) {
+  function save3(session2) {
     try {
       if (session2) localStorage.setItem(ACCOUNT_KEY, JSON.stringify(session2));
       else localStorage.removeItem(ACCOUNT_KEY);
     } catch (e) {
     }
   }
-  var session = load5();
+  var session = load3();
   var configured2 = () => !!(SUPABASE_URL && SUPABASE_KEY);
   var signedIn = () => !!(session == null ? void 0 : session.access);
   var accountEmail = () => String((session == null ? void 0 : session.email) ?? "");
@@ -4745,7 +4719,7 @@ select.filter-select.sort-select {
     }
     if (result.status >= 300) {
       session = null;
-      save5(null);
+      save3(null);
       fire("signedOut");
       fillAccountSettings();
       return false;
@@ -4759,7 +4733,7 @@ select.filter-select.sort-select {
     const next = sessionFrom(body, session);
     if (!next) return false;
     session = next;
-    save5(session);
+    save3(session);
     return true;
   }
   async function authed(path, { body } = {}) {
@@ -4796,7 +4770,7 @@ select.filter-select.sort-select {
     const next = sessionFrom(body, null);
     if (!next) throw new Error("the server sent no session");
     session = next;
-    save5(session);
+    save3(session);
     fire("signedIn");
     return session;
   }
@@ -4813,14 +4787,14 @@ select.filter-select.sort-select {
     const next = sessionFrom(body, null);
     if (!next) return false;
     session = next;
-    save5(session);
+    save3(session);
     fire("signedIn");
     return true;
   }
   async function signOut() {
     const token = session == null ? void 0 : session.access;
     session = null;
-    save5(null);
+    save3(null);
     fire("signedOut");
     if (token) {
       try {
@@ -4968,337 +4942,6 @@ select.filter-select.sort-select {
     });
   })();
 
-  // client/src/positions.js
-  function savePosition(slug, vid) {
-    if (!slug || !vid) return;
-    const d = Number(vid.duration);
-    const t = Number(vid.currentTime);
-    if (!Number.isFinite(d) || d <= 0 || !Number.isFinite(t)) return;
-    if (t >= d - 10) {
-      clearPosition(slug);
-      return;
-    }
-    if (t < 5) return;
-    lib.positions[slug] = { t: Math.round(t), d: Math.round(d), at: Date.now() };
-    libWrite();
-    accountPosition(slug, lib.positions[slug]);
-  }
-  function clearPosition(slug) {
-    if (!lib.positions[slug]) return;
-    delete lib.positions[slug];
-    libWrite();
-    accountPosition(slug, null);
-  }
-  function progressOf(slug) {
-    const p = lib.positions[slug];
-    if (!p || !p.d) return 0;
-    const pct = Math.round(p.t / p.d * 100);
-    return pct > 1 && pct < 98 ? pct : 0;
-  }
-  function libMatches(e) {
-    if (!libQuery) return true;
-    const needle = libQuery.toLowerCase();
-    return String(e.name ?? "").toLowerCase().includes(needle) || String(e.brand ?? "").toLowerCase().includes(needle);
-  }
-  function renderLibrary() {
-    const needle = libQuery.trim();
-    const favs = sorted("fav", lib.favorites.filter(libMatches));
-    const hist = sorted("hist", lib.history.filter(libMatches));
-    $("#lib-count").textContent = `${lib.favorites.length} favorite${lib.favorites.length === 1 ? "" : "s"} \xB7 ${lib.history.length} watched`;
-    $("#fav-count").textContent = needle ? `${favs.length} of ${lib.favorites.length}` : String(lib.favorites.length);
-    $("#hist-count").textContent = needle ? `${hist.length} of ${lib.history.length}` : String(lib.history.length);
-    $("#hist-clear").hidden = lib.history.length === 0;
-    const warn = $("#lib-warn");
-    warn.hidden = libSaved;
-    warn.textContent = "This device will not keep local data, so favorites and history are forgotten when the app closes.";
-    $("#fav-grid").innerHTML = favs.map((e) => cardHtml(e, { local: true })).join("");
-    const favNote = $("#fav-note");
-    favNote.hidden = favs.length > 0;
-    favNote.textContent = needle ? `No favorite matches \u201C${libQuery}\u201D.` : "Nothing filed yet. The heart on any card puts a title here.";
-    $("#hist-grid").innerHTML = hist.map((e) => cardHtml(e, { local: true, progress: true })).join("");
-    const histNote = $("#hist-note");
-    histNote.hidden = hist.length > 0;
-    histNote.textContent = needle ? `Nothing you opened matches \u201C${libQuery}\u201D.` : "Nothing opened yet. A title lands here once a stream for it resolves.";
-    renderContinue(needle);
-  }
-  var CONTINUE_PLACES = [
-    { rail: "cont-rail", head: "cont-head", count: "cont-count", note: "cont-note", filtered: true },
-    { rail: "browse-cont-rail", head: "browse-cont-head", count: "browse-cont-count", note: "browse-cont-note", filtered: false }
-  ];
-  function renderContinue(needle) {
-    const part = sorted("cont", lib.history.filter((e) => progressOf(e.slug) > 0).map((e) => {
-      var _a10;
-      return { ...e, at: ((_a10 = lib.positions[e.slug]) == null ? void 0 : _a10.at) ?? e.at };
-    }));
-    const html = part.slice(0, 12).map((e) => cardHtml(e, { local: true, progress: true })).join("");
-    for (const place of CONTINUE_PLACES) {
-      const rail = $("#" + place.rail);
-      const head = $("#" + place.head);
-      if (!rail || !head) continue;
-      const rows = place.filtered && needle ? part.filter(libMatches) : part;
-      head.hidden = rows.length === 0;
-      rail.hidden = rows.length === 0;
-      const count = $("#" + place.count);
-      if (count) count.textContent = String(rows.length);
-      const note2 = $("#" + place.note);
-      if (note2) {
-        note2.hidden = rows.length > 0;
-        note2.textContent = "Titles you start watching appear here, so you can pick them up where you stopped.";
-      }
-      rail.innerHTML = rows.slice(0, 12).map((e) => cardHtml(e, { local: true, progress: true })).join("");
-    }
-  }
-  function favPill(slug) {
-    const on = isFav(slug);
-    return `<button class="pill pill-ghost" type="button" data-fav="${esc(slug)}" aria-pressed="${on}">
-      <svg viewBox="0 0 24 24" stroke-linejoin="round"><path d="M12 20.4 4.9 14.1A5.3 5.3 0 0 1 12 6.3a5.3 5.3 0 0 1 7.1 7.8Z"/></svg>
-      <span class="fav-label">${on ? "In library" : "Favorite"}</span>
-    </button>`;
-  }
-  var LOCAL_SORTS = /* @__PURE__ */ new Set(["fav", "hist", "cont"]);
-  document.addEventListener("htv:sort", (e) => {
-    var _a10;
-    if (LOCAL_SORTS.has((_a10 = e.detail) == null ? void 0 : _a10.name)) renderLibrary();
-  });
-
-  // client/src/account-sync.js
-  var PAGE = 500;
-  var MAX_PAGES = 20;
-  var CLIENT_KEY = "htv:account-client:v1";
-  function clientId() {
-    const held = (() => {
-      try {
-        return localStorage.getItem(CLIENT_KEY);
-      } catch (e) {
-        return null;
-      }
-    })();
-    if (held) return held;
-    const alphabet = "abcdef0123456789";
-    let tail = "";
-    try {
-      const buf = new Uint8Array(8);
-      window.crypto.getRandomValues(buf);
-      for (let i = 0; i < 8; i += 1) tail += alphabet[buf[i] % alphabet.length];
-    } catch (e) {
-      for (let i = 0; i < 8; i += 1) tail += alphabet[Math.floor(Math.random() * alphabet.length)];
-    }
-    const id = `sekai-phone-${tail}`;
-    try {
-      localStorage.setItem(CLIENT_KEY, id);
-    } catch (e) {
-    }
-    return id;
-  }
-  async function pullLibrary() {
-    const rows = [];
-    for (let page = 0; page < MAX_PAGES; page += 1) {
-      const chunk = await accountRpc("sync_pull_library", {
-        p_profile_id: PROFILE_ID,
-        p_limit: PAGE,
-        p_offset: page * PAGE
-      });
-      const list = Array.isArray(chunk) ? chunk : [];
-      rows.push(...list);
-      if (list.length < PAGE) break;
-    }
-    return rows;
-  }
-  async function pullPositions() {
-    const rows = await accountRpc("sync_pull_watch_progress", { p_profile_id: PROFILE_ID });
-    return Array.isArray(rows) ? rows : [];
-  }
-  async function pullHistory() {
-    const rows = [];
-    for (let page = 0; page < MAX_PAGES; page += 1) {
-      const chunk = await accountRpc("sync_pull_history", {
-        p_profile_id: PROFILE_ID,
-        p_limit: PAGE,
-        p_offset: page * PAGE
-      });
-      const list = Array.isArray(chunk) ? chunk : [];
-      rows.push(...list);
-      if (list.length < PAGE) break;
-    }
-    return rows;
-  }
-  async function pushLibrary(items) {
-    if (!items.length) return;
-    await accountRpc("sync_push_library_items", {
-      p_profile_id: PROFILE_ID,
-      p_items: items,
-      p_origin_client_id: clientId()
-    });
-  }
-  async function deleteLibrary(keys) {
-    if (!keys.length) return;
-    await accountRpc("sync_delete_library_items", {
-      p_profile_id: PROFILE_ID,
-      p_keys: keys,
-      p_origin_client_id: clientId()
-    });
-  }
-  async function pushPositions(entries) {
-    if (!entries.length) return;
-    await accountRpc("sync_push_watch_progress", {
-      p_profile_id: PROFILE_ID,
-      p_entries: entries,
-      p_origin_client_id: clientId()
-    });
-  }
-  async function deletePositions(keys) {
-    if (!keys.length) return;
-    await accountRpc("sync_delete_watch_progress", {
-      p_profile_id: PROFILE_ID,
-      p_keys: keys,
-      p_origin_client_id: clientId()
-    });
-  }
-  async function pushHistory(entries) {
-    if (!entries.length) return;
-    await accountRpc("sync_push_history", {
-      p_profile_id: PROFILE_ID,
-      p_entries: entries,
-      p_origin_client_id: clientId()
-    });
-  }
-  async function deleteHistory(keys) {
-    if (!keys.length) return;
-    await accountRpc("sync_delete_history", {
-      p_profile_id: PROFILE_ID,
-      p_keys: keys,
-      p_origin_client_id: clientId()
-    });
-  }
-  async function clearHistory() {
-    await accountRpc("sync_clear_history", {
-      p_profile_id: PROFILE_ID,
-      p_origin_client_id: clientId()
-    });
-  }
-  function isMissingFunction(e) {
-    return /could not find the function|PGRST202|HTTP 404/i.test(String((e == null ? void 0 : e.message) ?? e ?? ""));
-  }
-  var historyState = "unknown";
-  async function send2(kind, entries) {
-    if (kind === "library") {
-      const rows = entries.filter((e) => e.payload).map((e) => e.payload);
-      const keys = entries.filter((e) => !e.payload).map((e) => ({ content_id: e.key, content_type: CONTENT_TYPE }));
-      await Promise.all([pushLibrary(rows), deleteLibrary(keys)]);
-      return;
-    }
-    if (kind === "progress") {
-      const rows = entries.filter((e) => e.payload).map((e) => e.payload);
-      const keys = entries.filter((e) => !e.payload).map((e) => e.key);
-      await Promise.all([pushPositions(rows), deletePositions(keys)]);
-      return;
-    }
-    if (kind === "history") {
-      const rows = entries.filter((e) => e.payload).map((e) => e.payload);
-      const keys = entries.filter((e) => !e.payload).map((e) => ({ content_id: e.key, content_type: CONTENT_TYPE }));
-      try {
-        await Promise.all([pushHistory(rows), deleteHistory(keys)]);
-        historyState = "ready";
-      } catch (e) {
-        if (!isMissingFunction(e)) throw e;
-        historyState = "missing";
-      }
-    }
-  }
-  var queue = createAccountQueue({ send: send2 });
-  async function syncAccount() {
-    if (!signedIn()) throw new Error("not signed in");
-    let historyRows = [];
-    try {
-      historyRows = await pullHistory();
-      historyState = "ready";
-    } catch (e) {
-      if (!isMissingFunction(e)) throw e;
-      historyState = "missing";
-    }
-    const [rows, progress] = await Promise.all([pullLibrary(), pullPositions()]);
-    const favourites = reconcileFavorites(lib.favorites, rows);
-    const positions = mergePositions(lib.positions, progress);
-    const past2 = historyState === "missing" ? { history: lib.history, push: [] } : reconcileHistory(lib.history, historyRows, LIB_MAX_HISTORY);
-    lib.favorites = favourites.favorites;
-    lib.positions = positions.positions;
-    lib.history = past2.history;
-    for (const entry of [...favourites.favorites, ...past2.history]) {
-      if (entry.from === "account") keepCover(entry);
-    }
-    for (const entry of favourites.push) {
-      const row = libraryPayload(entry);
-      if (row) queue.set("library", row.content_id, row);
-    }
-    for (const { slug, position } of positions.push) {
-      const row = progressPayload(slug, position);
-      if (row) queue.set("progress", row.progress_key, row);
-    }
-    for (const entry of past2.push) {
-      const row = historyPayload(entry);
-      if (row) queue.set("history", row.content_id, row);
-    }
-    await queue.flush();
-    const sentFavourites = new Set(favourites.push.map((e) => e.slug));
-    for (const entry of lib.favorites) {
-      if (sentFavourites.has(entry.slug)) entry.from = "account";
-    }
-    const sentOpenings = new Set(past2.push.map((e) => e.slug));
-    for (const entry of lib.history) {
-      if (sentOpenings.has(entry.slug)) entry.from = "account";
-    }
-    libWrite();
-    renderLibrary();
-    return { note: historyState === "missing" ? "Favorites and watch positions are up to date. History is not kept in this project yet \u2014 run accounts/sql/0007_history.sql, then sync again." : "Favorites, watch positions and history are up to date." };
-  }
-  function accountFavorite(slug, on, entry) {
-    if (!signedIn() || !slug) return;
-    const contentId = accountIdFor(slug);
-    if (!contentId) return;
-    if (!on) {
-      queue.set("library", contentId, null);
-      return;
-    }
-    const row = libraryPayload(entry ?? { slug });
-    if (!row) return;
-    queue.set("library", row.content_id, row);
-  }
-  function accountOpened(entry) {
-    if (!signedIn() || !(entry == null ? void 0 : entry.slug)) return;
-    const row = historyPayload(entry);
-    if (!row) return;
-    queue.set("history", row.content_id, row);
-  }
-  function accountHistoryCleared() {
-    if (!signedIn()) return;
-    queue.clear("history");
-    queue.clear("progress");
-    const keys = Object.keys(lib.positions).map(accountIdFor).filter(Boolean);
-    Promise.all([clearHistory(), deletePositions(keys)]).catch(() => {
-    });
-  }
-  function accountPosition(slug, position) {
-    if (!signedIn() || !slug) return;
-    const contentId = accountIdFor(slug);
-    if (!contentId) return;
-    if (!position) {
-      queue.set("progress", contentId, null);
-      return;
-    }
-    const payload = progressPayload(slug, position);
-    if (!payload) return;
-    queue.set("progress", payload.progress_key, payload);
-  }
-  function plainFailure(e) {
-    const text = String((e == null ? void 0 : e.message) ?? e ?? "");
-    return /fetch|network|failed to fetch/i.test(text) ? "the account server could not be reached" : text || "unknown error";
-  }
-  onAccountEvent("signedIn", () => syncAccount().catch((e) => {
-    accountNote(`Signed in, but the sync failed \u2014 ${plainFailure(e)}`);
-  }));
-  onAccountEvent("sync", syncAccount);
-  onAccountEvent("signedOut", () => queue.clear());
-
   // client/src/manga-eta.js
   var HOUR = 36e5;
   var DAY = 864e5;
@@ -5414,43 +5057,111 @@ select.filter-select.sort-select {
     return i;
   }
 
+  // client/src/manga-pos.js
+  var MANGA_POS_KEY = "htv:manga-pos:v1";
+  var MAX = 400;
+  function load4() {
+    try {
+      const raw = localStorage.getItem(MANGA_POS_KEY);
+      const rows = raw ? JSON.parse(raw) : {};
+      return rows && typeof rows === "object" ? rows : {};
+    } catch (e) {
+      return {};
+    }
+  }
+  function save4(rows) {
+    try {
+      localStorage.setItem(MANGA_POS_KEY, JSON.stringify(rows));
+    } catch (e) {
+    }
+  }
+  var clampInt = (value, max) => Math.max(0, Math.min(max, Math.round(Number(value) || 0)));
+  function noteSpot(chapterId, { hid, p, f, n } = {}) {
+    const key = String(chapterId ?? "");
+    if (!key) return;
+    const page = clampInt(p, 1e4);
+    const frac = Math.max(0, Math.min(0.999, Number(f) || 0));
+    const count = clampInt(n, 1e4);
+    const rows = load4();
+    rows[key] = {
+      hid: String(hid ?? ""),
+      p: page,
+      f: Math.round(frac * 1e3) / 1e3,
+      n: count,
+      at: Date.now()
+    };
+    const keys = Object.keys(rows);
+    if (keys.length > MAX) {
+      keys.map((k) => {
+        var _a10;
+        return [k, Number((_a10 = rows[k]) == null ? void 0 : _a10.at) || 0];
+      }).sort((a, b) => b[1] - a[1]).slice(MAX).forEach(([k]) => {
+        delete rows[k];
+      });
+    }
+    save4(rows);
+  }
+  function spotFor(chapterId) {
+    const row = load4()[String(chapterId ?? "")];
+    if (!row || !Number.isFinite(Number(row.p))) return null;
+    return {
+      p: clampInt(row.p, 1e4),
+      f: Math.max(0, Math.min(0.999, Number(row.f) || 0)),
+      n: clampInt(row.n, 1e4),
+      hid: String(row.hid ?? ""),
+      at: Number(row.at) || 0
+    };
+  }
+  function readPercent(chapterId) {
+    const spot = spotFor(chapterId);
+    if (!spot || !spot.n) return 0;
+    return Math.min(1, (spot.p + spot.f) / spot.n);
+  }
+  function dropSpot(chapterId) {
+    const key = String(chapterId ?? "");
+    const rows = load4();
+    if (!rows[key]) return;
+    delete rows[key];
+    save4(rows);
+  }
+
   // client/src/manga-read.js
-  var KEY3 = "htv:manga-read:v1";
+  var KEY2 = "htv:manga-read:v1";
   var MAX_TITLES = 300;
   var MAX_CHAPTERS = 4e3;
-  function load6() {
+  function load5() {
     try {
-      const raw = localStorage.getItem(KEY3);
+      const raw = localStorage.getItem(KEY2);
       const rows = raw ? JSON.parse(raw) : {};
       return rows && typeof rows === "object" && !Array.isArray(rows) ? rows : {};
     } catch (e) {
       return {};
     }
   }
-  function save6(rows) {
+  function save5(rows) {
     try {
-      localStorage.setItem(KEY3, JSON.stringify(rows));
+      localStorage.setItem(KEY2, JSON.stringify(rows));
     } catch (e) {
     }
   }
   function readNumbers(titleId) {
     const id = String(titleId ?? "");
     if (!id) return [];
-    const entry = load6()[id];
+    const entry = load5()[id];
     return Array.isArray(entry == null ? void 0 : entry.n) ? entry.n.filter((n) => Number.isFinite(Number(n))) : [];
   }
   function progressFor(titleId) {
     var _a10;
     const id = String(titleId ?? "");
     if (!id) return 0;
-    const upTo = Number((_a10 = load6()[id]) == null ? void 0 : _a10.p);
+    const upTo = Number((_a10 = load5()[id]) == null ? void 0 : _a10.p);
     return Number.isFinite(upTo) && upTo >= 1 ? Math.floor(upTo) : 0;
   }
   function setProgress(titleId, upTo) {
     const id = String(titleId ?? "");
     const n = Number(upTo);
     if (!id || !Number.isFinite(n) || n < 0) return false;
-    const rows = load6();
+    const rows = load5();
     const known2 = rows[id] && typeof rows[id] === "object" && !Array.isArray(rows[id]);
     const held = known2 && Number.isFinite(Number(rows[id].p)) ? Math.floor(Number(rows[id].p)) : 0;
     const wanted = n >= 1 ? Math.floor(n) : 0;
@@ -5462,7 +5173,7 @@ select.filter-select.sort-select {
     entry.at = stamp(rows);
     rows[id] = entry;
     prune(rows);
-    save6(rows);
+    save5(rows);
     return true;
   }
   function isRead(titleId, number) {
@@ -5476,13 +5187,13 @@ select.filter-select.sort-select {
     const id = String(titleId ?? "");
     const n = Number(number);
     if (!id || !Number.isFinite(n) || n < 0) return false;
-    const rows = load6();
+    const rows = load5();
     const entry = rows[id] && Array.isArray(rows[id].n) ? rows[id] : { n: [], at: 0 };
     if (!entry.n.includes(n)) entry.n = [n, ...entry.n].slice(0, MAX_CHAPTERS);
     entry.at = stamp(rows);
     rows[id] = entry;
     prune(rows);
-    save6(rows);
+    save5(rows);
     return true;
   }
   function stamp(rows) {
@@ -5504,8 +5215,8 @@ select.filter-select.sort-select {
 
   // client/src/manga-saved.js
   var MANGA_SAVED_KEY = "htv:manga-saved:v1";
-  var MAX3 = 200;
-  function load7() {
+  var MAX2 = 200;
+  function load6() {
     try {
       const raw = localStorage.getItem(MANGA_SAVED_KEY);
       const rows = raw ? JSON.parse(raw) : [];
@@ -5514,18 +5225,18 @@ select.filter-select.sort-select {
       return [];
     }
   }
-  function save7(rows) {
+  function save6(rows) {
     try {
       localStorage.setItem(MANGA_SAVED_KEY, JSON.stringify(rows));
     } catch (e) {
     }
   }
-  var savedList = () => load7();
-  var isSaved = (id) => !!id && load7().some((e) => String(e.id) === String(id));
+  var savedList = () => load6();
+  var isSaved = (id) => !!id && load6().some((e) => String(e.id) === String(id));
   function forgetSaved(id) {
     const key = String(id ?? "");
     if (!key) return;
-    save7(load7().filter((e) => String(e.id) !== key));
+    save6(load6().filter((e) => String(e.id) !== key));
   }
   function toggleSaved(entry) {
     const id = String((entry == null ? void 0 : entry.id) ?? "");
@@ -5544,7 +5255,7 @@ select.filter-select.sort-select {
       chapters: Number(entry.chapters) > 0 ? Number(entry.chapters) : 0,
       at: Number(entry.at) > 0 ? Number(entry.at) : Date.now()
     };
-    save7([record, ...load7()].slice(0, MAX3));
+    save6([record, ...load6()].slice(0, MAX2));
     savedFaces();
     return true;
   }
@@ -8587,6 +8298,406 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     return url ? "/api/manga/page?u=" + encodeURIComponent(url) : "";
   }
 
+  // client/src/public-playlists.js
+  var ppIndex = [];
+  var ppQuery = "";
+  function ppMatchBadge(p) {
+    if (p.match_kind === "title") return '<span class="pl-flag">title</span>';
+    if (p.match_kind === "content") {
+      const what = p.matched_on === "studio_or_tag" ? "studio or tag" : `${p.match_count} inside`;
+      return `<span class="pl-flag">${esc(what)}</span>`;
+    }
+    return "";
+  }
+  function ppCard(p) {
+    const cover = p.cover_url ? `<img loading="lazy" src="${esc(p.cover_url)}" alt="">` : '<span class="pl-art-empty">no cover</span>';
+    const owner = p.owner_name ? `<span class="pp-owner">
+         ${p.owner_avatar_url ? `<img loading="lazy" src="${esc(p.owner_avatar_url)}" alt="">` : ""}
+         <span class="pp-owner-name">${esc(p.owner_name)}</span>
+       </span>` : "";
+    return `<article class="pl-card pp-card" data-pp="${esc(p.slug)}" tabindex="0" role="button" aria-label="${esc(p.title)}">
+    <div class="pl-art" data-count="1">${cover}${p.truncated ? '<span class="pl-more">partial</span>' : ""}</div>
+    <h3 class="pl-name">${esc(p.title)}</h3>
+    ${owner}
+    <p class="pl-meta">${p.item_count} ${p.item_count === 1 ? "title" : "titles"}${p.fetched ? "" : " \xB7 entries not pulled yet"}${ppMatchBadge(p) ? `<span class="pl-flags">${ppMatchBadge(p)}</span>` : ""}</p>
+  </article>`;
+  }
+  async function loadPublicPlaylists(q = ppQuery) {
+    const rail = $("#pp-rail");
+    if (!rail) return;
+    ppQuery = q;
+    rail.innerHTML = Array.from({ length: 5 }, () => '<div class="pl-card"><div class="skeleton" style="aspect-ratio:1"></div></div>').join("");
+    const note2 = $("#pp-note");
+    try {
+      const params = new URLSearchParams({ limit: "60" });
+      if (q) params.set("q", q);
+      const body = await api("/api/public/playlists?" + params);
+      ppIndex = body.playlists ?? [];
+      const stats = body.stats ?? {};
+      $("#pp-count").textContent = `${stats.playlists ?? 0} crawled \xB7 ${fmtCount(stats.items ?? 0)} titles`;
+      rail.innerHTML = body.playlists.map(ppCard).join("");
+      if (!body.playlists.length) {
+        note2.hidden = false;
+        note2.textContent = q ? `No crawled playlist matches \u201C${q}\u201D. The index only holds what has been discovered so far \u2014 scan more to widen it.` : "The index is empty. Hit Scan more to start discovering public playlists.";
+      } else {
+        note2.hidden = true;
+      }
+    } catch (e) {
+      rail.innerHTML = "";
+      note2.hidden = false;
+      note2.textContent = `Could not load public playlists \u2014 ${e.message}`;
+    }
+  }
+  async function openPublicPlaylist(slug) {
+    openSheet("public", slug);
+    let p;
+    try {
+      p = await api("/api/public/playlists/" + encodeURIComponent(slug));
+    } catch (e) {
+      $("#sheet-body").innerHTML = `<p class="note">Could not open this playlist \u2014 ${esc(e.message)}</p>`;
+      return;
+    }
+    const items = p.items ?? [];
+    $("#sheet-count").hidden = false;
+    $("#sheet-count").textContent = `${items.length} ${items.length === 1 ? "title" : "titles"}`;
+    const ownerLine = p.owner_name ? `<a class="pl-owner-link" href="/api/public/playlists?owner=${encodeURIComponent(p.owner_channel_slug ?? "")}" data-pp-owner="${esc(p.owner_channel_slug ?? "")}">${esc(p.owner_name)}</a>` : "unknown creator";
+    $("#sheet-body").innerHTML = `
+    <div class="detail-head">
+      <h2 class="detail-title">${esc(p.title)}</h2>
+      <div class="detail-meta">by ${ownerLine} \xB7 ${items.length} titles \xB7 ${p.playable ?? 0} playable${p.unresolved ? ` \xB7 ${p.unresolved} not in the local catalog` : ""}${p.truncated ? " \xB7 upstream truncated this list" : ""}</div>
+      <div class="detail-tags">
+        <span class="hero-tag">public</span>
+        ${p.views ? `<span class="hero-tag">${fmtCount(p.views)} views</span>` : ""}
+        ${p.updated_at ? `<span class="hero-tag">updated ${esc(String(p.updated_at).slice(0, 10))}</span>` : ""}
+        ${(p.tags ?? []).slice(0, 8).map((t) => `<button class="hero-tag pp-tag" type="button" data-pp-tag="${esc(t.text)}">${esc(t.text)}${t.count ? ` <em>${t.count}</em>` : ""}</button>`).join("")}
+        ${(p.brands ?? []).slice(0, 6).map((b) => `<button class="hero-tag pp-tag" type="button" data-pp-brand="${esc(b.title)}">${esc(b.title)}${b.in_playlist_count ? ` <em>${b.in_playlist_count}</em>` : ""}</button>`).join("")}
+      </div>
+    </div>
+    <div class="pl-items">
+      ${items.map((i) => i.resolved === false ? `<div class="unresolved" title="Not present in the local catalog">${esc(i.name ?? i.slug ?? "unknown")}</div>` : cardHtml(i)).join("")}
+    </div>`;
+  }
+  document.addEventListener("click", (e) => {
+    const chip = e.target.closest("[data-pp-tag], [data-pp-brand]");
+    if (!chip) return;
+    e.preventDefault();
+    closeSheet();
+    const term = chip.dataset.ppTag ?? chip.dataset.ppBrand;
+    const input = $("#pp-q");
+    input.value = term;
+    $("#pp-search-shell").dataset.filled = "true";
+    loadPublicPlaylists(term);
+    showView("playlists");
+  });
+  async function playlistsForVideo(slug) {
+    var _a10;
+    const slot = $("#in-playlists");
+    if (!slot) return;
+    let body;
+    try {
+      body = await api(`/api/public/videos/${encodeURIComponent(slug)}/playlists`);
+    } catch {
+      slot.remove();
+      return;
+    }
+    if (!((_a10 = body.playlists) == null ? void 0 : _a10.length)) {
+      slot.remove();
+      return;
+    }
+    slot.hidden = false;
+    slot.innerHTML = `
+    <h3 class="in-pl-head">In ${body.total} public ${body.total === 1 ? "playlist" : "playlists"}</h3>
+    <div class="rail">${body.playlists.map((p) => `
+      <button class="chip in-pl-chip" type="button" data-pp="${esc(p.slug)}">
+        ${esc(p.title)}${p.item_count ? ` <em>${p.item_count}</em>` : ""}
+      </button>`).join("")}</div>`;
+  }
+  function wirePublicPlaylists() {
+    const q = $("#pp-q");
+    const clear2 = $("#pp-clear");
+    if (q) {
+      let t = null;
+      q.oninput = () => {
+        clearTimeout(t);
+        t = setTimeout(() => loadPublicPlaylists(q.value.trim()), 220);
+      };
+      q.onkeydown = (e) => {
+        if (e.key === "Enter") {
+          clearTimeout(t);
+          loadPublicPlaylists(q.value.trim());
+        }
+      };
+    }
+    if (clear2) clear2.onclick = () => {
+      q.value = "";
+      loadPublicPlaylists("");
+    };
+    const more = $("#pp-more");
+    if (more) more.onclick = async () => {
+      more.disabled = true;
+      const was = more.textContent;
+      more.textContent = "Scanning\u2026";
+      try {
+        await fetch("/api/public/crawl", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ count: 60, max_playlists: 400, max_channels: 60 })
+        });
+        for (let i = 0; i < 120; i++) {
+          await new Promise((r) => setTimeout(r, 1500));
+          const st = await api("/api/public/crawl");
+          if (!st.crawling) {
+            await loadPublicPlaylists();
+            break;
+          }
+        }
+      } catch (e) {
+        $("#pp-note").hidden = false;
+        $("#pp-note").textContent = `Scan failed \u2014 ${e.message}`;
+      } finally {
+        more.disabled = false;
+        more.textContent = was;
+      }
+    };
+    loadPublicPlaylists("");
+  }
+  document.addEventListener("click", (e) => {
+    const card = e.target.closest("[data-pp]");
+    if (!card) return;
+    e.preventDefault();
+    openPublicPlaylist(card.dataset.pp);
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const card = e.target.closest("[data-pp]");
+    if (card) {
+      e.preventDefault();
+      openPublicPlaylist(card.dataset.pp);
+    }
+  });
+  var _a;
+  (_a = $("#pp-q")) == null ? void 0 : _a.addEventListener("input", (e) => {
+    $("#pp-search-shell").dataset.filled = String(!!e.target.value);
+  });
+
+  // client/src/sheet.js
+  var activeHls = null;
+  var activeVid = null;
+  var activeSlug = null;
+  var sheetOrigin = null;
+  var sheetState = () => $("#sheet").classList.contains("open") ? sheetOrigin : null;
+  var setSheetOrigin = (origin) => {
+    sheetOrigin = origin;
+  };
+  function openSheet(kind, ref, chapter) {
+    pushNav();
+    sheetOrigin = kind ? { kind, ref: String(ref), chapter: chapter ? String(chapter) : null } : null;
+    const sheet = $("#sheet");
+    sheet.classList.add("open");
+    document.body.style.overflow = "hidden";
+    sheet.scrollTop = 0;
+    updateBackState();
+    $("#sheet-body").innerHTML = kind === "playlist" || kind === "public" ? listSkeleton() : sheetSkeleton();
+    $("#sheet-count").hidden = true;
+    return sheet;
+  }
+  function closeSheet() {
+    document.dispatchEvent(new CustomEvent("htv:sheet-closed"));
+    if (activeSlug && activeVid) savePosition(activeSlug, activeVid);
+    shellCall("setPlaying", false);
+    shellCall("setImmersive", false);
+    $("#sheet").dataset.reader = "false";
+    const vid = $("#vid");
+    if (vid) {
+      vid.pause();
+      vid.removeAttribute("src");
+      vid.load();
+    }
+    if (activeHls) {
+      activeHls.destroy();
+      activeHls = null;
+    }
+    const frame = document.getElementById("lx-frame");
+    if (frame) {
+      frame.removeAttribute("src");
+      frame.remove();
+    }
+    activeVid = null;
+    activeSlug = null;
+    sheetOrigin = null;
+    $("#sheet").classList.remove("open");
+    document.body.style.overflow = "";
+    document.body.dataset.pip = "false";
+    if (!isApplying()) dropClosedEntry();
+    updateBackState();
+  }
+  async function openVideo(slug) {
+    openSheet("video", slug);
+    let v;
+    try {
+      v = await api("/api/videos/" + encodeURIComponent(slug));
+    } catch (e) {
+      $("#sheet-body").innerHTML = `<p class="note">Could not load this title \u2014 ${esc(e.message)}</p>`;
+      return;
+    }
+    remember2(v);
+    $("#sheet-count").hidden = false;
+    $("#sheet-count").textContent = fmtCount(v.views) + " views";
+    const tags = (v.tags ?? []).map((t) => `<span class="hero-tag">${esc(t)}</span>`).join("");
+    const desc = esc((v.description ?? "").replace(/<[^>]+>/g, " ").replace(/\s{2,}/g, " ").trim());
+    $("#sheet-body").innerHTML = `
+    <div class="detail-hero">
+      <div class="detail-poster"><img src="${esc(v.cover ?? "")}" alt="" loading="lazy"></div>
+      <div class="detail-hero-text">
+        <div class="detail-kicker">${esc(v.brand ?? "Unknown studio")}</div>
+        <h2 class="detail-title">${esc(v.name)}</h2>
+        <div class="detail-meta">${fmtCount(v.views)} views \xB7 ${fmtCount(v.likes)} likes${v.released_at ? " \xB7 " + esc(v.released_at.slice(0, 4)) : ""}</div>
+        <div class="detail-actions">${favPill(slug)}</div>
+      </div>
+    </div>
+    <div class="detail-grid">
+      <div class="detail-main">
+        <div class="player-card">
+          <div id="player-slot">${stageLoading({ cover: v.cover, caption: "Finding a stream\u2026" })}</div>
+        </div>
+        <div id="in-playlists" hidden></div>
+        <section id="detail-recs" hidden>
+          <div class="sec-head"><div class="sec-head-l"><h2 id="rec-head">More from this studio</h2></div></div>
+          <div class="rail" id="rec-rail" aria-label="Recommended"></div>
+        </section>
+      </div>
+      <aside class="detail-side">
+        <div class="mal-slot" data-mal-kind="anime" data-mal-title="${esc(v.name)}"></div>
+        <div class="detail-tags">${tags}</div>
+        <p class="detail-desc">${desc}</p>
+      </aside>
+    </div>`;
+    playlistsForVideo(slug).catch(() => {
+    });
+    loadStudioRecs(v.brand, slug).catch(() => {
+    });
+    await mountPlayer(slug, v.cover);
+  }
+  async function loadStudioRecs(brand, slug) {
+    if (!brand) return;
+    const data = await api(`/api/videos?brand=${encodeURIComponent(brand)}&per_page=12`);
+    const items = (data.data ?? []).filter((v) => v.slug !== slug);
+    if (!items.length) return;
+    const rail = $("#rec-rail");
+    const recs = $("#detail-recs");
+    if (!rail || !recs) return;
+    $("#rec-head").textContent = `More from ${brand}`;
+    rail.innerHTML = items.map((v) => cardHtml(v)).join("");
+    recs.hidden = false;
+  }
+  async function mountPlayer(slug, cover = "") {
+    const slot = $("#player-slot");
+    const stopLooking = stageStillLooking(slot, "Still looking \u2014 some titles take a few seconds");
+    let sources;
+    try {
+      ({ sources } = await api(`/api/videos/${encodeURIComponent(slug)}/sources`));
+    } catch (e) {
+      stopLooking();
+      slot.innerHTML = `<p class="note">Could not resolve a stream \u2014 ${esc(e.message)}</p>`;
+      return;
+    }
+    stopLooking();
+    if (!(sources == null ? void 0 : sources.length)) {
+      slot.innerHTML = '<p class="note">No playable source was returned for this entry.</p>';
+      return;
+    }
+    recordHistory(slug);
+    const pipWanted = shellCall("pictureInPictureSupported") === true;
+    slot.innerHTML = `
+    <video id="vid" controls playsinline preload="metadata"></video>
+    ${videoWaitHtml({ cover })}
+    <div class="quality">${sources.map((s, i) => `<button class="q-btn" data-i="${i}" aria-pressed="${i === 0}">${esc(s.label)}</button>`).join("")}</div>
+    <div class="lib-tools">
+      <button class="chip" id="fs-btn" type="button">Fullscreen</button>
+      ${pipWanted ? '<button class="chip" id="pip-btn" type="button">Picture in picture</button>' : ""}
+      <span class="sec-count" id="player-note"></span>
+    </div>`;
+    const vid = $("#vid");
+    bindFullscreen($("#fs-btn"), () => vid);
+    activeVid = vid;
+    activeSlug = slug;
+    const veil2 = $("#vid-wait");
+    const veilOn = () => veil2 == null ? void 0 : veil2.removeAttribute("hidden");
+    const veilOff = () => veil2 == null ? void 0 : veil2.setAttribute("hidden", "");
+    vid.addEventListener("waiting", veilOn);
+    vid.addEventListener("stalled", veilOn);
+    vid.addEventListener("canplay", veilOff);
+    vid.addEventListener("playing", veilOff);
+    vid.addEventListener("error", veilOff);
+    const attach = (url) => {
+      var _a10;
+      veilOn();
+      if (activeHls) {
+        activeHls.destroy();
+        activeHls = null;
+      }
+      if ((_a10 = window.Hls) == null ? void 0 : _a10.isSupported()) {
+        activeHls = new window.Hls({ enableWorker: true, lowLatencyMode: false });
+        activeHls.on(window.Hls.Events.ERROR, (_e, data) => {
+          if (!data.fatal) return;
+          slot.insertAdjacentHTML("beforeend", `<p class="note">Playback error \u2014 ${esc(data.details)}</p>`);
+        });
+        activeHls.loadSource(url);
+        activeHls.attachMedia(vid);
+        return;
+      }
+      vid.src = url;
+    };
+    attach(sources[0].url);
+    const saved = lib.positions[slug];
+    if (saved && saved.t > 5) {
+      vid.addEventListener("loadedmetadata", () => {
+        try {
+          vid.currentTime = saved.t;
+        } catch (e) {
+        }
+        const note2 = $("#player-note");
+        if (note2) note2.textContent = `resumed from ${clock(saved.t)}`;
+      }, { once: true });
+    }
+    let lastSaved = 0;
+    vid.addEventListener("timeupdate", () => {
+      const now = Date.now();
+      if (now - lastSaved < 5e3) return;
+      lastSaved = now;
+      savePosition(slug, vid);
+    });
+    vid.addEventListener("ended", () => clearPosition(slug));
+    const tellAspect = () => {
+      if (vid.videoWidth) shellCall("setVideoAspect", vid.videoWidth, vid.videoHeight);
+    };
+    vid.addEventListener("loadedmetadata", tellAspect);
+    vid.addEventListener("play", () => {
+      shellCall("setPlaying", true);
+      tellAspect();
+    });
+    vid.addEventListener("pause", () => {
+      shellCall("setPlaying", false);
+      savePosition(slug, vid);
+    });
+    const pipBtn = $("#pip-btn");
+    if (pipBtn) pipBtn.onclick = () => shellCall("enterPip");
+    $$(".q-btn", slot).forEach((btn) => {
+      btn.onclick = () => {
+        const pos = vid.currentTime, wasPlaying = !vid.paused;
+        vid.addEventListener("loadedmetadata", () => {
+          if (pos > 0) vid.currentTime = pos;
+          if (wasPlaying) vid.play().catch(() => {
+          });
+        }, { once: true });
+        attach(sources[Number(btn.dataset.i)].url);
+        $$(".q-btn", slot).forEach((b) => {
+          b.setAttribute("aria-pressed", String(b === btn));
+        });
+      };
+    });
+  }
+
   // client/src/manga.js
   var mState = { q: "", page: 1, hasNext: false, type: "", status: "", genre: "" };
   var mDebounce;
@@ -9881,7 +9992,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
   });
 
   // client/src/mal-library.js
-  function load8(key, fallback) {
+  function load7(key, fallback) {
     try {
       const raw = localStorage.getItem(key);
       return raw ? JSON.parse(raw) : fallback;
@@ -9889,7 +10000,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
       return fallback;
     }
   }
-  function save8(key, value) {
+  function save7(key, value) {
     try {
       localStorage.setItem(key, JSON.stringify(value));
     } catch (e) {
@@ -10060,7 +10171,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
   async function openMalEntry(shelf, kind, title, card) {
     if (!TABS.includes(shelf) || !KINDS.includes(kind) || !title) return;
     const key = `${kind}:${normTitle(title)}`;
-    const seen = load8(OPEN_KEY, {});
+    const seen = load7(OPEN_KEY, {});
     if (seen[key]) {
       openTarget(kind, seen[key]);
       return;
@@ -10074,7 +10185,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
         return;
       }
       seen[key] = id;
-      save8(OPEN_KEY, seen);
+      save7(OPEN_KEY, seen);
       note(shelf, "");
       openTarget(kind, id);
     } catch (e) {
@@ -10142,6 +10253,140 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     if (target.dataset.view === "browse") renderContinue();
     if (changed) scrollTo({ top: 0 });
   }
+
+  // client/src/cards.js
+  function coverFor(slug, remote, opts) {
+    if (!opts || !opts.local) return remote;
+    const stored = shellCall("cachedCover", slug);
+    return stored ? stored : remote;
+  }
+  function cardHtml(v, opts) {
+    remember2(v);
+    const name = v.name ?? v.title ?? v.slug;
+    const cover = coverFor(v.slug, v.cover ?? v.cover_url ?? "", opts);
+    const owned = isFav(v.slug);
+    const heart = owned ? "Remove from favorites" : "Add to favorites";
+    const views2 = Number(v.views);
+    const pct = opts && opts.progress ? progressOf(v.slug) : 0;
+    const when2 = opts && opts.local && Number(v.at) ? ago(v.at) : "";
+    const metaLine = [
+      v.brand ?? "",
+      v.released_at ? v.released_at.slice(0, 4) : "",
+      when2
+    ].filter(Boolean).join(" \xB7 ");
+    return `<article class="card" data-slug="${esc(v.slug)}" tabindex="0" role="button" aria-label="${esc(name)}">
+    <div class="card-frame">
+      <img loading="lazy" decoding="async" src="${esc(cover)}" alt="">
+      <div class="card-fallback" hidden>${esc(name)}</div>
+      <div class="card-scrim"></div>
+      ${Number.isFinite(views2) ? `<span class="card-badge">${fmtCount(views2)}</span>` : ""}
+      ${pct ? `<div class="card-progress"><span style="width:${pct}%"></span></div>` : ""}
+      <button class="fav-btn" type="button" data-fav="${esc(v.slug)}" aria-pressed="${owned}" aria-label="${heart}" title="${heart}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M12 20.4 4.9 14.1A5.3 5.3 0 0 1 12 6.3a5.3 5.3 0 0 1 7.1 7.8Z"/></svg>
+      </button>
+      <div class="card-play"><span>
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+      </span></div>
+    </div>
+    <div class="card-body">
+      <h3 class="card-title">${esc(name)}</h3>
+      <p class="card-meta">${esc(metaLine)}</p>
+    </div>
+  </article>`;
+  }
+
+  // client/src/positions.js
+  function savePosition(slug, vid) {
+    if (!slug || !vid) return;
+    const d = Number(vid.duration);
+    const t = Number(vid.currentTime);
+    if (!Number.isFinite(d) || d <= 0 || !Number.isFinite(t)) return;
+    if (t >= d - 10) {
+      clearPosition(slug);
+      return;
+    }
+    if (t < 5) return;
+    lib.positions[slug] = { t: Math.round(t), d: Math.round(d), at: Date.now() };
+    libWrite();
+    accountPosition(slug, lib.positions[slug]);
+  }
+  function clearPosition(slug) {
+    if (!lib.positions[slug]) return;
+    delete lib.positions[slug];
+    libWrite();
+    accountPosition(slug, null);
+  }
+  function progressOf(slug) {
+    const p = lib.positions[slug];
+    if (!p || !p.d) return 0;
+    const pct = Math.round(p.t / p.d * 100);
+    return pct > 1 && pct < 98 ? pct : 0;
+  }
+  function libMatches(e) {
+    if (!libQuery) return true;
+    const needle = libQuery.toLowerCase();
+    return String(e.name ?? "").toLowerCase().includes(needle) || String(e.brand ?? "").toLowerCase().includes(needle);
+  }
+  function renderLibrary() {
+    const needle = libQuery.trim();
+    const favs = sorted("fav", lib.favorites.filter(libMatches));
+    const hist = sorted("hist", lib.history.filter(libMatches));
+    $("#lib-count").textContent = `${lib.favorites.length} favorite${lib.favorites.length === 1 ? "" : "s"} \xB7 ${lib.history.length} watched`;
+    $("#fav-count").textContent = needle ? `${favs.length} of ${lib.favorites.length}` : String(lib.favorites.length);
+    $("#hist-count").textContent = needle ? `${hist.length} of ${lib.history.length}` : String(lib.history.length);
+    $("#hist-clear").hidden = lib.history.length === 0;
+    const warn = $("#lib-warn");
+    warn.hidden = libSaved;
+    warn.textContent = "This device will not keep local data, so favorites and history are forgotten when the app closes.";
+    $("#fav-grid").innerHTML = favs.map((e) => cardHtml(e, { local: true })).join("");
+    const favNote = $("#fav-note");
+    favNote.hidden = favs.length > 0;
+    favNote.textContent = needle ? `No favorite matches \u201C${libQuery}\u201D.` : "Nothing filed yet. The heart on any card puts a title here.";
+    $("#hist-grid").innerHTML = hist.map((e) => cardHtml(e, { local: true, progress: true })).join("");
+    const histNote = $("#hist-note");
+    histNote.hidden = hist.length > 0;
+    histNote.textContent = needle ? `Nothing you opened matches \u201C${libQuery}\u201D.` : "Nothing opened yet. A title lands here once a stream for it resolves.";
+    renderContinue(needle);
+  }
+  var CONTINUE_PLACES = [
+    { rail: "cont-rail", head: "cont-head", count: "cont-count", note: "cont-note", filtered: true },
+    { rail: "browse-cont-rail", head: "browse-cont-head", count: "browse-cont-count", note: "browse-cont-note", filtered: false }
+  ];
+  function renderContinue(needle) {
+    const part = sorted("cont", lib.history.filter((e) => progressOf(e.slug) > 0).map((e) => {
+      var _a10;
+      return { ...e, at: ((_a10 = lib.positions[e.slug]) == null ? void 0 : _a10.at) ?? e.at };
+    }));
+    const html = part.slice(0, 12).map((e) => cardHtml(e, { local: true, progress: true })).join("");
+    for (const place of CONTINUE_PLACES) {
+      const rail = $("#" + place.rail);
+      const head = $("#" + place.head);
+      if (!rail || !head) continue;
+      const rows = place.filtered && needle ? part.filter(libMatches) : part;
+      head.hidden = rows.length === 0;
+      rail.hidden = rows.length === 0;
+      const count = $("#" + place.count);
+      if (count) count.textContent = String(rows.length);
+      const note2 = $("#" + place.note);
+      if (note2) {
+        note2.hidden = rows.length > 0;
+        note2.textContent = "Titles you start watching appear here, so you can pick them up where you stopped.";
+      }
+      rail.innerHTML = rows.slice(0, 12).map((e) => cardHtml(e, { local: true, progress: true })).join("");
+    }
+  }
+  function favPill(slug) {
+    const on = isFav(slug);
+    return `<button class="pill pill-ghost" type="button" data-fav="${esc(slug)}" aria-pressed="${on}">
+      <svg viewBox="0 0 24 24" stroke-linejoin="round"><path d="M12 20.4 4.9 14.1A5.3 5.3 0 0 1 12 6.3a5.3 5.3 0 0 1 7.1 7.8Z"/></svg>
+      <span class="fav-label">${on ? "In library" : "Favorite"}</span>
+    </button>`;
+  }
+  var LOCAL_SORTS = /* @__PURE__ */ new Set(["fav", "hist", "cont"]);
+  document.addEventListener("htv:sort", (e) => {
+    var _a10;
+    if (LOCAL_SORTS.has((_a10 = e.detail) == null ? void 0 : _a10.name)) renderLibrary();
+  });
 
   // client/src/library.js
   var LIB_KEY = "htv:library:v1";
@@ -10262,22 +10507,22 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     if (viewIs("library")) renderLibrary();
   }
   var libDebounce;
-  var _a;
-  (_a = $("#lib-q")) == null ? void 0 : _a.addEventListener("input", (e) => {
+  var _a2;
+  (_a2 = $("#lib-q")) == null ? void 0 : _a2.addEventListener("input", (e) => {
     libQuery = e.target.value.trim();
     $("#lib-search-shell").dataset.filled = String(!!e.target.value);
     clearTimeout(libDebounce);
     libDebounce = setTimeout(renderLibrary, 180);
   });
-  var _a2;
-  (_a2 = $("#lib-clear")) == null ? void 0 : _a2.addEventListener("click", () => {
+  var _a3;
+  (_a3 = $("#lib-clear")) == null ? void 0 : _a3.addEventListener("click", () => {
     $("#lib-q").value = "";
     $("#lib-search-shell").dataset.filled = "false";
     libQuery = "";
     renderLibrary();
   });
-  var _a3;
-  (_a3 = $("#hist-clear")) == null ? void 0 : _a3.addEventListener("click", () => {
+  var _a4;
+  (_a4 = $("#hist-clear")) == null ? void 0 : _a4.addEventListener("click", () => {
     accountHistoryCleared();
     lib.history = [];
     lib.positions = {};
@@ -10290,8 +10535,8 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     msg.hidden = !text;
     msg.textContent = text || "";
   }
-  var _a4;
-  (_a4 = $("#lib-export")) == null ? void 0 : _a4.addEventListener("click", () => {
+  var _a5;
+  (_a5 = $("#lib-export")) == null ? void 0 : _a5.addEventListener("click", () => {
     if (!shellApi()) {
       libMessage("Exporting a file needs the Android app.");
       return;
@@ -10303,8 +10548,8 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     }));
     libMessage("Choose where to keep the file.");
   });
-  var _a5;
-  (_a5 = $("#lib-import")) == null ? void 0 : _a5.addEventListener("click", () => {
+  var _a6;
+  (_a6 = $("#lib-import")) == null ? void 0 : _a6.addEventListener("click", () => {
     if (!shellApi()) {
       libMessage("Importing a file needs the Android app.");
       return;
@@ -10358,446 +10603,557 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     libMessage(`Read ${favs.length} favorites and ${hist.length} history entries. This device now holds ${lib.favorites.length} favorites and ${lib.history.length} watched.`);
   };
 
-  // client/src/cards.js
-  function coverFor(slug, remote, opts) {
-    if (!opts || !opts.local) return remote;
-    const stored = shellCall("cachedCover", slug);
-    return stored ? stored : remote;
+  // client/src/account-sync.js
+  var PAGE = 500;
+  var MAX_PAGES = 20;
+  var CLIENT_KEY = "htv:account-client:v1";
+  function clientId() {
+    const held = (() => {
+      try {
+        return localStorage.getItem(CLIENT_KEY);
+      } catch (e) {
+        return null;
+      }
+    })();
+    if (held) return held;
+    const alphabet = "abcdef0123456789";
+    let tail = "";
+    try {
+      const buf = new Uint8Array(8);
+      window.crypto.getRandomValues(buf);
+      for (let i = 0; i < 8; i += 1) tail += alphabet[buf[i] % alphabet.length];
+    } catch (e) {
+      for (let i = 0; i < 8; i += 1) tail += alphabet[Math.floor(Math.random() * alphabet.length)];
+    }
+    const id = `sekai-phone-${tail}`;
+    try {
+      localStorage.setItem(CLIENT_KEY, id);
+    } catch (e) {
+    }
+    return id;
   }
-  function cardHtml(v, opts) {
-    remember2(v);
-    const name = v.name ?? v.title ?? v.slug;
-    const cover = coverFor(v.slug, v.cover ?? v.cover_url ?? "", opts);
-    const owned = isFav(v.slug);
-    const heart = owned ? "Remove from favorites" : "Add to favorites";
-    const views2 = Number(v.views);
-    const pct = opts && opts.progress ? progressOf(v.slug) : 0;
-    const when2 = opts && opts.local && Number(v.at) ? ago(v.at) : "";
-    const metaLine = [
-      v.brand ?? "",
-      v.released_at ? v.released_at.slice(0, 4) : "",
-      when2
-    ].filter(Boolean).join(" \xB7 ");
-    return `<article class="card" data-slug="${esc(v.slug)}" tabindex="0" role="button" aria-label="${esc(name)}">
+  async function pullLibrary() {
+    const rows = [];
+    for (let page = 0; page < MAX_PAGES; page += 1) {
+      const chunk = await accountRpc("sync_pull_library", {
+        p_profile_id: PROFILE_ID,
+        p_limit: PAGE,
+        p_offset: page * PAGE
+      });
+      const list = Array.isArray(chunk) ? chunk : [];
+      rows.push(...list);
+      if (list.length < PAGE) break;
+    }
+    return rows;
+  }
+  async function pullPositions() {
+    const rows = await accountRpc("sync_pull_watch_progress", { p_profile_id: PROFILE_ID });
+    return Array.isArray(rows) ? rows : [];
+  }
+  async function pullHistory() {
+    const rows = [];
+    for (let page = 0; page < MAX_PAGES; page += 1) {
+      const chunk = await accountRpc("sync_pull_history", {
+        p_profile_id: PROFILE_ID,
+        p_limit: PAGE,
+        p_offset: page * PAGE
+      });
+      const list = Array.isArray(chunk) ? chunk : [];
+      rows.push(...list);
+      if (list.length < PAGE) break;
+    }
+    return rows;
+  }
+  async function pushLibrary(items) {
+    if (!items.length) return;
+    await accountRpc("sync_push_library_items", {
+      p_profile_id: PROFILE_ID,
+      p_items: items,
+      p_origin_client_id: clientId()
+    });
+  }
+  async function deleteLibrary(keys) {
+    if (!keys.length) return;
+    await accountRpc("sync_delete_library_items", {
+      p_profile_id: PROFILE_ID,
+      p_keys: keys,
+      p_origin_client_id: clientId()
+    });
+  }
+  async function pushPositions(entries) {
+    if (!entries.length) return;
+    await accountRpc("sync_push_watch_progress", {
+      p_profile_id: PROFILE_ID,
+      p_entries: entries,
+      p_origin_client_id: clientId()
+    });
+  }
+  async function deletePositions(keys) {
+    if (!keys.length) return;
+    await accountRpc("sync_delete_watch_progress", {
+      p_profile_id: PROFILE_ID,
+      p_keys: keys,
+      p_origin_client_id: clientId()
+    });
+  }
+  async function pushHistory(entries) {
+    if (!entries.length) return;
+    await accountRpc("sync_push_history", {
+      p_profile_id: PROFILE_ID,
+      p_entries: entries,
+      p_origin_client_id: clientId()
+    });
+  }
+  async function deleteHistory(keys) {
+    if (!keys.length) return;
+    await accountRpc("sync_delete_history", {
+      p_profile_id: PROFILE_ID,
+      p_keys: keys,
+      p_origin_client_id: clientId()
+    });
+  }
+  async function clearHistory() {
+    await accountRpc("sync_clear_history", {
+      p_profile_id: PROFILE_ID,
+      p_origin_client_id: clientId()
+    });
+  }
+  function isMissingFunction(e) {
+    return /could not find the function|PGRST202|HTTP 404/i.test(String((e == null ? void 0 : e.message) ?? e ?? ""));
+  }
+  var historyState = "unknown";
+  async function send2(kind, entries) {
+    if (kind === "library") {
+      const rows = entries.filter((e) => e.payload).map((e) => e.payload);
+      const keys = entries.filter((e) => !e.payload).map((e) => ({ content_id: e.key, content_type: CONTENT_TYPE }));
+      await Promise.all([pushLibrary(rows), deleteLibrary(keys)]);
+      return;
+    }
+    if (kind === "progress") {
+      const rows = entries.filter((e) => e.payload).map((e) => e.payload);
+      const keys = entries.filter((e) => !e.payload).map((e) => e.key);
+      await Promise.all([pushPositions(rows), deletePositions(keys)]);
+      return;
+    }
+    if (kind === "history") {
+      const rows = entries.filter((e) => e.payload).map((e) => e.payload);
+      const keys = entries.filter((e) => !e.payload).map((e) => ({ content_id: e.key, content_type: CONTENT_TYPE }));
+      try {
+        await Promise.all([pushHistory(rows), deleteHistory(keys)]);
+        historyState = "ready";
+      } catch (e) {
+        if (!isMissingFunction(e)) throw e;
+        historyState = "missing";
+      }
+    }
+  }
+  var queue = createAccountQueue({ send: send2 });
+  var ACTIVITY_KINDS = ["anime", "show"];
+  var accountProgress = null;
+  function realPositions(rows) {
+    const out = /* @__PURE__ */ new Map();
+    for (const row of Array.isArray(rows) ? rows : []) {
+      const key = String((row == null ? void 0 : row.progress_key) ?? "");
+      if (key && hasRealPosition(row)) out.set(key, true);
+    }
+    return out;
+  }
+  function clobbersRealPosition(row) {
+    if (!row) return false;
+    if (accountProgress === null) return true;
+    return accountProgress.has(row.progress_key);
+  }
+  var TITLE_LOOKUP_CONCURRENCY = 4;
+  async function resolveActivityTitle(contentId) {
+    var _a10, _b;
+    try {
+      const animeKey = animeKeyFromId(contentId);
+      if (animeKey) {
+        const res2 = await fetch(`/api/anime/${encodeURIComponent(animeKey)}`);
+        if (!res2.ok) return null;
+        const details2 = (_a10 = await res2.json()) == null ? void 0 : _a10.details;
+        if (!details2) return null;
+        return {
+          title: String(details2.title ?? animeKey),
+          cover: String(details2.cover ?? ""),
+          episodes: Number(details2.eps) || 0
+        };
+      }
+      const seriesKey = seriesKeyFromId(contentId);
+      const slug = seriesKey ?? filmKeyFromId(contentId);
+      if (!slug) return null;
+      const type = seriesKey ? "tv" : "movie";
+      const res = await fetch(`/api/fmovies/${type}/${encodeURIComponent(slug)}`);
+      if (!res.ok) return null;
+      const details = (_b = await res.json()) == null ? void 0 : _b.details;
+      if (!details) return null;
+      return { title: String(details.title ?? slug), cover: String(details.poster ?? ""), episodes: 0 };
+    } catch (e) {
+      return null;
+    }
+  }
+  async function activityEntriesFromRows(progress) {
+    var _a10, _b, _c;
+    const groups = activityTitleGroups(progress);
+    if (groups.size === 0) return [];
+    const here = /* @__PURE__ */ new Map();
+    for (const kind of ACTIVITY_KINDS) {
+      for (const entry of listFor(kind)) here.set(`${entry.kind}:${entry.id}`, entry);
+    }
+    const items = [];
+    for (const [contentId, rows] of groups) {
+      const identity = activityIdentityFor(contentId);
+      if (!identity) continue;
+      const local = here.get(`${identity.kind}:${identity.id}`) ?? null;
+      items.push({ contentId, rows, local, resolved: null });
+    }
+    const pending = items.filter((item) => !(item.local && item.local.title));
+    let next = 0;
+    const worker = async () => {
+      while (next < pending.length) {
+        const item = pending[next];
+        next += 1;
+        item.resolved = await resolveActivityTitle(item.contentId);
+      }
+    };
+    if (pending.length) {
+      const workers = Math.min(TITLE_LOOKUP_CONCURRENCY, pending.length);
+      await Promise.all(Array.from({ length: workers }, worker));
+    }
+    const entries = [];
+    for (const item of items) {
+      const known2 = item.resolved ?? (((_a10 = item.local) == null ? void 0 : _a10.title) ? { title: item.local.title, cover: item.local.cover, episodes: Number(item.local.total) || 0 } : null);
+      if (!known2) continue;
+      const entry = activityEntryForTitle(item.rows, known2);
+      if (!entry) continue;
+      entry.title = String(known2.title || ((_b = item.local) == null ? void 0 : _b.title) || "");
+      entry.cover = String(known2.cover || ((_c = item.local) == null ? void 0 : _c.cover) || "");
+      if (Number(known2.episodes) > 0) entry.total = Number(known2.episodes);
+      entries.push(entry);
+    }
+    return entries;
+  }
+  function accountActivityOpened(entry) {
+    if (!signedIn()) return;
+    const row = activityProgressPayload(entry);
+    if (!row || clobbersRealPosition(row)) return;
+    queue.set("progress", row.progress_key, row);
+  }
+  function accountActivityDropped(entry) {
+    if (!signedIn() || !entry) return;
+    const keys = Array.isArray(entry.keys) && entry.keys.length ? entry.keys : [activityProgressKey(entry)];
+    for (const key of keys) {
+      if (key) queue.set("progress", key, null);
+    }
+  }
+  function accountActivityCleared(entries) {
+    if (!signedIn()) return;
+    for (const entry of Array.isArray(entries) ? entries : []) accountActivityDropped(entry);
+  }
+  async function syncAccount() {
+    if (!signedIn()) throw new Error("not signed in");
+    let historyRows = [];
+    try {
+      historyRows = await pullHistory();
+      historyState = "ready";
+    } catch (e) {
+      if (!isMissingFunction(e)) throw e;
+      historyState = "missing";
+    }
+    const [rows, progress] = await Promise.all([pullLibrary(), pullPositions()]);
+    accountProgress = realPositions(progress);
+    const favourites = reconcileFavorites(lib.favorites, rows);
+    const positions = mergePositions(lib.positions, progress);
+    const activityEntries = await activityEntriesFromRows(progress);
+    const activityPush = [];
+    for (const kind of ACTIVITY_KINDS) {
+      activityPush.push(
+        ...applyActivityFromAccount(kind, activityEntries.filter((entry) => entry.kind === kind))
+      );
+    }
+    const past2 = historyState === "missing" ? { history: lib.history, push: [] } : reconcileHistory(lib.history, historyRows, LIB_MAX_HISTORY);
+    lib.favorites = favourites.favorites;
+    lib.positions = positions.positions;
+    lib.history = past2.history;
+    for (const entry of [...favourites.favorites, ...past2.history]) {
+      if (entry.from === "account") keepCover(entry);
+    }
+    for (const entry of favourites.push) {
+      const row = libraryPayload(entry);
+      if (row) queue.set("library", row.content_id, row);
+    }
+    for (const { slug, position } of positions.push) {
+      const row = progressPayload(slug, position);
+      if (row) queue.set("progress", row.progress_key, row);
+    }
+    for (const entry of past2.push) {
+      const row = historyPayload(entry);
+      if (row) queue.set("history", row.content_id, row);
+    }
+    const sentActivity = /* @__PURE__ */ new Set();
+    for (const entry of activityPush) {
+      const row = activityProgressPayload(entry);
+      if (!row) continue;
+      if (!clobbersRealPosition(row)) queue.set("progress", row.progress_key, row);
+      sentActivity.add(`${entry.kind}:${entry.id}`);
+    }
+    await queue.flush();
+    const sentFavourites = new Set(favourites.push.map((e) => e.slug));
+    for (const entry of lib.favorites) {
+      if (sentFavourites.has(entry.slug)) entry.from = "account";
+    }
+    const sentOpenings = new Set(past2.push.map((e) => e.slug));
+    for (const entry of lib.history) {
+      if (sentOpenings.has(entry.slug)) entry.from = "account";
+    }
+    markActivityFromAccount(sentActivity);
+    libWrite();
+    renderLibrary();
+    return { note: historyState === "missing" ? "Favorites and watch positions are up to date. History is not kept in this project yet \u2014 run accounts/sql/0007_history.sql, then sync again." : "Favorites, watch positions and history are up to date." };
+  }
+  function accountFavorite(slug, on, entry) {
+    if (!signedIn() || !slug) return;
+    const contentId = accountIdFor(slug);
+    if (!contentId) return;
+    if (!on) {
+      queue.set("library", contentId, null);
+      return;
+    }
+    const row = libraryPayload(entry ?? { slug });
+    if (!row) return;
+    queue.set("library", row.content_id, row);
+  }
+  function accountOpened(entry) {
+    if (!signedIn() || !(entry == null ? void 0 : entry.slug)) return;
+    const row = historyPayload(entry);
+    if (!row) return;
+    queue.set("history", row.content_id, row);
+  }
+  function accountHistoryCleared() {
+    if (!signedIn()) return;
+    queue.clear("history");
+    queue.clear("progress");
+    const keys = Object.keys(lib.positions).map(accountIdFor).filter(Boolean);
+    Promise.all([clearHistory(), deletePositions(keys)]).catch(() => {
+    });
+  }
+  function accountPosition(slug, position) {
+    if (!signedIn() || !slug) return;
+    const contentId = accountIdFor(slug);
+    if (!contentId) return;
+    if (!position) {
+      queue.set("progress", contentId, null);
+      return;
+    }
+    const payload = progressPayload(slug, position);
+    if (!payload) return;
+    queue.set("progress", payload.progress_key, payload);
+  }
+  function plainFailure(e) {
+    const text = String((e == null ? void 0 : e.message) ?? e ?? "");
+    return /fetch|network|failed to fetch/i.test(text) ? "the account server could not be reached" : text || "unknown error";
+  }
+  onAccountEvent("signedIn", () => syncAccount().catch((e) => {
+    accountNote(`Signed in, but the sync failed \u2014 ${plainFailure(e)}`);
+  }));
+  onAccountEvent("sync", syncAccount);
+  onAccountEvent("signedOut", () => {
+    queue.clear();
+    accountProgress = null;
+  });
+
+  // client/src/activity.js
+  var KEY3 = "htv:activity:v1";
+  var MAX3 = 60;
+  var MAX_PER_KIND = Math.floor(MAX3 / 3);
+  function load8(key, fallback) {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
+    } catch (e) {
+      return fallback;
+    }
+  }
+  function save8(key, value) {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch (e) {
+    }
+  }
+  var all = () => load8(KEY3, []).filter((e) => e && e.kind && e.id && Number(e.number) >= 0);
+  var listFor = (kind) => all().filter((e) => e.kind === kind);
+  var openers = {};
+  function setOpener(kind, fn) {
+    openers[kind] = fn;
+  }
+  function noteOpen(kind, { id, title, cover, number, total, ref }) {
+    const theId = String(id ?? "");
+    const n = Number(number);
+    if (!theId || !Number.isFinite(n) || n < 0) return;
+    const rows = all().filter((e) => !(e.kind === kind && String(e.id) === theId));
+    rows.unshift({
+      kind,
+      id: theId,
+      title: String(title ?? ""),
+      cover: String(cover ?? ""),
+      number: n,
+      total: Number(total) > 0 ? Number(total) : 0,
+      ref: ref === void 0 || ref === null ? null : String(ref),
+      at: Date.now()
+    });
+    save8(KEY3, rows.slice(0, MAX3));
+    accountActivityOpened({ kind, id: theId, title: String(title ?? ""), cover: String(cover ?? ""), number: n, total: Number(total) > 0 ? Number(total) : 0, ref: ref === void 0 || ref === null ? null : String(ref), at: Date.now() });
+  }
+  function forget(kind, id) {
+    const going = all().find((e) => e.kind === kind && String(e.id) === String(id)) ?? null;
+    save8(KEY3, all().filter((e) => !(e.kind === kind && String(e.id) === String(id))));
+    accountActivityDropped(going);
+  }
+  function clear(kind) {
+    const going = listFor(kind);
+    save8(KEY3, all().filter((e) => e.kind !== kind));
+    accountActivityCleared(going);
+  }
+  function applyActivityFromAccount(kind, remoteEntries) {
+    if (!RAILS[kind]) return [];
+    const { entries, push } = reconcileActivity(listFor(kind), remoteEntries, MAX_PER_KIND);
+    const others = all().filter((e) => e.kind !== kind);
+    const merged = [...others, ...entries].sort((a, b) => (Number(b.at) || 0) - (Number(a.at) || 0));
+    save8(KEY3, merged.slice(0, MAX3));
+    renderActivity(kind);
+    return push;
+  }
+  function markActivityFromAccount(keys) {
+    if (!keys || keys.size === 0) return;
+    let changed = false;
+    const rows = all().map((entry) => {
+      if (!keys.has(`${entry.kind}:${entry.id}`) || entry.from === "account") return entry;
+      changed = true;
+      return { ...entry, from: "account" };
+    });
+    if (changed) save8(KEY3, rows);
+  }
+  function activityCardHtml(e) {
+    const verb = e.kind === "manga" ? "read" : "watched";
+    const showRef = e.kind === "show" ? /^s(\d+)e(\d+)$/.exec(e.ref ?? "") : null;
+    const unit = e.kind === "manga" ? "Ch." : e.kind === "show" ? showRef ? `S${showRef[1]}E${showRef[2]}` : "Movie" : "Ep.";
+    const where = e.kind === "show" ? unit : `${unit} ${e.number}`;
+    const when2 = ago(e.at);
+    const pct = e.total ? Math.min(100, Math.round(e.number / e.total * 100)) : 0;
+    const into = e.kind === "manga" ? readPercent(e.ref) : 0;
+    const meta = `${into > 0.01 ? `${Math.round(into * 100)}% in \xB7 ` : ""}${verb} ${when2}`;
+    return `<article class="card act-card" data-act="${e.kind}" data-act-id="${esc(e.id)}"
+      data-act-num="${e.number}" data-act-ref="${esc(e.ref ?? "")}" tabindex="0" role="button"
+      aria-label="${esc(`${e.title} \u2014 ${where}, ${meta}`)}">
     <div class="card-frame">
-      <img loading="lazy" decoding="async" src="${esc(cover)}" alt="">
-      <div class="card-fallback" hidden>${esc(name)}</div>
+      <img loading="lazy" decoding="async" src="${esc(e.cover)}" alt="">
+      <div class="card-fallback" hidden>${esc(e.title)}</div>
       <div class="card-scrim"></div>
-      ${Number.isFinite(views2) ? `<span class="card-badge">${fmtCount(views2)}</span>` : ""}
+      <span class="card-badge">${esc(where)}</span>
       ${pct ? `<div class="card-progress"><span style="width:${pct}%"></span></div>` : ""}
-      <button class="fav-btn" type="button" data-fav="${esc(v.slug)}" aria-pressed="${owned}" aria-label="${heart}" title="${heart}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M12 20.4 4.9 14.1A5.3 5.3 0 0 1 12 6.3a5.3 5.3 0 0 1 7.1 7.8Z"/></svg>
+      <button class="card-drop" type="button" data-act-drop="${e.kind}" data-act-drop-id="${esc(e.id)}"
+        aria-label="Take ${esc(e.title)} off this rail" title="Take off this rail">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
       <div class="card-play"><span>
         <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
       </span></div>
     </div>
     <div class="card-body">
-      <h3 class="card-title">${esc(name)}</h3>
-      <p class="card-meta">${esc(metaLine)}</p>
+      <h3 class="card-title">${esc(e.title)}</h3>
+      <p class="card-meta">${esc(meta)}</p>
     </div>
   </article>`;
   }
-
-  // client/src/public-playlists.js
-  var ppIndex = [];
-  var ppQuery = "";
-  function ppMatchBadge(p) {
-    if (p.match_kind === "title") return '<span class="pl-flag">title</span>';
-    if (p.match_kind === "content") {
-      const what = p.matched_on === "studio_or_tag" ? "studio or tag" : `${p.match_count} inside`;
-      return `<span class="pl-flag">${esc(what)}</span>`;
+  var RAILS = {
+    anime: {
+      sort: "watch-anime",
+      places: [
+        { rail: "watch-rail", head: "watch-head", count: "watch-count", note: "watch-note" },
+        { rail: "anime-cont-rail", head: "anime-cont-head", count: "anime-cont-count", note: "anime-cont-note" }
+      ],
+      empty: "Episodes you play on this device are listed here, newest first \u2014 pick one up without searching for it again."
+    },
+    manga: {
+      sort: "read-manga",
+      places: [
+        { rail: "read-rail", head: "read-head", count: "read-count", note: "read-note" },
+        { rail: "manga-cont-rail", head: "manga-cont-head", count: "manga-cont-count", note: "manga-cont-note" }
+      ],
+      empty: "Chapters you open are listed here, newest first \u2014 the one you were in the middle of stays one tap away."
+    },
+    // Films & series: the rail lives in the movies view rather than in the
+    // Library, because the resume this area offers is its own page's business.
+    show: {
+      sort: "show-watch",
+      places: [{ rail: "show-watch-rail", head: "show-watch-head", count: "show-watch-count", note: "show-watch-note" }],
+      empty: "Episodes and movies you play on this device are listed here, newest first \u2014 pick one up without searching for it again."
     }
-    return "";
-  }
-  function ppCard(p) {
-    const cover = p.cover_url ? `<img loading="lazy" src="${esc(p.cover_url)}" alt="">` : '<span class="pl-art-empty">no cover</span>';
-    const owner = p.owner_name ? `<span class="pp-owner">
-         ${p.owner_avatar_url ? `<img loading="lazy" src="${esc(p.owner_avatar_url)}" alt="">` : ""}
-         <span class="pp-owner-name">${esc(p.owner_name)}</span>
-       </span>` : "";
-    return `<article class="pl-card pp-card" data-pp="${esc(p.slug)}" tabindex="0" role="button" aria-label="${esc(p.title)}">
-    <div class="pl-art" data-count="1">${cover}${p.truncated ? '<span class="pl-more">partial</span>' : ""}</div>
-    <h3 class="pl-name">${esc(p.title)}</h3>
-    ${owner}
-    <p class="pl-meta">${p.item_count} ${p.item_count === 1 ? "title" : "titles"}${p.fetched ? "" : " \xB7 entries not pulled yet"}${ppMatchBadge(p) ? `<span class="pl-flags">${ppMatchBadge(p)}</span>` : ""}</p>
-  </article>`;
-  }
-  async function loadPublicPlaylists(q = ppQuery) {
-    const rail = $("#pp-rail");
-    if (!rail) return;
-    ppQuery = q;
-    rail.innerHTML = Array.from({ length: 5 }, () => '<div class="pl-card"><div class="skeleton" style="aspect-ratio:1"></div></div>').join("");
-    const note2 = $("#pp-note");
-    try {
-      const params = new URLSearchParams({ limit: "60" });
-      if (q) params.set("q", q);
-      const body = await api("/api/public/playlists?" + params);
-      ppIndex = body.playlists ?? [];
-      const stats = body.stats ?? {};
-      $("#pp-count").textContent = `${stats.playlists ?? 0} crawled \xB7 ${fmtCount(stats.items ?? 0)} titles`;
-      rail.innerHTML = body.playlists.map(ppCard).join("");
-      if (!body.playlists.length) {
-        note2.hidden = false;
-        note2.textContent = q ? `No crawled playlist matches \u201C${q}\u201D. The index only holds what has been discovered so far \u2014 scan more to widen it.` : "The index is empty. Hit Scan more to start discovering public playlists.";
-      } else {
-        note2.hidden = true;
+  };
+  function renderActivity(kind) {
+    const cfg = RAILS[kind];
+    if (!cfg) return;
+    const rows = sorted(cfg.sort, listFor(kind));
+    const html = rows.map(activityCardHtml).join("");
+    for (const place of cfg.places) {
+      const rail = document.getElementById(place.rail);
+      if (!rail) continue;
+      rail.innerHTML = html;
+      rail.hidden = rows.length === 0;
+      const head = document.getElementById(place.head);
+      if (head) head.hidden = rows.length === 0;
+      const count = document.getElementById(place.count);
+      if (count) count.textContent = String(rows.length);
+      const note2 = document.getElementById(place.note);
+      if (note2) {
+        note2.hidden = rows.length > 0;
+        note2.textContent = rows.length ? "" : cfg.empty;
       }
-    } catch (e) {
-      rail.innerHTML = "";
-      note2.hidden = false;
-      note2.textContent = `Could not load public playlists \u2014 ${e.message}`;
     }
   }
-  async function openPublicPlaylist(slug) {
-    openSheet("public", slug);
-    let p;
-    try {
-      p = await api("/api/public/playlists/" + encodeURIComponent(slug));
-    } catch (e) {
-      $("#sheet-body").innerHTML = `<p class="note">Could not open this playlist \u2014 ${esc(e.message)}</p>`;
-      return;
-    }
-    const items = p.items ?? [];
-    $("#sheet-count").hidden = false;
-    $("#sheet-count").textContent = `${items.length} ${items.length === 1 ? "title" : "titles"}`;
-    const ownerLine = p.owner_name ? `<a class="pl-owner-link" href="/api/public/playlists?owner=${encodeURIComponent(p.owner_channel_slug ?? "")}" data-pp-owner="${esc(p.owner_channel_slug ?? "")}">${esc(p.owner_name)}</a>` : "unknown creator";
-    $("#sheet-body").innerHTML = `
-    <div class="detail-head">
-      <h2 class="detail-title">${esc(p.title)}</h2>
-      <div class="detail-meta">by ${ownerLine} \xB7 ${items.length} titles \xB7 ${p.playable ?? 0} playable${p.unresolved ? ` \xB7 ${p.unresolved} not in the local catalog` : ""}${p.truncated ? " \xB7 upstream truncated this list" : ""}</div>
-      <div class="detail-tags">
-        <span class="hero-tag">public</span>
-        ${p.views ? `<span class="hero-tag">${fmtCount(p.views)} views</span>` : ""}
-        ${p.updated_at ? `<span class="hero-tag">updated ${esc(String(p.updated_at).slice(0, 10))}</span>` : ""}
-        ${(p.tags ?? []).slice(0, 8).map((t) => `<button class="hero-tag pp-tag" type="button" data-pp-tag="${esc(t.text)}">${esc(t.text)}${t.count ? ` <em>${t.count}</em>` : ""}</button>`).join("")}
-        ${(p.brands ?? []).slice(0, 6).map((b) => `<button class="hero-tag pp-tag" type="button" data-pp-brand="${esc(b.title)}">${esc(b.title)}${b.in_playlist_count ? ` <em>${b.in_playlist_count}</em>` : ""}</button>`).join("")}
-      </div>
-    </div>
-    <div class="pl-items">
-      ${items.map((i) => i.resolved === false ? `<div class="unresolved" title="Not present in the local catalog">${esc(i.name ?? i.slug ?? "unknown")}</div>` : cardHtml(i)).join("")}
-    </div>`;
+  function renderRails() {
+    for (const kind of Object.keys(RAILS)) renderActivity(kind);
   }
-  document.addEventListener("click", (e) => {
-    const chip = e.target.closest("[data-pp-tag], [data-pp-brand]");
-    if (!chip) return;
-    e.preventDefault();
-    closeSheet();
-    const term = chip.dataset.ppTag ?? chip.dataset.ppBrand;
-    const input = $("#pp-q");
-    input.value = term;
-    $("#pp-search-shell").dataset.filled = "true";
-    loadPublicPlaylists(term);
-    showView("playlists");
-  });
-  async function playlistsForVideo(slug) {
+  document.addEventListener("htv:sort", (e) => {
     var _a10;
-    const slot = $("#in-playlists");
-    if (!slot) return;
-    let body;
-    try {
-      body = await api(`/api/public/videos/${encodeURIComponent(slug)}/playlists`);
-    } catch {
-      slot.remove();
-      return;
+    const name = (_a10 = e.detail) == null ? void 0 : _a10.name;
+    for (const [kind, cfg] of Object.entries(RAILS)) {
+      if (cfg.sort === name) renderActivity(kind);
     }
-    if (!((_a10 = body.playlists) == null ? void 0 : _a10.length)) {
-      slot.remove();
-      return;
-    }
-    slot.hidden = false;
-    slot.innerHTML = `
-    <h3 class="in-pl-head">In ${body.total} public ${body.total === 1 ? "playlist" : "playlists"}</h3>
-    <div class="rail">${body.playlists.map((p) => `
-      <button class="chip in-pl-chip" type="button" data-pp="${esc(p.slug)}">
-        ${esc(p.title)}${p.item_count ? ` <em>${p.item_count}</em>` : ""}
-      </button>`).join("")}</div>`;
-  }
-  function wirePublicPlaylists() {
-    const q = $("#pp-q");
-    const clear2 = $("#pp-clear");
-    if (q) {
-      let t = null;
-      q.oninput = () => {
-        clearTimeout(t);
-        t = setTimeout(() => loadPublicPlaylists(q.value.trim()), 220);
-      };
-      q.onkeydown = (e) => {
-        if (e.key === "Enter") {
-          clearTimeout(t);
-          loadPublicPlaylists(q.value.trim());
-        }
-      };
-    }
-    if (clear2) clear2.onclick = () => {
-      q.value = "";
-      loadPublicPlaylists("");
-    };
-    const more = $("#pp-more");
-    if (more) more.onclick = async () => {
-      more.disabled = true;
-      const was = more.textContent;
-      more.textContent = "Scanning\u2026";
-      try {
-        await fetch("/api/public/crawl", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ count: 60, max_playlists: 400, max_channels: 60 })
-        });
-        for (let i = 0; i < 120; i++) {
-          await new Promise((r) => setTimeout(r, 1500));
-          const st = await api("/api/public/crawl");
-          if (!st.crawling) {
-            await loadPublicPlaylists();
-            break;
-          }
-        }
-      } catch (e) {
-        $("#pp-note").hidden = false;
-        $("#pp-note").textContent = `Scan failed \u2014 ${e.message}`;
-      } finally {
-        more.disabled = false;
-        more.textContent = was;
-      }
-    };
-    loadPublicPlaylists("");
-  }
+  });
   document.addEventListener("click", (e) => {
-    const card = e.target.closest("[data-pp]");
+    const drop2 = e.target.closest("[data-act-drop]");
+    if (drop2) {
+      e.preventDefault();
+      forget(drop2.dataset.actDrop, drop2.dataset.actDropId);
+      renderActivity(drop2.dataset.actDrop);
+      return;
+    }
+    const wipe = e.target.closest("[data-rail-clear]");
+    if (wipe) {
+      e.preventDefault();
+      clear(wipe.dataset.railClear);
+      renderActivity(wipe.dataset.railClear);
+      return;
+    }
+    const card = e.target.closest("[data-act]");
     if (!card) return;
+    const kind = card.dataset.act;
+    const open = openers[kind];
+    if (!open) return;
     e.preventDefault();
-    openPublicPlaylist(card.dataset.pp);
+    const ref = card.dataset.actRef || card.dataset.actNum;
+    open(card.dataset.actId, ref);
   });
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Enter" && e.key !== " ") return;
-    const card = e.target.closest("[data-pp]");
-    if (card) {
-      e.preventDefault();
-      openPublicPlaylist(card.dataset.pp);
-    }
+    const card = e.target.closest("[data-act]");
+    if (!card) return;
+    const open = openers[card.dataset.act];
+    if (!open) return;
+    e.preventDefault();
+    open(card.dataset.actId, card.dataset.actRef || card.dataset.actNum);
   });
-  var _a6;
-  (_a6 = $("#pp-q")) == null ? void 0 : _a6.addEventListener("input", (e) => {
-    $("#pp-search-shell").dataset.filled = String(!!e.target.value);
-  });
-
-  // client/src/sheet.js
-  var activeHls = null;
-  var activeVid = null;
-  var activeSlug = null;
-  var sheetOrigin = null;
-  var sheetState = () => $("#sheet").classList.contains("open") ? sheetOrigin : null;
-  var setSheetOrigin = (origin) => {
-    sheetOrigin = origin;
-  };
-  function openSheet(kind, ref, chapter) {
-    pushNav();
-    sheetOrigin = kind ? { kind, ref: String(ref), chapter: chapter ? String(chapter) : null } : null;
-    const sheet = $("#sheet");
-    sheet.classList.add("open");
-    document.body.style.overflow = "hidden";
-    sheet.scrollTop = 0;
-    updateBackState();
-    $("#sheet-body").innerHTML = kind === "playlist" || kind === "public" ? listSkeleton() : sheetSkeleton();
-    $("#sheet-count").hidden = true;
-    return sheet;
-  }
-  function closeSheet() {
-    document.dispatchEvent(new CustomEvent("htv:sheet-closed"));
-    if (activeSlug && activeVid) savePosition(activeSlug, activeVid);
-    shellCall("setPlaying", false);
-    shellCall("setImmersive", false);
-    $("#sheet").dataset.reader = "false";
-    const vid = $("#vid");
-    if (vid) {
-      vid.pause();
-      vid.removeAttribute("src");
-      vid.load();
-    }
-    if (activeHls) {
-      activeHls.destroy();
-      activeHls = null;
-    }
-    const frame = document.getElementById("lx-frame");
-    if (frame) {
-      frame.removeAttribute("src");
-      frame.remove();
-    }
-    activeVid = null;
-    activeSlug = null;
-    sheetOrigin = null;
-    $("#sheet").classList.remove("open");
-    document.body.style.overflow = "";
-    document.body.dataset.pip = "false";
-    if (!isApplying()) dropClosedEntry();
-    updateBackState();
-  }
-  async function openVideo(slug) {
-    openSheet("video", slug);
-    let v;
-    try {
-      v = await api("/api/videos/" + encodeURIComponent(slug));
-    } catch (e) {
-      $("#sheet-body").innerHTML = `<p class="note">Could not load this title \u2014 ${esc(e.message)}</p>`;
-      return;
-    }
-    remember2(v);
-    $("#sheet-count").hidden = false;
-    $("#sheet-count").textContent = fmtCount(v.views) + " views";
-    const tags = (v.tags ?? []).map((t) => `<span class="hero-tag">${esc(t)}</span>`).join("");
-    const desc = esc((v.description ?? "").replace(/<[^>]+>/g, " ").replace(/\s{2,}/g, " ").trim());
-    $("#sheet-body").innerHTML = `
-    <div class="detail-hero">
-      <div class="detail-poster"><img src="${esc(v.cover ?? "")}" alt="" loading="lazy"></div>
-      <div class="detail-hero-text">
-        <div class="detail-kicker">${esc(v.brand ?? "Unknown studio")}</div>
-        <h2 class="detail-title">${esc(v.name)}</h2>
-        <div class="detail-meta">${fmtCount(v.views)} views \xB7 ${fmtCount(v.likes)} likes${v.released_at ? " \xB7 " + esc(v.released_at.slice(0, 4)) : ""}</div>
-        <div class="detail-actions">${favPill(slug)}</div>
-      </div>
-    </div>
-    <div class="detail-grid">
-      <div class="detail-main">
-        <div class="player-card">
-          <div id="player-slot">${stageLoading({ cover: v.cover, caption: "Finding a stream\u2026" })}</div>
-        </div>
-        <div id="in-playlists" hidden></div>
-        <section id="detail-recs" hidden>
-          <div class="sec-head"><div class="sec-head-l"><h2 id="rec-head">More from this studio</h2></div></div>
-          <div class="rail" id="rec-rail" aria-label="Recommended"></div>
-        </section>
-      </div>
-      <aside class="detail-side">
-        <div class="mal-slot" data-mal-kind="anime" data-mal-title="${esc(v.name)}"></div>
-        <div class="detail-tags">${tags}</div>
-        <p class="detail-desc">${desc}</p>
-      </aside>
-    </div>`;
-    playlistsForVideo(slug).catch(() => {
-    });
-    loadStudioRecs(v.brand, slug).catch(() => {
-    });
-    await mountPlayer(slug, v.cover);
-  }
-  async function loadStudioRecs(brand, slug) {
-    if (!brand) return;
-    const data = await api(`/api/videos?brand=${encodeURIComponent(brand)}&per_page=12`);
-    const items = (data.data ?? []).filter((v) => v.slug !== slug);
-    if (!items.length) return;
-    const rail = $("#rec-rail");
-    const recs = $("#detail-recs");
-    if (!rail || !recs) return;
-    $("#rec-head").textContent = `More from ${brand}`;
-    rail.innerHTML = items.map((v) => cardHtml(v)).join("");
-    recs.hidden = false;
-  }
-  async function mountPlayer(slug, cover = "") {
-    const slot = $("#player-slot");
-    const stopLooking = stageStillLooking(slot, "Still looking \u2014 some titles take a few seconds");
-    let sources;
-    try {
-      ({ sources } = await api(`/api/videos/${encodeURIComponent(slug)}/sources`));
-    } catch (e) {
-      stopLooking();
-      slot.innerHTML = `<p class="note">Could not resolve a stream \u2014 ${esc(e.message)}</p>`;
-      return;
-    }
-    stopLooking();
-    if (!(sources == null ? void 0 : sources.length)) {
-      slot.innerHTML = '<p class="note">No playable source was returned for this entry.</p>';
-      return;
-    }
-    recordHistory(slug);
-    const pipWanted = shellCall("pictureInPictureSupported") === true;
-    slot.innerHTML = `
-    <video id="vid" controls playsinline preload="metadata"></video>
-    ${videoWaitHtml({ cover })}
-    <div class="quality">${sources.map((s, i) => `<button class="q-btn" data-i="${i}" aria-pressed="${i === 0}">${esc(s.label)}</button>`).join("")}</div>
-    <div class="lib-tools">
-      <button class="chip" id="fs-btn" type="button">Fullscreen</button>
-      ${pipWanted ? '<button class="chip" id="pip-btn" type="button">Picture in picture</button>' : ""}
-      <span class="sec-count" id="player-note"></span>
-    </div>`;
-    const vid = $("#vid");
-    bindFullscreen($("#fs-btn"), () => vid);
-    activeVid = vid;
-    activeSlug = slug;
-    const veil2 = $("#vid-wait");
-    const veilOn = () => veil2 == null ? void 0 : veil2.removeAttribute("hidden");
-    const veilOff = () => veil2 == null ? void 0 : veil2.setAttribute("hidden", "");
-    vid.addEventListener("waiting", veilOn);
-    vid.addEventListener("stalled", veilOn);
-    vid.addEventListener("canplay", veilOff);
-    vid.addEventListener("playing", veilOff);
-    vid.addEventListener("error", veilOff);
-    const attach = (url) => {
-      var _a10;
-      veilOn();
-      if (activeHls) {
-        activeHls.destroy();
-        activeHls = null;
-      }
-      if ((_a10 = window.Hls) == null ? void 0 : _a10.isSupported()) {
-        activeHls = new window.Hls({ enableWorker: true, lowLatencyMode: false });
-        activeHls.on(window.Hls.Events.ERROR, (_e, data) => {
-          if (!data.fatal) return;
-          slot.insertAdjacentHTML("beforeend", `<p class="note">Playback error \u2014 ${esc(data.details)}</p>`);
-        });
-        activeHls.loadSource(url);
-        activeHls.attachMedia(vid);
-        return;
-      }
-      vid.src = url;
-    };
-    attach(sources[0].url);
-    const saved = lib.positions[slug];
-    if (saved && saved.t > 5) {
-      vid.addEventListener("loadedmetadata", () => {
-        try {
-          vid.currentTime = saved.t;
-        } catch (e) {
-        }
-        const note2 = $("#player-note");
-        if (note2) note2.textContent = `resumed from ${clock(saved.t)}`;
-      }, { once: true });
-    }
-    let lastSaved = 0;
-    vid.addEventListener("timeupdate", () => {
-      const now = Date.now();
-      if (now - lastSaved < 5e3) return;
-      lastSaved = now;
-      savePosition(slug, vid);
-    });
-    vid.addEventListener("ended", () => clearPosition(slug));
-    const tellAspect = () => {
-      if (vid.videoWidth) shellCall("setVideoAspect", vid.videoWidth, vid.videoHeight);
-    };
-    vid.addEventListener("loadedmetadata", tellAspect);
-    vid.addEventListener("play", () => {
-      shellCall("setPlaying", true);
-      tellAspect();
-    });
-    vid.addEventListener("pause", () => {
-      shellCall("setPlaying", false);
-      savePosition(slug, vid);
-    });
-    const pipBtn = $("#pip-btn");
-    if (pipBtn) pipBtn.onclick = () => shellCall("enterPip");
-    $$(".q-btn", slot).forEach((btn) => {
-      btn.onclick = () => {
-        const pos = vid.currentTime, wasPlaying = !vid.paused;
-        vid.addEventListener("loadedmetadata", () => {
-          if (pos > 0) vid.currentTime = pos;
-          if (wasPlaying) vid.play().catch(() => {
-          });
-        }, { once: true });
-        attach(sources[Number(btn.dataset.i)].url);
-        $$(".q-btn", slot).forEach((b) => {
-          b.setAttribute("aria-pressed", String(b === btn));
-        });
-      };
-    });
-  }
 
   // client/src/anime.js
   var aState = { q: "", page: 1, hasNext: false, genre: "", format: "", status: "" };

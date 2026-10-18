@@ -17,12 +17,25 @@
 // a player, the moment a chapter is rendered. Both callers hand their opener
 // in through setOpener, so this module never has to import a sheet.
 
+import { accountActivityCleared, accountActivityDropped, accountActivityOpened } from './account-sync.js';
+import { reconcileActivity } from './account-model.js';
 import { ago, esc } from './core.js';
 import { readPercent } from './manga-pos.js';
 import { sorted } from './sorts.js';
 
 const KEY = 'htv:activity:v1';
 const MAX = 60;
+
+/**
+ * How many rows one kind's rail may hold.
+ *
+ * The account holds every episode of every title this phone ever opened, and a
+ * rail is a shortlist: without a ceiling an area that the window has watched a
+ * lot of would push the other areas' rows out of the one list they share. Each
+ * kind keeps a third of the list's own size, so nothing an area does can empty
+ * another's rail.
+ */
+const MAX_PER_KIND = Math.floor(MAX / 3);
 
 function load(key, fallback) {
   try {
@@ -75,13 +88,65 @@ function noteOpen(kind, { id, title, cover, number, total, ref }) {
     at: Date.now(),
   });
   save(KEY, rows.slice(0, MAX));
+  // The account is told which episode is on screen, which is what puts this
+  // title on the window's own Continue watching rail. Manga is not a write the
+  // account has anywhere to put — the window has no reader — and the payload
+  // builder refuses it rather than the call site having to remember.
+  accountActivityOpened({ kind, id: theId, title: String(title ?? ''), cover: String(cover ?? ''), number: n, total: Number(total) > 0 ? Number(total) : 0, ref: ref === undefined || ref === null ? null : String(ref), at: Date.now() });
 }
 
 function forget(kind, id) {
+  const going = all().find((e) => e.kind === kind && String(e.id) === String(id)) ?? null;
   save(KEY, all().filter((e) => !(e.kind === kind && String(e.id) === String(id))));
+  // Taken off this rail means taken off the account's too: otherwise the next
+  // pull would put the title straight back, which is what a drop looks like
+  // when it did not happen.
+  accountActivityDropped(going);
 }
+
 function clear(kind) {
+  const going = listFor(kind);
   save(KEY, all().filter((e) => e.kind !== kind));
+  // Cleared here is cleared on the account: every title that was on this rail
+  // is off the window's Continue watching too, or the next pull would refill it.
+  accountActivityCleared(going);
+}
+
+/**
+ * The account's rows for one kind, merged into this device's rail.
+ *
+ * Called by account-sync.js after a pull: the rail is the same record either
+ * way — a title watched in the window and one watched here are one card — and
+ * what the account has never heard of is handed back to be pushed.
+ *
+ * @returns {Array} the entries the account has never seen.
+ */
+function applyActivityFromAccount(kind, remoteEntries) {
+  if (!RAILS[kind]) return [];
+  const { entries, push } = reconcileActivity(listFor(kind), remoteEntries, MAX_PER_KIND);
+  const others = all().filter((e) => e.kind !== kind);
+  const merged = [...others, ...entries].sort((a, b) => (Number(b.at) || 0) - (Number(a.at) || 0));
+  save(KEY, merged.slice(0, MAX));
+  renderActivity(kind);
+  return push;
+}
+
+/**
+ * The entries the account now owns, after the push that carried them landed.
+ *
+ * The mark is what stops a row being sent again on every sync, and what lets a
+ * title dropped in the window be dropped here — the same two jobs it does for
+ * the favourites and the history.
+ */
+function markActivityFromAccount(keys) {
+  if (!keys || keys.size === 0) return;
+  let changed = false;
+  const rows = all().map((entry) => {
+    if (!keys.has(`${entry.kind}:${entry.id}`) || entry.from === 'account') return entry;
+    changed = true;
+    return { ...entry, from: 'account' };
+  });
+  if (changed) save(KEY, rows);
 }
 
 /* ------------------------------------------------------------------- cards */
@@ -249,6 +314,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 export {
-  KEY as ACTIVITY_KEY, MAX as ACTIVITY_MAX, noteOpen, forget, clear, listFor,
+  KEY as ACTIVITY_KEY, MAX as ACTIVITY_MAX, MAX_PER_KIND as ACTIVITY_MAX_PER_KIND,
+  noteOpen, forget, clear, listFor, applyActivityFromAccount, markActivityFromAccount,
   activityCardHtml, renderActivity, renderRails, setOpener,
 };

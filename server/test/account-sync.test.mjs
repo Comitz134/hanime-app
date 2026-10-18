@@ -24,6 +24,19 @@ import {
   reconcileFavorites,
   reconcileHistory,
   mergePositions,
+  animeIdFor,
+  showIdFor,
+  animeKeyFromId,
+  seriesKeyFromId,
+  filmKeyFromId,
+  progressKeyFor,
+  activityProgressPayload,
+  activityProgressKey,
+  activityTitleGroups,
+  activityEntryForTitle,
+  reconcileActivity,
+  hasRealPosition,
+  STARTED_POSITION_MS,
   CONTENT_TYPE,
   ID_PREFIX,
   PROFILE_ID,
@@ -67,9 +80,10 @@ test('the ids this client sends are the ids the window knows', () => {
 
 test('an id from another area is passed over, not guessed at', () => {
   assert.equal(slugFromAccountId('ha:ad:some-slug'), 'some-slug');
-  // The desktop's anime, films and series rows, and MyAnimeList's own ids: this
-  // client cannot resolve any of them to a card, and an episode's id carries a
-  // season and an episode in its tail, which is not a slug.
+  // The other areas have readers of their own (`animeKeyFromId` and the two
+  // below), and MyAnimeList's ids have none: a `mal:` row is not a card this
+  // client can draw. An episode's id carries a season and an episode in its
+  // tail, which is not a slug — and not a title either.
   for (const id of ['ha:an:21', 'ha:fm:some-film', 'ha:ft:some-show', 'ha:ft:x:1:5', 'mal:21', 'some-slug', '', null]) {
     assert.equal(slugFromAccountId(id), null, `${id} was read as this client's own`);
   }
@@ -373,4 +387,189 @@ test('the client speaks the profile and the area the window does', () => {
   assert.equal(ID_PREFIX, 'ha:ad:');
   assert.equal(CONTENT_TYPE, 'movie');
   assert.equal(PROFILE_ID, 1);
+});
+
+/* ------------------------------------------- continue watching, both ways -- */
+// The anime and films areas play inside somebody else's document in a frame, so
+// the phone can never know the second — only which episode was opened. That is
+// still the window's own record, and the ids below are the window's own ids
+// (`server/src/addon.mjs` builds them), so one row is the same row on both
+// sides. These tests are about the two things that must not drift: the id/unit
+// of the write, and which episode a card stands for on the pull.
+
+/** One of the embed areas' progress rows, as the account returns it. */
+const watchRow = (contentId, lastWatched, extra = {}) => ({
+  progress_key: contentId,
+  content_id: contentId,
+  content_type: 'series',
+  video_id: contentId,
+  season: null,
+  episode: null,
+  position: 0,
+  duration: 0,
+  last_watched: lastWatched,
+  ...extra,
+});
+
+test('an anime opened here is a row the window can resume', () => {
+  assert.equal(animeIdFor(21), 'ha:an:21');
+  assert.equal(animeIdFor(''), '');
+  assert.equal(showIdFor('tv/breaking-bad-1396'), 'ha:ft:breaking-bad-1396');
+  assert.equal(showIdFor('movie/dune-2021'), 'ha:fm:dune-2021');
+  assert.equal(showIdFor('tv/'), '');
+  assert.equal(showIdFor('an/21'), '', 'an area that is not this one is not a show');
+
+  // Back the other way, for the pull — and an episode's tail is not the key.
+  assert.equal(animeKeyFromId('ha:an:21'), '21');
+  assert.equal(animeKeyFromId('ha:an:21:1:5'), '21');
+  assert.equal(seriesKeyFromId('ha:ft:x'), 'x');
+  assert.equal(filmKeyFromId('ha:fm:y'), 'y');
+  assert.equal(animeKeyFromId('ha:ad:x'), null);
+
+  const anime = activityProgressPayload({ kind: 'anime', id: 21, number: 5, at: 1_700_000_000_000 });
+  assert.deepEqual(anime, {
+    // The window's own key rule: one row per episode, named after the episode.
+    progress_key: 'ha:an:21_s1e5',
+    content_id: 'ha:an:21',
+    content_type: 'series',
+    video_id: 'ha:an:21:1:5',
+    season: 1,
+    episode: 5,
+    // One second: the smallest claim that means "watched", and no duration,
+    // because an embed cannot report one.
+    position: 1_000,
+    duration: 0,
+    last_watched: 1_700_000_000_000,
+  });
+  assert.equal(STARTED_POSITION_MS, 1_000);
+
+  const episode = activityProgressPayload({ kind: 'show', id: 'tv/x', ref: 's2e5', at: 10 });
+  assert.equal(episode.progress_key, 'ha:ft:x_s2e5');
+  assert.equal(episode.video_id, 'ha:ft:x:2:5');
+  assert.equal(episode.season, 2);
+  assert.equal(episode.episode, 5);
+
+  // A film has no episode to resume: it travels as the title itself.
+  const film = activityProgressPayload({ kind: 'show', id: 'movie/y', at: 10 });
+  assert.equal(film.progress_key, 'ha:fm:y');
+  assert.equal(film.content_type, 'movie');
+  assert.equal(film.video_id, 'ha:fm:y');
+  assert.equal(film.season, null);
+  assert.equal(film.episode, null);
+});
+
+test('a chapter is not a row the window could ever show', () => {
+  // Manga keeps its own store, and the window has no reader at all.
+  assert.equal(activityProgressPayload({ kind: 'manga', id: 'm', number: 3, at: 5 }), null);
+  assert.equal(activityProgressKey({ kind: 'manga', id: 'm', number: 3 }), null);
+  // And an episode that is not a number is not a row either.
+  assert.equal(activityProgressPayload({ kind: 'anime', id: 21 }), null);
+  assert.equal(activityProgressPayload({ kind: 'anime', id: 21, number: 0.5 }), null);
+  assert.equal(activityProgressPayload({ kind: 'show', id: 'an/21', ref: 's1e1' }), null);
+});
+
+test('the window\'s watching arrives here as this phone\'s own card', () => {
+  const rows = [
+    watchRow('ha:an:21', 900, { progress_key: 'ha:an:21_s1e5', episode: 5, season: 1 }),
+    watchRow('ha:an:21', 100, { progress_key: 'ha:an:21_s1e4', episode: 4, season: 1 }),
+    // The 18+ shelf has its own list and must not be drawn on this rail.
+    watchRow('ha:ad:some-slug', 5_000),
+    // A row with no moment it was watched is not a row.
+    watchRow('ha:fm:none', 0),
+  ];
+  const groups = activityTitleGroups(rows);
+  assert.deepEqual([...groups.keys()], ['ha:an:21']);
+  assert.deepEqual(groups.get('ha:an:21').map((r) => r.episode), [5, 4], 'the newest row is not first');
+
+  const entry = activityEntryForTitle(groups.get('ha:an:21'), { episodes: 12 });
+  assert.equal(entry.kind, 'anime');
+  assert.equal(entry.id, '21');
+  assert.equal(entry.number, 5);
+  assert.equal(entry.at, 900);
+  assert.equal(entry.from, 'account');
+  // Every row the card stands for travels with it, so taking it off the rail
+  // takes the account's rows with it rather than putting it straight back.
+  assert.deepEqual(entry.keys, ['ha:an:21_s1e5', 'ha:an:21_s1e4']);
+
+  const series = activityEntryForTitle([
+    watchRow('ha:ft:x', 800, { progress_key: 'ha:ft:x_s2e5', season: 2, episode: 5 }),
+  ]);
+  assert.equal(series.kind, 'show');
+  assert.equal(series.id, 'tv/x', 'a series card opens `type/slug`, the way the view does');
+  assert.equal(series.number, 5);
+  assert.equal(series.ref, 's2e5', 'and at the season the window was at, not at its first');
+
+  const film = activityEntryForTitle([watchRow('ha:fm:y', 800)]);
+  assert.equal(film.kind, 'show');
+  assert.equal(film.id, 'movie/y');
+  assert.equal(film.ref, null);
+});
+
+test('a finished episode continues at the next one, when there is one', () => {
+  const done = (episode, episodes, position = 540_000, duration = 600_000) => activityEntryForTitle(
+    [watchRow('ha:an:22', 900, {
+      progress_key: `ha:an:22_s1e${episode}`, season: 1, episode, position, duration,
+    })],
+    { episodes },
+  );
+
+  assert.equal(done(5, 12).number, 6, 'a finished episode is not where the card resumes');
+  assert.equal(done(12, 12), null, 'the last episode is not a next one');
+  // Nothing here knows how many episodes the series has, and guessing "there is
+  // another" is how a card opens onto a player with nothing behind it.
+  assert.equal(done(5, 0), null);
+  // The window's own rule, mirrored: ninety percent, and never for a duration
+  // that is a placeholder rather than an episode.
+  assert.equal(done(5, 12, 500_000, 600_000).number, 5, 'eighty-three percent is not finished');
+  assert.equal(done(5, 12, 60_000, 60_000).number, 5, 'a minute is not a real episode');
+});
+
+test('a title dropped in the window is dropped here, and a newer one is sent', () => {
+  const here = [
+    { kind: 'anime', id: '21', title: 'Mine', cover: 'c/mine.jpg', number: 3, at: 100 },
+    // On this rail because the account had it, and the account no longer does:
+    // the reader finished it there.
+    { kind: 'anime', id: '22', title: 'Gone', number: 4, at: 50, from: 'account' },
+  ];
+  const there = [
+    { kind: 'anime', id: '21', number: 4, at: 900, from: 'account' },
+  ];
+
+  const { entries, push } = reconcileActivity(here, there);
+
+  assert.deepEqual(entries.map((e) => e.id), ['21'], 'a title the account dropped is still on this rail');
+  // The account carries the episode; this side carries the name and cover,
+  // because a progress row does not keep either.
+  assert.equal(entries[0].number, 4);
+  assert.equal(entries[0].title, 'Mine');
+  assert.equal(entries[0].cover, 'c/mine.jpg');
+  assert.equal(entries[0].at, 900);
+  // Nothing to send: the account's copy is the newer watching.
+  assert.deepEqual(push, []);
+});
+
+test('an episode opened here after the account\'s last word is sent', () => {
+  // Same title, later episode, on this phone: the window has to hear about it or
+  // the two rails keep two different episodes of one show.
+  const { entries, push } = reconcileActivity(
+    [{ kind: 'anime', id: '21', title: 'T', number: 7, at: 900 }],
+    [{ kind: 'anime', id: '21', number: 5, at: 100, from: 'account' }],
+  );
+  assert.equal(entries[0].number, 7);
+  assert.deepEqual(push.map((e) => e.number), [7]);
+
+  // And a title the account has never heard of goes the same way.
+  const fresh = reconcileActivity([{ kind: 'show', id: 'movie/y', title: 'Y', number: 1, at: 5 }], []);
+  assert.deepEqual(fresh.push.map((e) => e.id), ['movie/y']);
+});
+
+test('a real position is never replaced by an opening', () => {
+  // The window stopped twelve minutes into an episode; the phone opening the
+  // same episode knows only that it was opened, and writing one second over the
+  // window's row would send the reader back to the start of it.
+  assert.equal(hasRealPosition({ position: 720_000, duration: 1_440_000 }), true);
+  assert.equal(hasRealPosition({ position: 720_000, duration: 0 }), true);
+  assert.equal(hasRealPosition({ position: STARTED_POSITION_MS, duration: 0 }), false);
+  assert.equal(hasRealPosition({ position: 0, duration: 0 }), false);
+  assert.equal(hasRealPosition(null), false);
 });
