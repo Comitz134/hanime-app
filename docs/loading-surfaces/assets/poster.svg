@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 600" width="400" height="600">
+  <!-- Stand-in cover art for the screenshots in this folder. The app blurs and
+       darkens whatever cover a title has; this is only so the frame has
+       something to blur. It is not a real title's poster. -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0.4" y2="1">
+      <stop offset="0" stop-color="#2a1d3d"/>
+      <stop offset="0.55" stop-color="#7c3f5c"/>
+      <stop offset="1" stop-color="#e0a06a"/>
+    </linearGradient>
+    <radialGradient id="sun" cx="0.68" cy="0.38" r="0.42">
+      <stop offset="0" stop-color="#ffe6c2" stop-opacity="0.95"/>
+      <stop offset="1" stop-color="#ffe6c2" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="400" height="600" fill="url(#sky)"/>
+  <rect width="400" height="600" fill="url(#sun)"/>
+  <path d="M0 470 L96 372 L164 438 L238 340 L400 500 L400 600 L0 600 Z" fill="#1b1424" opacity="0.92"/>
+  <path d="M0 512 L70 452 L148 508 L232 440 L320 512 L400 462 L400 600 L0 600 Z" fill="#0d0a13"/>
+  <circle cx="272" cy="168" r="52" fill="#ffe6c2" opacity="0.55"/>
+  <g fill="#ffffff" opacity="0.16">
+    <circle cx="62" cy="86" r="2"/><circle cx="118" cy="140" r="1.6"/>
+    <circle cx="342" cy="86" r="2.2"/><circle cx="300" cy="56" r="1.4"/>
+    <circle cx="196" cy="66" r="1.8"/><circle cx="36" cy="196" r="1.5"/>
+  </g>
+</svg>

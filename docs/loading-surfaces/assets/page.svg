@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 1200" width="800" height="1200">
+  <!-- Stand-in manga page for the screenshots in this folder: one page that has
+       decoded, drawn beside pages that have not. Not anyone's artwork. -->
+  <rect width="800" height="1200" fill="#f2efe9"/>
+  <rect x="46" y="46" width="708" height="476" fill="#d8d2c6" stroke="#1a1a1a" stroke-width="4"/>
+  <path d="M120 452 C210 360 300 470 392 398 C486 324 566 440 690 356" fill="none" stroke="#3b3b3b" stroke-width="10" stroke-linecap="round"/>
+  <circle cx="596" cy="180" r="74" fill="#ece7dd" stroke="#1a1a1a" stroke-width="4"/>
+  <rect x="46" y="548" width="344" height="606" fill="#e6e1d7" stroke="#1a1a1a" stroke-width="4"/>
+  <rect x="410" y="548" width="344" height="280" fill="#dcd6ca" stroke="#1a1a1a" stroke-width="4"/>
+  <path d="M92 1080 L150 960 L214 1044 L268 940 L344 1092" fill="none" stroke="#4a4a4a" stroke-width="8" stroke-linejoin="round"/>
+  <g fill="#8f8f8f">
+    <rect x="446" y="872" width="240" height="12" rx="6"/>
+    <rect x="446" y="906" width="196" height="12" rx="6"/>
+    <rect x="446" y="940" width="216" height="12" rx="6"/>
+  </g>
+  <text x="400" y="1180" font-family="monospace" font-size="22" fill="#9a948a" text-anchor="middle">stand-in page</text>
+</svg>

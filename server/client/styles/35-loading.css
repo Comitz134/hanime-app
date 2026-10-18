@@ -1,0 +1,157 @@
+/* --------------------------------------------------------------------------
+   Loading
+   --------------------------------------------------------------------------
+   What a screen draws while the thing it is waiting for is on its way.
+
+   The rule every screen here keeps: no empty box with a spinner in it, and no
+   word standing in for the work. A reader who opens a film waits a second or
+   two for the resolver to find a stream; a reader opening a manga chapter waits
+   for pages that arrive one at a time; a reader opening a title waits for its
+   detail page. A spinner says only that time is passing. The shape of the thing
+   that is coming says what is being waited for — the page it is about to
+   become, the stage the video will play on, the pages that are on their way.
+
+   So the detail sheet draws the detail page (the same `.detail-hero` and
+   `.detail-grid` the real one uses, with bars where its text will be), the
+   player draws its own 16:9 stage with the title's poster behind it, and the
+   reader draws page-shaped strips that inherit whatever layout it is set to.
+   Nothing here invents a geometry of its own: a skeleton that does not match
+   the thing it replaces makes the arrival jump.
+   -------------------------------------------------------------------------- */
+
+/* Shapes built out of `.skeleton` (30-grid.css), which is the shimmer itself. */
+.sk-card { display: grid; gap: .5rem; align-content: start; }
+.sk-card .skeleton:first-child { aspect-ratio: 2 / 3; }
+.sk-line { height: .55rem; border-radius: 999px; }
+.sk-line.tall { height: .95rem; }
+.sk-line.short { width: 38%; }
+.sk-line.mid { width: 64%; }
+.sk-line.wide { width: 86%; }
+.sk-line + .sk-line { margin-top: .5rem; }
+.sk-sep { margin-top: 1.25rem; }
+.sk-pill { width: 7rem; height: 2rem; border-radius: 999px; }
+.sk-stage { width: 100%; aspect-ratio: 16 / 9; border-radius: 1rem; }
+.sk-chip { width: 4.5rem; height: 1.5rem; border-radius: 999px; }
+.sk-chips { display: flex; flex-wrap: wrap; gap: .375rem; margin-top: .75rem; }
+
+/* A list of rows: the shape a playlist's sheet takes. */
+.sk-rows { display: grid; gap: .875rem; padding: .5rem 0; }
+.sk-row { display: flex; gap: .75rem; align-items: center; }
+.sk-square { width: 46px; height: 46px; border-radius: .5rem; flex: 0 0 auto; }
+.sk-row-text { flex: 1 1 auto; min-width: 0; }
+
+/* The detail sheet, drawn with the real page's own layout classes. */
+.sheet-skel { padding-top: .25rem; }
+.sheet-skel .detail-poster { background: none; border: 0; }
+.sheet-skel .sk-poster { width: 100%; height: 100%; border-radius: .625rem; }
+.sheet-skel .detail-hero-text { flex: 1 1 auto; padding-top: .15rem; }
+
+/* ---- the player's stage ------------------------------------------------- */
+
+/* The stage while a stream is being found: the poster the reader clicked,
+   blurred back behind the ring, at the size the video will be. */
+.stage-load {
+  position: relative; aspect-ratio: 16 / 9; overflow: hidden;
+  display: grid; place-items: center; background: #050505;
+  isolation: isolate;
+}
+.stage-load-bg {
+  position: absolute; inset: -12%; z-index: -1;
+  width: 124%; height: 124%; object-fit: cover;
+  filter: blur(22px) saturate(.85) brightness(.42);
+}
+.stage-load::after {
+  content: ""; position: absolute; inset: 0; z-index: -1;
+  background: radial-gradient(65% 65% at 50% 45%, hsl(var(--background) / .1), hsl(var(--background) / .82));
+}
+.stage-load .ring {
+  width: 3.25rem; height: 3.25rem; border-radius: 999px;
+  border: 3px solid hsl(0 0% 100% / .16);
+  border-top-color: hsl(var(--primary));
+  animation: spin .9s linear infinite;
+}
+.stage-load .cap {
+  position: absolute; left: 0; right: 0; bottom: 1rem;
+  text-align: center; font-size: .6875rem; letter-spacing: .12em;
+  text-transform: uppercase; color: hsl(0 0% 100% / .62);
+}
+/* The same 16:9 box with no poster to put behind it — an embed area that has
+   no cover yet still gets the stage, not the empty page. */
+.stage-load[data-empty="true"] .stage-load-bg { display: none; }
+
+/* The overlay over a video that has not drawn a frame yet: the poster again,
+   a small ring, and nothing that moves while the reader is watching it. */
+#player-slot { position: relative; }
+.vid-wait {
+  position: absolute; inset: 0; z-index: 2; pointer-events: none;
+  display: grid; place-items: center; background: #000; overflow: hidden;
+}
+.vid-wait .bg {
+  position: absolute; inset: -12%;
+  width: 124%; height: 124%; object-fit: cover;
+  filter: blur(20px) saturate(.85) brightness(.4);
+}
+.vid-wait .ring {
+  position: relative; width: 2.25rem; height: 2.25rem; border-radius: 999px;
+  border: 3px solid hsl(0 0% 100% / .18); border-top-color: hsl(var(--primary));
+  animation: spin .9s linear infinite;
+}
+
+/* ---- the reader --------------------------------------------------------- */
+
+/* Page-shaped strips that inherit the reader's own layout rules (they carry
+   `.rd-page`), so a two-page layout shows two strips and a strip layout shows
+   the same long scroll it will become. */
+.rd-pages .rd-skel { background: none; }
+.rd-pages .sk-page {
+  aspect-ratio: 2 / 3; min-height: 46vh; border-radius: .25rem;
+}
+
+/* One page while the rest of the chapter is still arriving: a page-shaped
+   shimmer where the image will be, gone the moment it is drawn. */
+.rd-page[data-pending="true"] {
+  background: hsl(var(--card));
+  min-height: 30vh;
+  position: relative; overflow: hidden;
+}
+.rd-page[data-pending="true"]::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, hsl(var(--accent) / .7), transparent);
+  animation: shimmer 1.4s linear infinite;
+}
+
+/* ---- first paint -------------------------------------------------------- */
+
+/* The veil over the page before the catalog has answered. It is not decoration
+   over a blank screen: the navigation behind it is already built, and this is
+   the app saying it is opening rather than leaving an empty grid to imply it.
+   boot.js takes it away (and takes it away on a timer if the catalog never
+   answers, so a network that fails cannot leave a screen with no way in). */
+.boot-veil {
+  position: fixed; inset: 0; z-index: 40000;
+  display: grid; place-items: center; gap: 1.1rem; align-content: center;
+  background: hsl(var(--background));
+  transition: opacity .35s var(--ease-out-expo);
+}
+.boot-veil[data-done="true"] { opacity: 0; pointer-events: none; }
+.boot-veil .mark {
+  width: 46px; height: 46px; color: hsl(var(--primary));
+  animation: boot-pulse 1.6s var(--ease-out-expo) infinite;
+}
+.boot-veil .bar {
+  width: 132px; height: 2px; border-radius: 999px;
+  background: hsl(var(--foreground) / .12); overflow: hidden;
+}
+.boot-veil .bar span {
+  display: block; width: 40%; height: 100%; border-radius: 999px;
+  background: hsl(var(--primary));
+  animation: boot-bar 1.15s var(--ease-out-expo) infinite;
+}
+@keyframes boot-bar {
+  0% { transform: translateX(-110%); }
+  100% { transform: translateX(360%); }
+}
+@keyframes boot-pulse {
+  0%, 100% { opacity: .55; transform: scale(.96); }
+  50% { opacity: 1; transform: scale(1); }
+}

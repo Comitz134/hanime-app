@@ -34,6 +34,29 @@ document.addEventListener('error', (e) => {
   if (fb) { e.target.remove(); fb.hidden = false; } else { e.target.style.visibility = 'hidden'; }
 }, true);
 
+// A manga page that has arrived stops being a pending strip. Captured at the
+// document because `load` does not bubble: the reader marks every page it draws
+// with `data-pending`, and this is the one place that takes the mark off.
+document.addEventListener('load', (e) => {
+  const img = e.target;
+  if (img.tagName !== 'IMG') return;
+  if (img.dataset?.pending) delete img.dataset.pending;
+}, true);
+
+/* The first-paint veil (template.html): taken away when there is something
+   behind it, and taken away anyway after a while — a catalog that never answers
+   must not leave a reader on a screen with no way in. Boot calls this in a
+   `finally`, so a failed load still ends on the page that says what failed. */
+const veil = document.getElementById('boot-veil');
+let veilGone = false;
+function dropVeil() {
+  if (!veil || veilGone) return;
+  veilGone = true;
+  veil.setAttribute('data-done', 'true');
+  setTimeout(() => veil.remove(), 400);
+}
+setTimeout(dropVeil, 15000);
+
 $$('.rail').forEach(makeDraggable);
 
 // Boot. Deliberately an async IIFE rather than top-level await: this script is
@@ -77,6 +100,9 @@ $$('.rail').forEach(makeDraggable);
     await loadGrid();
   } catch (e) {
     $('#grid').innerHTML = `<p class="note">Could not reach the proxy — ${esc(e.message)}</p>`;
+  } finally {
+    // Whatever happened, the page behind the veil is now the page to show.
+    dropVeil();
   }
 
   // The account's own playlists are fetched once, for name search later; a

@@ -37,6 +37,7 @@ import { isRead, markRead, setProgress } from './manga-read.js';
 import { prefs, savePrefs } from './prefs.js';
 import { isSaved, toggleSaved } from './manga-saved.js';
 import { mangaChapters, mangaDetail, mangaFilterOptions, mangaPages, mangaSearch, mangaTrending, posterFor, proxied, sourceUrl } from './manga-api.js';
+import { readerSkeleton, skeletonCards } from './loading.js';
 import { closeSheet, openSheet, setSheetOrigin } from './sheet.js';
 import { shellCall, shellCan } from './shell.js';
 import { showView } from './views.js';
@@ -82,7 +83,9 @@ async function loadManga(page) {
   const grid = $('#manga-grid');
   const pager = $('#manga-pager');
   const listMode = mFiltered();
-  if (page > 1) grid.innerHTML = '<div class="center-spin"><div class="spinner"></div></div>';
+  // A page turn keeps the shelf's shape: the cards that are coming are drawn
+  // where they will land, at the size they will be.
+  if (page > 1) grid.innerHTML = skeletonCards(12);
   try {
     let items = [];
     let hasNext = false;
@@ -280,8 +283,12 @@ function applyReadPrefs() {
  * section below), and it is what lets the spot, the progress bar and the
  * chapter being read all keep to one chapter at a time.
  */
+// `data-pending` is what a page looks like before its image has decoded: a
+// page-shaped shimmer in the strip, so a chapter that is still arriving reads
+// as pages on their way rather than as a half-empty strip. boot.js takes the
+// attribute off when the image loads.
 const pagesHtml = (pages, chapterId) => (pages.length
-  ? pages.map((p, i) => `<img class="rd-page" data-ch="${esc(String(chapterId))}" loading="lazy" decoding="async" src="${esc(proxied(p.url))}" alt="Page ${i + 1}">`).join('')
+  ? pages.map((p, i) => `<img class="rd-page" data-ch="${esc(String(chapterId))}" data-pending="true" loading="lazy" decoding="async" src="${esc(proxied(p.url))}" alt="Page ${i + 1}">`).join('')
   : '<p class="note">No pages came back for this chapter.</p>');
 
 /** The mounted pages of one chapter, in the order they are read. */
@@ -1108,7 +1115,7 @@ function bindReaderControls({ go, chapter }) {
       pagesCache.delete(chapter.id);
       const slot = $('#rd-pages');
       if (!slot) return;
-      slot.innerHTML = '<div class="center-spin"><div class="spinner"></div></div>';
+      slot.innerHTML = readerSkeleton();
       try {
         const again = await mangaPages(chapter.id);
         trimCache(pagesCache, 60);
@@ -1618,7 +1625,7 @@ async function renderReader() {
   $('#sheet').dataset.reader = 'true';
 
   $('#sheet-body').innerHTML = `
-    <div class="rd-pages" id="rd-pages"><div class="center-spin"><div class="spinner"></div></div></div>
+    <div class="rd-pages" id="rd-pages">${readerSkeleton()}</div>
     <div class="rd-end">
       <div class="rd-end-title">${esc(dState.detail?.title ?? '')}</div>
       <div class="rd-end-sub" id="rd-end-sub">Chapter ${esc(String(ch.number))} of ${total}${ch.name ? ' · ' + esc(ch.name) : ''}</div>

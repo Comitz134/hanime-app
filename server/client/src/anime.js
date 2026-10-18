@@ -11,6 +11,7 @@
 // plays, so what works there works here.
 
 import { $, embedStageHtml, esc, mountEmbedStage } from './core.js';
+import { skeletonCards, stageLoading } from './loading.js';
 import { autoAdvance } from './mal.js';
 import { noteOpen, renderActivity } from './activity.js';
 import { openSheet } from './sheet.js';
@@ -54,7 +55,9 @@ function animeNote(msg) {
 async function loadAnime(page) {
   const grid = $('#anime-grid');
   const pager = $('#anime-pager');
-  if (page > 1) grid.innerHTML = '<div class="center-spin"><div class="spinner"></div></div>';
+  // A page turn keeps the grid's shape: the cards that are coming are drawn
+  // where they will land, at the size they will be.
+  if (page > 1) grid.innerHTML = skeletonCards(12);
   try {
     // The filters ride the query as request parameters, so AniList answers
     // with a page of matches — never a page for this client to sift itself.
@@ -132,6 +135,12 @@ async function loadPlayer(ep) {
   if (!slot) return;
   dState.ep = ep;
   paintEpisodeSide();
+  // First load only: the stage with this title's poster, not an empty frame.
+  // A later episode keeps the frame that is already there — replacing it would
+  // restart the embed the reader is listening to.
+  if (!document.getElementById('lx-frame') && !slot.querySelector('.stage-load')) {
+    slot.innerHTML = stageLoading({ cover: dState.details?.cover, caption: 'Loading the player…' });
+  }
   try {
     const res = await fetch(`/api/anime/${dState.id}/player?ep=${ep}`);
     if (!res.ok) throw new Error(`status ${res.status}`);
@@ -206,7 +215,7 @@ async function openAnime(id, ep = 1) {
     <div class="detail-grid">
       <div class="detail-main">
         <div class="player-card">
-          <div id="lx-slot"><div class="center-spin"><div class="spinner"></div></div></div>
+          <div id="lx-slot">${stageLoading({ cover: details.cover, caption: 'Loading the player…' })}</div>
         </div>
         <div class="ep-nav">
           <button class="page-btn" id="ep-prev" type="button">← Previous</button>

@@ -12,6 +12,7 @@
 // fetched. A movie has none of that and plays on arrival.
 
 import { $, $$, embedStageHtml, esc, mountEmbedStage } from './core.js';
+import { skeletonCards, stageLoading, stageStillLooking } from './loading.js';
 import { noteOpen, renderActivity } from './activity.js';
 import { openSheet } from './sheet.js';
 
@@ -57,7 +58,9 @@ function showsNote(msg) {
 async function loadShows(page) {
   const grid = $('#movies-grid');
   const pager = $('#movies-pager');
-  if (page > 1) grid.innerHTML = '<div class="center-spin"><div class="spinner"></div></div>';
+  // A page turn keeps the grid's shape: the cards that are coming are drawn
+  // where they will land, at the size they will be.
+  if (page > 1) grid.innerHTML = skeletonCards(12);
   try {
     const params = new URLSearchParams({ q: mState.q, page: String(page) });
     if (mState.type) params.set('type', mState.type);
@@ -256,12 +259,21 @@ async function loadShowPlayer(seq, ep) {
   if (!slot || seq !== openSeq) return;
   dState.ep = ep;
   paintShowSide();
+  // The stage before anything resolves: the poster of the title being opened,
+  // at the size of the frame that will replace it. The resolver here walks a
+  // real browser through the doors, which is slow enough that the wait needs
+  // to say what it is.
+  if (!document.getElementById('lx-frame')) {
+    slot.innerHTML = stageLoading({ cover: dState.details?.poster, caption: 'Looking for a stream…' });
+  }
+  const stopLooking = stageStillLooking(slot, 'Still looking — some titles take a few seconds');
   try {
     const params = new URLSearchParams({ season: String(dState.season), episode: String(ep) });
     const res = await fetch(`/api/fmovies/${dState.type}/${encodeURIComponent(dState.slug)}/player?${params}`);
     if (!res.ok) throw new Error(`status ${res.status}`);
     const sources = (await res.json()).sources ?? [];
     if (!sources.length) throw new Error('no source');
+    stopLooking();
     if (seq !== openSeq) return;
     dState.sources = sources;
     // The doors are the site's own, and the server has already knocked on each
@@ -301,6 +313,7 @@ async function loadShowPlayer(seq, ep) {
     });
     renderActivity('show');
   } catch (e) {
+    stopLooking();
     if (seq !== openSeq) return;
     slot.innerHTML = `<p class="note">Could not resolve a player — ${esc(e.message)}</p>`;
   }
@@ -403,7 +416,7 @@ async function openShow(ref, chapter = null) {
     <div class="detail-grid">
       <div class="detail-main">
         <div class="player-card">
-          <div id="fx-slot"><div class="center-spin"><div class="spinner"></div></div></div>
+          <div id="fx-slot">${stageLoading({ cover: details.poster, caption: 'Looking for a stream…' })}</div>
         </div>
         ${isTv ? `<div class="ep-nav">
           <button class="page-btn" id="ep-prev" type="button">← Previous</button>

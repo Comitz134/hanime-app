@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Loading surfaces — screenshots</title>
+<style>
+  :root { color-scheme: dark; --ink:#f1ede7; --dim:#a49e94; --line:#2a2723; --bg:#0e0e0f; --card:#16161a; --accent:#ffe0bd; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  main { max-width: 1100px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+  h1 { font-size: 1.6rem; letter-spacing: -.01em; margin: 0 0 .5rem; }
+  .lede { color: var(--dim); max-width: 68ch; }
+  .lede a { color: var(--accent); }
+  figure { margin: 3rem 0 0; border-top: 1px solid var(--line); padding-top: 1.75rem; display: grid; gap: 1.5rem; }
+  @media (min-width: 900px) { figure { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); align-items: start; } }
+  .shot { display:block; border:1px solid var(--line); border-radius:.75rem; overflow:hidden; background:var(--card); }
+  .shot img { display:block; width:100%; height:auto; }
+  figcaption h2 { font-size: 1rem; margin: 0 0 .25rem; }
+  figcaption p { margin: .5rem 0 0; color: var(--dim); font-size: .8125rem; }
+  .meta { color: #7d7770; font-size: .75rem; }
+  .meta a, figcaption a { color: var(--accent); }
+  table { margin-top: .9rem; border-collapse: collapse; width: 100%; font-size: .75rem; }
+  th, td { text-align: left; padding: .3rem .5rem .3rem 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: #7d7770; font-weight: 400; white-space: nowrap; }
+  td { color: var(--ink); word-break: break-word; }
+</style>
+</head>
+<body>
+<main>
+  <h1>What the app draws while it waits</h1>
+  <p class="lede">
+    Every loading surface in the client, photographed from the client's own code:
+    <code>server/client/src/loading.js</code> drew each one, the client's stylesheets sized it,
+    and the veil, the nav and the sheet are the markup from <code>server/client/template.html</code>.
+    Regenerate with <code>node docs/loading-surfaces/build.mjs</code> — see
+    <a href="README.md">README.md</a> for what is real in these pictures, what is stand-in art,
+    and what a still cannot show.
+  </p>
+  <p class="lede">15 surfaces · animations held at 700ms so two runs look the same.</p>
+
+  <figure id="first-paint">
+    <a class="shot" href="shots/01-first-paint.png"><img src="shots/01-first-paint.png" alt="First paint — the boot veil" loading="lazy"></a>
+    <figcaption>
+      <h2>First paint — the boot veil</h2>
+      <p class="meta">first-paint · viewport 1200×760 @2× · 15 KiB · <a href="shots/01-first-paint.png">full size</a></p>
+      <p class="meta">image σ 3.66 · mean 17 · centre 18 · peak 227</p>
+      <p>Drawn by template.html before the catalog has answered, and lifted by boot.js (on the catalog, or on a 15-second timer so a dead network cannot leave a screen with no way in).</p>
+      <table><tr><th>veil</th><td>1200×760</td></tr><tr><th>coversViewport</th><td>true</td></tr><tr><th>zIndex</th><td>40000</td></tr><tr><th>mark</th><td>1</td></tr><tr><th>bar</th><td>boot-bar</td></tr><tr><th>animations</th><td>2</td></tr></table>
+    </figcaption>
+  </figure>
+
+  <figure id="stage-films">
+    <a class="shot" href="shots/02-stage-films.png"><img src="shots/02-stage-films.png" alt="Films — looking for a stream" loading="lazy"></a>
+    <figcaption>
+      <h2>Films — looking for a stream</h2>
+      <p class="meta">stage-films · viewport 1000×640 @1× · 236 KiB · <a href="shots/02-stage-films.png">full size</a></p>
+      <p class="meta">image σ 14.36 · mean 31 · centre 49 · peak 228</p>
+      <p>The stage an embed will play on, at the size it will be, with the title’s own cover blurred behind the ring. This is the caption movies.js mounts with.</p>
+      <table><tr><th>stage</th><td>918×516</td></tr><tr><th>ratio</th><td>1.78</td></tr><tr><th>caption</th><td>Looking for a stream…</td></tr><tr><th>backdrop</th><td>blur(22px) saturate(0.85) brightness(0.42)</td></tr><tr><th>backdropDecoded</th><td>true</td></tr><tr><th>ring</th><td>spin</td></tr><tr><th>skeletons</th><td>0</td></tr><tr><th>animations</th><td>1</td></tr></table>
+    </figcaption>
+  </figure>
+
+  <figure id="stage-still">
+    <a class="shot" href="shots/03-stage-still.png"><img src="shots/03-stage-still.png" alt="Films — still looking, after four seconds" loading="lazy"></a>
+    <figcaption>
+      <h2>Films — still looking, after four seconds</h2>
+      <p class="meta">stage-still · viewport 1000×640 @1× · 238 KiB · <a href="shots/03-stage-still.png">full size</a></p>
+      <p class="meta">image σ 14.67 · mean 32 · centre 49 · peak 228</p>
+      <p>The same stage after stageStillLooking() has fired. The caption is the app telling the truth about a slow title instead of an animation that looks the same working or stuck.</p>
+      <table><tr><th>stage</th><td>918×516</td></tr><tr><th>ratio</th><td>1.78</td></tr><tr><th>caption</th><td>Still looking — some titles take a few seconds</td></tr><tr><th>backdrop</th><td>blur(22px) saturate(0.85) brightness(0.42)</td></tr><tr><th>backdropDecoded</th><td>true</td></tr><tr><th>ring</th><td>spin</td></tr><tr><th>skeletons</th><td>0</td></tr><tr><th>animations</th><td>1</td></tr></table>
+    </figcaption>
+  </figure>
+
+  <figure id="stage-no-poster">
+    <a class="shot" href="shots/04-stage-no-poster.png"><img src="shots/04-stage-no-poster.png" alt="A stage with no cover to put behind it" loading="lazy"></a>
+    <figcaption>
+      <h2>A stage with no cover to put behind it</h2>
+      <p class="meta">stage-no-poster · viewport 1000×640 @1× · 48 KiB · <a href="shots/04-stage-no-poster.png">full size</a></p>
+      <p class="meta">image σ 5.18 · mean 13 · centre 9 · peak 228</p>
+      <p>The supported empty state: the same 16:9 stage, no poster (data-empty), so an embed area with no cover yet still gets the stage rather than an empty page.</p>
+      <table><tr><th>stage</th><td>918×516</td></tr><tr><th>ratio</th><td>1.78</td></tr><tr><th>caption</th><td>Loading the player…</td></tr><tr><th>backdrop</th><td>none</td></tr><tr><th>backdropDecoded</th><td>false</td></tr><tr><th>ring</th><td>spin</td></tr><tr><th>skeletons</th><td>0</td></tr><tr><th>animations</th><td>1</td></tr></table>
+    </figcaption>
+  </figure>
+
+  <figure id="video-wait">
+    <a class="shot" href="shots/05-video-wait.png"><img src="shots/05-video-wait.png" alt="A video that has not drawn a frame" loading="lazy"></a>
+    <figcaption>
+      <h2>A video that has not drawn a frame</h2>
+      <p class="meta">video-wait · viewport 1000×640 @2× · 156 KiB · <a href="shots/05-video-wait.png">full size</a></p>
+      <p class="meta">image σ 23.04 · mean 44 · centre 60 · peak 228</p>
+      <p>The overlay sits over the &lt;video&gt; from the moment a source is attached (attach() calls veilOn()), and leaves on canplay. waiting/stalled and a quality switch bring it back.</p>
+      <table><tr><th>video</th><td>{&quot;w&quot;:918,&quot;h&quot;:516}</td></tr><tr><th>slot</th><td>{&quot;w&quot;:918,&quot;h&quot;:516}</td></tr><tr><th>overlay</th><td>{&quot;w&quot;:918,&quot;h&quot;:516}</td></tr><tr><th>overlayVisible</th><td>true</td></tr><tr><th>backdrop</th><td>blur(20px) saturate(0.85) brightness(0.4)</td></tr><tr><th>backdropDecoded</th><td>true</td></tr><tr><th>ring</th><td>spin</td></tr><tr><th>animations</th><td>1</td></tr></table>
+    </figcaption>
+  </figure>
+
+  <figure id="detail-sheet">
+    <a class="shot" href="shots/06-detail-sheet.png"><img src="shots/06-detail-sheet.png" alt="Detail sheet — the page it is about to become" loading="lazy"></a>
+    <figcaption>
+      <h2>Detail sheet — the page it is about to become</h2>
+      <p class="meta">detail-sheet · viewport 1280×900 @2× · 238 KiB · <a href="shots/06-detail-sheet.png">full size</a></p>
+      <p class="meta">image σ 7.35 · mean 23 · centre 31 · peak 238</p>
+      <p>openSheet() draws sheetSkeleton() before the record is fetched: the real page’s own .detail-hero / .detail-grid / .player-card, with bars where the text will be and a 16:9 stage where the player will be, so nothing moves when the record lands.</p>
+      <table><tr><th>sheetOpen</th><td>true</td></tr><tr><th>body</th><td>{&quot;w&quot;:1216,&quot;h&quot;:728}</td></tr><tr><th>columns</th><td>844px 340px</td></tr><tr><th>bars</th><td>9</td></tr><tr><th>skeletons</th><td>16</td></tr><tr><th>poster</th><td>{&quot;w&quot;:108,&quot;h&quot;:162}</td></tr><tr><th>stage</th><td>{&quot;w&quot;:842,&quot;h&quot;:474}</td></tr><tr><th>stageRatio</th><td>1.78</td></tr><tr><th>animations</th><td>17</td></tr></table>
+    </figcaption>
+  </figure>
+
+  <figure id="detail-sheet-phone">
+    <a class="shot" href="shots/07-detail-sheet-phone.png"><img src="shots/07-detail-sheet-phone.png" alt="Detail sheet on a phone" loading="lazy"></a>
+    <figcaption>
+      <h2>Detail sheet on a phone</h2>
+      <p class="meta">detail-sheet-phone · viewport 430×840 @2× · 92 KiB · <a href="shots/07-detail-sheet-phone.png">full size</a></p>
+      <p class="meta">image σ 7.96 · mean 22 · centre 30 · peak 238</p>
+      <p>The same skeleton at phone width: one column, the stage full width, the poster at its small size. The shape follows the layout because it is built from it.</p>
+      <table><tr><th>body</th><td>{&quot;w&quot;:406,&quot;h&quot;:565}</td></tr><tr><th>columns</th><td>406px</td></tr><tr><th>poster</th><td>{&quot;w&quot;:84,&quot;h&quot;:126}</td></tr><tr><th>stage</th><td>{&quot;w&quot;:404,&quot;h&quot;:227}</td></tr><tr><th>animations</th><td>17</td></tr></table>
+    </figcaption>
+  </figure>
+
+  <figure id="grid">
+    <a class="shot" href="shots/08-grid.png"><img src="shots/08-grid.png" alt="The catalog grid — cards where cards are going" loading="lazy"></a>
+    <figcaption>
+      <h2>The catalog grid — cards where cards are going</h2>
+      <p class="meta">grid · viewport 1280×900 @2× · 300 KiB · <a href="shots/08-grid.png">full size</a></p>
+      <p class="meta">image σ 7.86 · mean 27 · centre 27 · peak 238</p>
+      <p>data.js fills #grid with skeletonCards(18) on first load and on every page turn past the first, in the grid’s own container and under the real nav, so the layout holds through the fetch.</p>
+      <table><tr><th>cards</th><td>18</td></tr><tr><th>skeletons</th><td>54</td></tr><tr><th>columns</th><td>6</td></tr><tr><th>firstCard</th><td>{&quot;w&quot;:189,&quot;h&quot;:325}</td></tr><tr><th>firstPoster</th><td>{&quot;w&quot;:189,&quot;h&quot;:283}</td></tr><tr><th>nav</th><td>1</td></tr><tr><th>animations</th><td>56</td></tr></table>
+    </figcaption>
+  </figure>
+
+  <figure id="playlist-sheet">
+    <a class="shot" href="shots/09-playlist-sheet.png"><img src="shots/09-playlist-sheet.png" alt="A playlist — rows where rows are going" loading="lazy"></a>
+    <figcaption>
+      <h2>A playlist — rows where rows are going</h2>
+      <p class="meta">playlist-sheet · viewport 900×700 @2× · 64 KiB · <a href="shots/09-playlist-sheet.png">full size</a></p>
+      <p class="meta">image σ 5.06 · mean 18 · centre 19 · peak 238</p>
+      <p>Open a playlist or a public shelf and openSheet() uses listSkeleton(): square art, two text bars, six rows, in the sheet that will hold the real rows.</p>
+      <table><tr><th>rows</th><td>6</td></tr><tr><th>squares</th><td>6</td></tr><tr><th>firstRow</th><td>{&quot;w&quot;:860,&quot;h&quot;:46}</td></tr><tr><th>sheetOpen</th><td>true</td></tr><tr><th>animations</th><td>19</td></tr></table>
+    </figcaption>
+  </figure>
+
+  <figure id="reader-chapter">
+    <a class="shot" href="shots/10-reader-chapter.png"><img src="shots/10-reader-chapter.png" alt="The manga reader — pages on their way" loading="lazy"></a>
+    <figcaption>
+      <h2>The manga reader — pages on their way</h2>
+      <p class="meta">reader-chapter · viewport 430×900 @2× · 193 KiB · <a href="shots/10-reader-chapter.png">full size</a></p>
+      <p class="meta">image σ 3.51 · mean 31 · centre 34 · peak 37</p>
+      <p>A chapter’s pages before any has arrived: page-shaped strips carrying .rd-page, so they inherit the reader’s layout (measured 2:3 here, the shape of a page).</p>
+      <table><tr><th>pages</th><td>3</td></tr><tr><th>strips</th><td>3</td></tr><tr><th>page</th><td>{&quot;w&quot;:430,&quot;h&quot;:645}</td></tr><tr><th>pageRatio</th><td>0.67</td></tr><tr><th>layout</th><td>strip</td></tr><tr><th>readerChromeHidden</th><td>none</td></tr><tr><th>animations</th><td>4</td></tr></table>
+    </figcaption>
+  </figure>
+
+  <figure id="reader-double">
+    <a class="shot" href="shots/11-reader-double.png"><img src="shots/11-reader-double.png" alt="The reader skeleton in a two-page layout" loading="lazy"></a>
+    <figcaption>
+      <h2>The reader skeleton in a two-page layout</h2>
+      <p class="meta">reader-double · viewport 760×840 @2× · 199 KiB · <a href="shots/11-reader-double.png">full size</a></p>
+      <p class="meta">image σ 6.94 · mean 26 · centre 29 · peak 37</p>
+      <p>The same strips with data-layout=&quot;double&quot;: two pages across because the reader is set that way. The skeleton does not impose a layout of its own.</p>
+      <table><tr><th>pages</th><td>4</td></tr><tr><th>firstTwo</th><td>[{&quot;x&quot;:0,&quot;w&quot;:380,&quot;h&quot;:840},{&quot;x&quot;:380,&quot;w&quot;:380,&quot;h&quot;:840}]</td></tr><tr><th>sideBySide</th><td>true</td></tr><tr><th>animations</th><td>5</td></tr></table>
+    </figcaption>
+  </figure>
+
+  <figure id="reader-seam">
+    <a class="shot" href="shots/12-reader-seam.png"><img src="shots/12-reader-seam.png" alt="The seam between chapters" loading="lazy"></a>
+    <figcaption>
+      <h2>The seam between chapters</h2>
+      <p class="meta">reader-seam · viewport 430×900 @2× · 38 KiB · <a href="shots/12-reader-seam.png">full size</a></p>
+      <p class="meta">image σ 94.71 · mean 160 · centre 218 · peak 239</p>
+      <p>Reading on: the band names the chapter that finished and the one that is starting, and while the next chapter’s pages are on their way it carries a ring — the one loading state here that is still a spinner rather than the shape of what is coming.</p>
+      <table><tr><th>seam</th><td>{&quot;w&quot;:430,&quot;h&quot;:78}</td></tr><tr><th>loading</th><td>true</td></tr><tr><th>rules</th><td>2</td></tr><tr><th>finished</th><td>Ch. 12 finished</td></tr><tr><th>starting</th><td>Ch. 13 · The Long Way Home</td></tr><tr><th>ring</th><td>rd-spin</td></tr><tr><th>animations</th><td>2</td></tr></table>
+    </figcaption>
+  </figure>
+
+  <figure id="mal-slot-loading">
+    <a class="shot" href="shots/13-mal-slot-loading.png"><img src="shots/13-mal-slot-loading.png" alt="A tracking box waiting on MyAnimeList" loading="lazy"></a>
+    <figcaption>
+      <h2>A tracking box waiting on MyAnimeList</h2>
+      <p class="meta">mal-slot-loading · viewport 480×260 @2× · 8 KiB · <a href="shots/13-mal-slot-loading.png">full size</a></p>
+      <p class="meta">image σ 9.02 · mean 19 · centre 17 · peak 180</p>
+      <p>The last word-only state in the app: fillMalSlot() draws a head with “looking this up…”, with no shape to say what is coming. Photographed as it is, not as it should be.</p>
+      <table><tr><th>box</th><td>{&quot;w&quot;:400,&quot;h&quot;:38}</td></tr><tr><th>state</th><td>loading</td></tr><tr><th>entry</th><td>looking this up…</td></tr><tr><th>heads</th><td>1</td></tr><tr><th>skeletons</th><td>0</td></tr><tr><th>animations</th><td>0</td></tr></table>
+    </figcaption>
+  </figure>
+
+  <figure id="settings-signin">
+    <a class="shot" href="shots/14-settings-signin.png"><img src="shots/14-settings-signin.png" alt="Signing in, in the account card" loading="lazy"></a>
+    <figcaption>
+      <h2>Signing in, in the account card</h2>
+      <p class="meta">settings-signin · viewport 640×430 @2× · 45 KiB · <a href="shots/14-settings-signin.png">full size</a></p>
+      <p class="meta">image σ 20.13 · mean 22 · centre 21 · peak 238</p>
+      <p>account.js disables both buttons and writes one line — “Signing in…”, “Creating the account…”, “Syncing…” — and that is the whole of it. The card is the shipped markup; the row, the disabled buttons and the note are what busy(true) and accountNote() leave on screen. The typed address is a stand-in.</p>
+      <table><tr><th>card</th><td>{&quot;w&quot;:520,&quot;h&quot;:444}</td></tr><tr><th>who</th><td>Not signed in</td></tr><tr><th>note</th><td>Signing in…</td></tr><tr><th>disabledButtons</th><td>2</td></tr><tr><th>skeletons</th><td>0</td></tr><tr><th>ring</th><td></td></tr><tr><th>animations</th><td>0</td></tr></table>
+    </figcaption>
+  </figure>
+
+  <figure id="reader-page-pending">
+    <a class="shot" href="shots/15-reader-page-pending.png"><img src="shots/15-reader-page-pending.png" alt="A page that has not decoded yet" loading="lazy"></a>
+    <figcaption>
+      <h2>A page that has not decoded yet</h2>
+      <p class="meta">reader-page-pending · viewport 430×900 @2× · 89 KiB · <a href="shots/15-reader-page-pending.png">full size</a></p>
+      <p class="meta">image σ 89.08 · mean 164 · centre 218 · peak 254</p>
+      <p>Chapter pages arrive one at a time. Every &lt;img class=&quot;rd-page&quot; data-pending=&quot;true&quot;&gt; is a page-shaped shimmer until it loads and boot.js takes the mark off — one decoded page and two still pending here.</p>
+      <table><tr><th>pages</th><td>3</td></tr><tr><th>pending</th><td>2</td></tr><tr><th>decoded</th><td>1</td></tr><tr><th>page</th><td>{&quot;w&quot;:430,&quot;h&quot;:270}</td></tr><tr><th>animations</th><td>3</td></tr></table>
+    </figcaption>
+  </figure>
+</main>
+</body>
+</html>

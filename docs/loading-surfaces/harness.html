@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en" class="dark summer-dark notranslate" translate="no">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Loading surfaces — harness</title>
+<!--
+  The page the screenshots are taken from. It is a harness, not a copy: the
+  stylesheets below are the client's own (concatenated by build.mjs in the same
+  name order the real build uses), the markup for the first-paint veil, the nav
+  and the detail sheet is read out of server/client/template.html at run time,
+  and every loading surface is drawn by calling loading.js itself. If the
+  surfaces change, these screenshots change with them.
+
+  It is served over http (see build.mjs) because a module import does not work
+  from file://; opening this file directly will leave the stage empty.
+
+  Add a stylesheet to server/client/styles/ and it has to be added here too —
+  build.mjs fails if one is missing, so the screenshots cannot quietly go out
+  of date.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- The app's own font, so a caption in a screenshot is set in it too. If it
+     cannot be fetched the fallbacks in --font-mono take over, as they do in the
+     app. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@100..900&display=swap">
+<link rel="stylesheet" href="../../server/client/styles/00-tokens.css">
+<link rel="stylesheet" href="../../server/client/styles/10-nav.css">
+<link rel="stylesheet" href="../../server/client/styles/20-browse.css">
+<link rel="stylesheet" href="../../server/client/styles/30-grid.css">
+<link rel="stylesheet" href="../../server/client/styles/35-loading.css">
+<link rel="stylesheet" href="../../server/client/styles/40-playlists.css">
+<link rel="stylesheet" href="../../server/client/styles/50-sheet.css">
+<link rel="stylesheet" href="../../server/client/styles/60-public-playlists.css">
+<link rel="stylesheet" href="../../server/client/styles/70-views-favorites.css">
+<link rel="stylesheet" href="../../server/client/styles/75-settings.css">
+<link rel="stylesheet" href="../../server/client/styles/80-themes.css">
+<link rel="stylesheet" href="../../server/client/styles/90-anime.css">
+<link rel="stylesheet" href="../../server/client/styles/95-manga.css">
+<link rel="stylesheet" href="../../server/client/styles/96-mal.css">
+<link rel="stylesheet" href="../../server/client/styles/97-mal-library.css">
+<link rel="stylesheet" href="../../server/client/styles/98-organize.css">
+<style>
+  /* Harness chrome only. Nothing here touches a loading surface: no colour, no
+     size and no animation of a surface is set from this block. */
+  html, body { min-height: 100%; }
+  .hx-wrap { width: 960px; max-width: 100%; margin: 0 auto; padding: 40px 20px; }
+  .hx-wrap .player-card { border-radius: 1rem; }
+</style>
+</head>
+<body>
+<div id="surface"></div>
+<script type="module">
+import {
+  listSkeleton, readerSkeleton, sheetSkeleton, skeletonCards, stageLoading,
+  stageStillLooking, videoWaitHtml,
+} from '../../server/client/src/loading.js';
+
+/* Two pictures stand in for the artwork the app would be waiting on: a cover
+   for the player's stage, and one manga page that has already decoded next to
+   pages that have not. See assets/ and README.md. */
+const COVER = 'assets/poster.svg';
+const PAGE = 'assets/page.svg';
+
+const only = new URLSearchParams(location.search).get('only');
+const root = document.querySelector('#surface');
+
+/* The shipped document's own markup, so the veil and the sheet in these shots
+   are the ones the app serves rather than a second drawing of them. */
+const template = new DOMParser().parseFromString(
+  await (await fetch('../../server/client/template.html')).text(),
+  'text/html',
+);
+const fromTemplate = (selector) => {
+  const node = template.querySelector(selector);
+  if (!node) throw new Error(`template.html has no ${selector}`);
+  return node.cloneNode(true);
+};
+
+/* ---- measurements -------------------------------------------------------
+   What each screenshot is allowed to claim. build.mjs reads this back and
+   fails the run if a fact contradicts the surface it is supposed to show. */
+const box = (selector) => {
+  const el = document.querySelector(selector);
+  if (!el) return null;
+  const r = el.getBoundingClientRect();
+  return { w: Math.round(r.width), h: Math.round(r.height) };
+};
+const css = (selector, prop) => {
+  const el = document.querySelector(selector);
+  return el ? getComputedStyle(el)[prop] : null;
+};
+const count = (selector) => document.querySelectorAll(selector).length;
+const text = (selector) => document.querySelector(selector)?.textContent?.trim() ?? null;
+
+const stageFacts = () => {
+  const bg = document.querySelector('.stage-load-bg');
+  const stage = box('.stage-load');
+  return {
+    stage: `${stage.w}×${stage.h}`,
+    ratio: +(stage.w / stage.h).toFixed(2),
+    caption: text('.stage-load .cap'),
+    backdrop: bg ? css('.stage-load-bg', 'filter') : 'none',
+    backdropDecoded: bg ? bg.complete && bg.naturalWidth > 0 : false,
+    ring: css('.stage-load .ring', 'animationName'),
+    skeletons: count('.stage-load .skeleton'),
+  };
+};
+
+/** The stage in the player card, as both detail pages mount it. */
+const mountStage = (caption, cover = COVER) => {
+  const wrap = document.createElement('div');
+  wrap.className = 'hx-wrap';
+  wrap.innerHTML = `<div class="player-card"><div id="fx-slot">${
+    stageLoading({ cover, caption })
+  }</div></div>`;
+  root.append(wrap);
+  return wrap;
+};
+
+/* ---- the surfaces ------------------------------------------------------- */
+
+const surfaces = [
+  {
+    id: 'first-paint',
+    size: [1200, 760],
+    title: 'First paint — the boot veil',
+    note: 'Drawn by template.html before the catalog has answered, and lifted by boot.js '
+      + '(on the catalog, or on a 15-second timer so a dead network cannot leave a screen with no way in).',
+    mount() { root.append(fromTemplate('.boot-veil')); },
+    facts: () => {
+      const veil = box('.boot-veil');
+      return {
+        veil: `${veil.w}×${veil.h}`,
+        coversViewport: veil.w === innerWidth && veil.h === innerHeight,
+        zIndex: css('.boot-veil', 'zIndex'),
+        mark: count('.boot-veil svg.mark'),
+        bar: css('.boot-veil .bar span', 'animationName'),
+      };
+    },
+  },
+  {
+    id: 'stage-films',
+    size: [1000, 640],
+    // 1×: this one is a photograph of a blurred backdrop, and a blurred
+    // backdrop at 2× is three quarters of a megabyte of PNG that shows nothing
+    // a person can see. The text-carrying surfaces are the ones worth 2×.
+    scale: 1,
+    title: 'Films — looking for a stream',
+    note: 'The stage an embed will play on, at the size it will be, with the title’s own cover '
+      + 'blurred behind the ring. This is the caption movies.js mounts with.',
+    mount() { mountStage('Looking for a stream…'); },
+    facts: stageFacts,
+  },
+  {
+    id: 'stage-still',
+    size: [1000, 640],
+    scale: 1,
+    title: 'Films — still looking, after four seconds',
+    note: 'The same stage after stageStillLooking() has fired. The caption is the app telling the '
+      + 'truth about a slow title instead of an animation that looks the same working or stuck.',
+    async mount() {
+      const slot = mountStage('Looking for a stream…');
+      const stop = stageStillLooking(slot, 'Still looking — some titles take a few seconds');
+      await new Promise((r) => setTimeout(r, 4100));
+      stop();
+    },
+    facts: stageFacts,
+  },
+  {
+    id: 'stage-no-poster',
+    size: [1000, 640],
+    scale: 1,
+    title: 'A stage with no cover to put behind it',
+    note: 'The supported empty state: the same 16:9 stage, no poster (data-empty), so an embed area '
+      + 'with no cover yet still gets the stage rather than an empty page.',
+    mount() { mountStage('Loading the player…', ''); },
+    facts: stageFacts,
+  },
+  {
+    id: 'video-wait',
+    size: [1000, 640],
+    title: 'A video that has not drawn a frame',
+    note: 'The overlay sits over the <video> from the moment a source is attached (attach() calls '
+      + 'veilOn()), and leaves on canplay. waiting/stalled and a quality switch bring it back.',
+    mount() {
+      const wrap = document.createElement('div');
+      wrap.className = 'hx-wrap';
+      wrap.innerHTML = `<div class="player-card"><div id="player-slot">
+        <video id="vid" controls playsinline preload="metadata"></video>
+        ${videoWaitHtml({ cover: COVER })}
+      </div></div>`;
+      root.append(wrap);
+      // the state attach() leaves it in
+      document.querySelector('#vid-wait').removeAttribute('hidden');
+    },
+    facts: () => ({
+      video: box('#vid'),
+      slot: box('#player-slot'),
+      overlay: box('#vid-wait'),
+      overlayVisible: !document.querySelector('#vid-wait').hasAttribute('hidden'),
+      backdrop: css('.vid-wait .bg', 'filter'),
+      backdropDecoded: document.querySelector('.vid-wait .bg')?.complete ?? false,
+      ring: css('.vid-wait .ring', 'animationName'),
+    }),
+  },
+  {
+    id: 'detail-sheet',
+    size: [1280, 900],
+    title: 'Detail sheet — the page it is about to become',
+    note: 'openSheet() draws sheetSkeleton() before the record is fetched: the real page’s own '
+      + '.detail-hero / .detail-grid / .player-card, with bars where the text will be and a 16:9 '
+      + 'stage where the player will be, so nothing moves when the record lands.',
+    mount() {
+      const sheet = fromTemplate('#sheet');
+      sheet.classList.add('open');
+      sheet.querySelector('#sheet-body').innerHTML = sheetSkeleton();
+      root.append(sheet);
+    },
+    facts: () => ({
+      sheetOpen: document.querySelector('#sheet').classList.contains('open'),
+      body: box('#sheet-body'),
+      columns: css('.detail-grid', 'gridTemplateColumns'),
+      bars: count('#sheet-body .sk-line'),
+      skeletons: count('#sheet-body .skeleton'),
+      poster: box('.sheet-skel .sk-poster'),
+      stage: box('.sheet-skel .sk-stage'),
+      stageRatio: (() => {
+        const s = box('.sheet-skel .sk-stage');
+        return +(s.w / s.h).toFixed(2);
+      })(),
+    }),
+  },
+  {
+    id: 'detail-sheet-phone',
+    size: [430, 840],
+    title: 'Detail sheet on a phone',
+    note: 'The same skeleton at phone width: one column, the stage full width, the poster at its '
+      + 'small size. The shape follows the layout because it is built from it.',
+    mount() {
+      const sheet = fromTemplate('#sheet');
+      sheet.classList.add('open');
+      sheet.querySelector('#sheet-body').innerHTML = sheetSkeleton();
+      root.append(sheet);
+    },
+    facts: () => ({
+      body: box('#sheet-body'),
+      columns: css('.detail-grid', 'gridTemplateColumns'),
+      poster: box('.sheet-skel .sk-poster'),
+      stage: box('.sheet-skel .sk-stage'),
+    }),
+  },
+  {
+    id: 'grid',
+    size: [1280, 900],
+    title: 'The catalog grid — cards where cards are going',
+    note: 'data.js fills #grid with skeletonCards(18) on first load and on every page turn past the '
+      + 'first, in the grid’s own container and under the real nav, so the layout holds through the fetch.',
+    mount() {
+      root.append(fromTemplate('.nav-wrap'));
+      const main = document.createElement('main');
+      main.className = 'container';
+      main.innerHTML = `<div class="grid" id="grid">${skeletonCards(18)}</div>`;
+      root.append(main);
+    },
+    facts: () => ({
+      cards: count('#grid .sk-card'),
+      skeletons: count('#grid .skeleton'),
+      columns: css('#grid', 'gridTemplateColumns').split(' ').length,
+      firstCard: box('.sk-card'),
+      firstPoster: box('.sk-card .skeleton'),
+      nav: count('.nav-wrap .nav'),
+    }),
+  },
+  {
+    id: 'playlist-sheet',
+    size: [900, 700],
+    title: 'A playlist — rows where rows are going',
+    note: 'Open a playlist or a public shelf and openSheet() uses listSkeleton(): square art, two '
+      + 'text bars, six rows, in the sheet that will hold the real rows.',
+    mount() {
+      const sheet = fromTemplate('#sheet');
+      sheet.classList.add('open');
+      sheet.querySelector('#sheet-body').innerHTML = listSkeleton();
+      root.append(sheet);
+    },
+    facts: () => ({
+      rows: count('.sk-row'),
+      squares: count('.sk-square'),
+      firstRow: box('.sk-row'),
+      sheetOpen: document.querySelector('#sheet').classList.contains('open'),
+    }),
+  },
+  {
+    id: 'reader-chapter',
+    size: [430, 900],
+    title: 'The manga reader — pages on their way',
+    note: 'A chapter’s pages before any has arrived: page-shaped strips carrying .rd-page, so they '
+      + 'inherit the reader’s layout (measured 2:3 here, the shape of a page).',
+    mount() {
+      const sheet = fromTemplate('#sheet');
+      sheet.classList.add('open');
+      sheet.dataset.reader = 'true';
+      sheet.querySelector('#sheet-body').innerHTML
+        = `<div class="rd-pages" id="rd-pages" data-layout="strip">${readerSkeleton()}</div>`;
+      root.append(sheet);
+    },
+    facts: () => ({
+      pages: count('.rd-page'),
+      strips: count('.rd-skel'),
+      page: box('.rd-page'),
+      pageRatio: (() => {
+        const p = box('.rd-page');
+        return +(p.w / p.h).toFixed(2);
+      })(),
+      layout: document.querySelector('#rd-pages').dataset.layout,
+      readerChromeHidden: css('#sheet .sheet-top', 'display'),
+    }),
+  },
+  {
+    id: 'reader-double',
+    size: [760, 840],
+    title: 'The reader skeleton in a two-page layout',
+    note: 'The same strips with data-layout="double": two pages across because the reader is set '
+      + 'that way. The skeleton does not impose a layout of its own.',
+    mount() {
+      const sheet = fromTemplate('#sheet');
+      sheet.classList.add('open');
+      sheet.dataset.reader = 'true';
+      sheet.querySelector('#sheet-body').innerHTML
+        = `<div class="rd-pages" id="rd-pages" data-layout="double">${readerSkeleton(4)}</div>`;
+      root.append(sheet);
+    },
+    facts: () => {
+      const pages = [...document.querySelectorAll('.rd-page')].slice(0, 2).map((el) => {
+        const r = el.getBoundingClientRect();
+        return { x: Math.round(r.x), w: Math.round(r.width), h: Math.round(r.height) };
+      });
+      return { pages: count('.rd-page'), firstTwo: pages, sideBySide: pages[0].x !== pages[1].x };
+    },
+  },
+  {
+    id: 'reader-seam',
+    size: [430, 900],
+    title: 'The seam between chapters',
+    note: 'Reading on: the band names the chapter that finished and the one that is starting, and '
+      + 'while the next chapter’s pages are on their way it carries a ring — the one loading state '
+      + 'here that is still a spinner rather than the shape of what is coming.',
+    mount() {
+      const sheet = fromTemplate('#sheet');
+      sheet.classList.add('open');
+      sheet.dataset.reader = 'true';
+      // Mirrors seamHtml() in src/manga.js (the band and its two rules) plus the
+      // ring extendReader() appends while the next chapter is fetched. The
+      // build fails if manga.js stops emitting these names.
+      sheet.querySelector('#sheet-body').innerHTML = `<div class="rd-pages" id="rd-pages" data-layout="strip">
+        <img class="rd-page" src="${PAGE}" alt="Page 20">
+        <div class="rd-seam" data-rd-seam="987" data-loading="true">
+          <span class="rd-seam-rule" aria-hidden="true"></span>
+          <span class="rd-seam-text"><b>Ch. 12 finished</b><em>Ch. 13 · The Long Way Home</em></span>
+          <span class="rd-seam-rule" aria-hidden="true"></span>
+          <span class="rd-seam-spin" aria-hidden="true"></span>
+        </div>
+      </div>`;
+      root.append(sheet);
+    },
+    facts: () => ({
+      seam: box('.rd-seam'),
+      loading: document.querySelector('.rd-seam').dataset.loading,
+      rules: count('.rd-seam-rule'),
+      finished: text('.rd-seam-text b'),
+      starting: text('.rd-seam-text em'),
+      ring: css('.rd-seam-spin', 'animationName'),
+    }),
+  },
+  {
+    id: 'mal-slot-loading',
+    size: [480, 260],
+    title: 'A tracking box waiting on MyAnimeList',
+    note: 'The last word-only state in the app: fillMalSlot() draws a head with “looking this up…”, '
+      + 'with no shape to say what is coming. Photographed as it is, not as it should be.',
+    mount() {
+      const wrap = document.createElement('div');
+      wrap.className = 'hx-wrap';
+      wrap.style.width = '440px';
+      wrap.innerHTML = '<div class="mal-slot">'
+        + '<div class="mal-box" data-state="loading">'
+        + '<div class="mal-head"><span>MyAnimeList</span><span class="mal-entry">looking this up…</span></div>'
+        + '</div></div>';
+      root.append(wrap);
+    },
+    facts: () => ({
+      box: box('.mal-box'),
+      state: document.querySelector('.mal-box').dataset.state,
+      entry: text('.mal-entry'),
+      heads: count('.mal-head'),
+      // The point of the picture: there are no shapes in it.
+      skeletons: count('.mal-box .skeleton'),
+    }),
+  },
+  {
+    id: 'settings-signin',
+    size: [640, 430],
+    title: 'Signing in, in the account card',
+    note: 'account.js disables both buttons and writes one line — “Signing in…”, “Creating the account…”, '
+      + '“Syncing…” — and that is the whole of it. The card is the shipped markup; the row, the disabled '
+      + 'buttons and the note are what busy(true) and accountNote() leave on screen. The typed address is '
+      + 'a stand-in.',
+    mount() {
+      const card = fromTemplate('#acct-card');
+      const wrap = document.createElement('div');
+      wrap.className = 'hx-wrap';
+      wrap.style.width = '560px';
+      wrap.append(card);
+      root.append(wrap);
+      // the state fillAccountSettings() leaves a signed-out device in …
+      card.querySelector('#acct-who').textContent = 'Not signed in';
+      card.querySelector('#acct-email').value = 'reader@example.com';
+      card.querySelector('#acct-pass').value = 'stand-in-for-a-password';
+      // … and then a press on Sign in: busy(true) + accountNote('Signing in…')
+      card.querySelector('#acct-signin').disabled = true;
+      card.querySelector('#acct-signup').disabled = true;
+      const note = card.querySelector('#acct-note');
+      note.hidden = false;
+      note.textContent = 'Signing in…';
+    },
+    facts: () => ({
+      card: box('#acct-card'),
+      who: text('#acct-who'),
+      note: text('#acct-note'),
+      disabledButtons: ['#acct-signin', '#acct-signup'].filter((s) => document.querySelector(s).disabled).length,
+      // The point of the picture: nothing here is a shape or a movement.
+      skeletons: count('#acct-card .skeleton'),
+      ring: css('#acct-card .ring', 'animationName'),
+    }),
+  },
+  {
+    id: 'reader-page-pending',
+    size: [430, 900],
+    title: 'A page that has not decoded yet',
+    note: 'Chapter pages arrive one at a time. Every <img class="rd-page" data-pending="true"> is a '
+      + 'page-shaped shimmer until it loads and boot.js takes the mark off — one decoded page and two '
+      + 'still pending here.',
+    mount() {
+      const sheet = fromTemplate('#sheet');
+      sheet.classList.add('open');
+      sheet.dataset.reader = 'true';
+      // the markup pagesHtml() emits, with one image already decoded
+      sheet.querySelector('#sheet-body').innerHTML = `<div class="rd-pages" id="rd-pages" data-layout="strip">
+        <img class="rd-page" data-ch="1" data-pending="true" loading="lazy" decoding="async" src="${PAGE}" alt="Page 1">
+        <img class="rd-page" data-ch="1" data-pending="true" loading="lazy" decoding="async" src="" alt="Page 2">
+        <img class="rd-page" data-ch="1" data-pending="true" loading="lazy" decoding="async" src="" alt="Page 3">
+      </div>`;
+      root.append(sheet);
+      // boot.js: a page that has drawn stops being a pending strip
+      const done = document.querySelector('.rd-page');
+      if (done.complete) delete done.dataset.pending;
+      else done.addEventListener('load', () => { delete done.dataset.pending; }, { once: true });
+    },
+    facts: () => ({
+      pages: count('.rd-page'),
+      pending: count('.rd-page[data-pending="true"]'),
+      decoded: count('.rd-page:not([data-pending])'),
+      page: box('.rd-page[data-pending="true"]'),
+    }),
+  },
+];
+
+const surface = surfaces.find((s) => s.id === only);
+
+/* Every surface's name, caption and viewport, for the build to read without
+   carrying a second copy of this list. */
+window.__surfaces = surfaces.map(({ id, size, title, note, scale }) => ({
+  id, size, title, note, scale: scale ?? 2,
+}));
+
+if (!surface) {
+  root.innerHTML = `<p class="note">Unknown surface “${only}”. Known: ${
+    surfaces.map((s) => s.id).join(', ')}</p>`;
+  document.title = 'unknown surface';
+} else {
+  document.title = `${surface.id} — loading surfaces`;
+  window.__measure = () => ({ id: surface.id, facts: surface.facts() });
+  window.__ready = (async () => {
+    await surface.mount();
+    await document.fonts?.ready;
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    return true;
+  })();
+  // A module that threw would otherwise look like a blank surface; the build
+  // reports what went wrong instead.
+  window.addEventListener('error', (e) => { window.__error = String(e.message || e.error); });
+}
+</script>
+</body>
+</html>

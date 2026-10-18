@@ -1,0 +1,558 @@
+{
+  "browser": "chrome.exe",
+  "at": "2026-10-18",
+  "surfaces": [
+    {
+      "id": "first-paint",
+      "file": "01-first-paint.png",
+      "viewport": "1200×760",
+      "scale": 2,
+      "facts": {
+        "veil": "1200×760",
+        "coversViewport": true,
+        "zIndex": "40000",
+        "mark": 1,
+        "bar": "boot-bar",
+        "animations": 2
+      },
+      "pixels": {
+        "w": 2400,
+        "h": 1520,
+        "lum": 17,
+        "maxLum": 227,
+        "std": 3.66,
+        "mean": {
+          "r": 17,
+          "g": 17,
+          "b": 17
+        },
+        "center": 18,
+        "centerR": 18,
+        "centerB": 17,
+        "top": 17,
+        "bottom": 17
+      },
+      "problems": []
+    },
+    {
+      "id": "stage-films",
+      "file": "02-stage-films.png",
+      "viewport": "1000×640",
+      "scale": 1,
+      "facts": {
+        "stage": "918×516",
+        "ratio": 1.78,
+        "caption": "Looking for a stream…",
+        "backdrop": "blur(22px) saturate(0.85) brightness(0.42)",
+        "backdropDecoded": true,
+        "ring": "spin",
+        "skeletons": 0,
+        "animations": 1
+      },
+      "pixels": {
+        "w": 1000,
+        "h": 640,
+        "lum": 31,
+        "maxLum": 228,
+        "std": 14.36,
+        "mean": {
+          "r": 36,
+          "g": 30,
+          "b": 30
+        },
+        "center": 49,
+        "centerR": 59,
+        "centerB": 46,
+        "top": 36,
+        "bottom": 20
+      },
+      "problems": []
+    },
+    {
+      "id": "stage-still",
+      "file": "03-stage-still.png",
+      "viewport": "1000×640",
+      "scale": 1,
+      "facts": {
+        "stage": "918×516",
+        "ratio": 1.78,
+        "caption": "Still looking — some titles take a few seconds",
+        "backdrop": "blur(22px) saturate(0.85) brightness(0.42)",
+        "backdropDecoded": true,
+        "ring": "spin",
+        "skeletons": 0,
+        "animations": 1
+      },
+      "pixels": {
+        "w": 1000,
+        "h": 640,
+        "lum": 32,
+        "maxLum": 228,
+        "std": 14.67,
+        "mean": {
+          "r": 36,
+          "g": 30,
+          "b": 30
+        },
+        "center": 49,
+        "centerR": 59,
+        "centerB": 46,
+        "top": 36,
+        "bottom": 21
+      },
+      "problems": []
+    },
+    {
+      "id": "stage-no-poster",
+      "file": "04-stage-no-poster.png",
+      "viewport": "1000×640",
+      "scale": 1,
+      "facts": {
+        "stage": "918×516",
+        "ratio": 1.78,
+        "caption": "Loading the player…",
+        "backdrop": "none",
+        "backdropDecoded": false,
+        "ring": "spin",
+        "skeletons": 0,
+        "animations": 1
+      },
+      "pixels": {
+        "w": 1000,
+        "h": 640,
+        "lum": 13,
+        "maxLum": 228,
+        "std": 5.18,
+        "mean": {
+          "r": 13,
+          "g": 13,
+          "b": 13
+        },
+        "center": 9,
+        "centerR": 9,
+        "centerB": 9,
+        "top": 12,
+        "bottom": 17
+      },
+      "problems": []
+    },
+    {
+      "id": "video-wait",
+      "file": "05-video-wait.png",
+      "viewport": "1000×640",
+      "scale": 2,
+      "facts": {
+        "video": {
+          "w": 918,
+          "h": 516
+        },
+        "slot": {
+          "w": 918,
+          "h": 516
+        },
+        "overlay": {
+          "w": 918,
+          "h": 516
+        },
+        "overlayVisible": true,
+        "backdrop": "blur(20px) saturate(0.85) brightness(0.4)",
+        "backdropDecoded": true,
+        "ring": "spin",
+        "animations": 1
+      },
+      "pixels": {
+        "w": 2000,
+        "h": 1280,
+        "lum": 44,
+        "maxLum": 228,
+        "std": 23.04,
+        "mean": {
+          "r": 53,
+          "g": 41,
+          "b": 41
+        },
+        "center": 60,
+        "centerR": 72,
+        "centerB": 55,
+        "top": 53,
+        "bottom": 24
+      },
+      "problems": []
+    },
+    {
+      "id": "detail-sheet",
+      "file": "06-detail-sheet.png",
+      "viewport": "1280×900",
+      "scale": 2,
+      "facts": {
+        "sheetOpen": true,
+        "body": {
+          "w": 1216,
+          "h": 728
+        },
+        "columns": "844px 340px",
+        "bars": 9,
+        "skeletons": 16,
+        "poster": {
+          "w": 108,
+          "h": 162
+        },
+        "stage": {
+          "w": 842,
+          "h": 474
+        },
+        "stageRatio": 1.78,
+        "animations": 17
+      },
+      "pixels": {
+        "w": 2560,
+        "h": 1800,
+        "lum": 23,
+        "maxLum": 238,
+        "std": 7.35,
+        "mean": {
+          "r": 23,
+          "g": 23,
+          "b": 23
+        },
+        "center": 31,
+        "centerR": 31,
+        "centerB": 31,
+        "top": 19,
+        "bottom": 20
+      },
+      "problems": []
+    },
+    {
+      "id": "detail-sheet-phone",
+      "file": "07-detail-sheet-phone.png",
+      "viewport": "430×840",
+      "scale": 2,
+      "facts": {
+        "body": {
+          "w": 406,
+          "h": 565
+        },
+        "columns": "406px",
+        "poster": {
+          "w": 84,
+          "h": 126
+        },
+        "stage": {
+          "w": 404,
+          "h": 227
+        },
+        "animations": 17
+      },
+      "pixels": {
+        "w": 860,
+        "h": 1680,
+        "lum": 22,
+        "maxLum": 238,
+        "std": 7.96,
+        "mean": {
+          "r": 22,
+          "g": 22,
+          "b": 22
+        },
+        "center": 30,
+        "centerR": 30,
+        "centerB": 30,
+        "top": 20,
+        "bottom": 17
+      },
+      "problems": []
+    },
+    {
+      "id": "grid",
+      "file": "08-grid.png",
+      "viewport": "1280×900",
+      "scale": 2,
+      "facts": {
+        "cards": 18,
+        "skeletons": 54,
+        "columns": 6,
+        "firstCard": {
+          "w": 189,
+          "h": 325
+        },
+        "firstPoster": {
+          "w": 189,
+          "h": 283
+        },
+        "nav": 1,
+        "animations": 56
+      },
+      "pixels": {
+        "w": 2560,
+        "h": 1800,
+        "lum": 27,
+        "maxLum": 238,
+        "std": 7.86,
+        "mean": {
+          "r": 27,
+          "g": 27,
+          "b": 27
+        },
+        "center": 27,
+        "centerR": 27,
+        "centerB": 27,
+        "top": 27,
+        "bottom": 26
+      },
+      "problems": []
+    },
+    {
+      "id": "playlist-sheet",
+      "file": "09-playlist-sheet.png",
+      "viewport": "900×700",
+      "scale": 2,
+      "facts": {
+        "rows": 6,
+        "squares": 6,
+        "firstRow": {
+          "w": 860,
+          "h": 46
+        },
+        "sheetOpen": true,
+        "animations": 19
+      },
+      "pixels": {
+        "w": 1800,
+        "h": 1400,
+        "lum": 18,
+        "maxLum": 238,
+        "std": 5.06,
+        "mean": {
+          "r": 18,
+          "g": 18,
+          "b": 18
+        },
+        "center": 19,
+        "centerR": 19,
+        "centerB": 19,
+        "top": 19,
+        "bottom": 17
+      },
+      "problems": []
+    },
+    {
+      "id": "reader-chapter",
+      "file": "10-reader-chapter.png",
+      "viewport": "430×900",
+      "scale": 2,
+      "facts": {
+        "pages": 3,
+        "strips": 3,
+        "page": {
+          "w": 430,
+          "h": 645
+        },
+        "pageRatio": 0.67,
+        "layout": "strip",
+        "readerChromeHidden": "none",
+        "animations": 4
+      },
+      "pixels": {
+        "w": 860,
+        "h": 1800,
+        "lum": 31,
+        "maxLum": 37,
+        "std": 3.51,
+        "mean": {
+          "r": 31,
+          "g": 31,
+          "b": 31
+        },
+        "center": 34,
+        "centerR": 34,
+        "centerB": 34,
+        "top": 33,
+        "bottom": 33
+      },
+      "problems": []
+    },
+    {
+      "id": "reader-double",
+      "file": "11-reader-double.png",
+      "viewport": "760×840",
+      "scale": 2,
+      "facts": {
+        "pages": 4,
+        "firstTwo": [
+          {
+            "x": 0,
+            "w": 380,
+            "h": 840
+          },
+          {
+            "x": 380,
+            "w": 380,
+            "h": 840
+          }
+        ],
+        "sideBySide": true,
+        "animations": 5
+      },
+      "pixels": {
+        "w": 1520,
+        "h": 1680,
+        "lum": 26,
+        "maxLum": 37,
+        "std": 6.94,
+        "mean": {
+          "r": 26,
+          "g": 26,
+          "b": 26
+        },
+        "center": 29,
+        "centerR": 29,
+        "centerB": 29,
+        "top": 31,
+        "bottom": 17
+      },
+      "problems": []
+    },
+    {
+      "id": "reader-seam",
+      "file": "12-reader-seam.png",
+      "viewport": "430×900",
+      "scale": 2,
+      "facts": {
+        "seam": {
+          "w": 430,
+          "h": 78
+        },
+        "loading": "true",
+        "rules": 2,
+        "finished": "Ch. 12 finished",
+        "starting": "Ch. 13 · The Long Way Home",
+        "ring": "rd-spin",
+        "animations": 2
+      },
+      "pixels": {
+        "w": 860,
+        "h": 1800,
+        "lum": 160,
+        "maxLum": 239,
+        "std": 94.71,
+        "mean": {
+          "r": 163,
+          "g": 160,
+          "b": 154
+        },
+        "center": 218,
+        "centerR": 222,
+        "centerB": 209,
+        "top": 205,
+        "bottom": 17
+      },
+      "problems": []
+    },
+    {
+      "id": "mal-slot-loading",
+      "file": "13-mal-slot-loading.png",
+      "viewport": "480×260",
+      "scale": 2,
+      "facts": {
+        "box": {
+          "w": 400,
+          "h": 38
+        },
+        "state": "loading",
+        "entry": "looking this up…",
+        "heads": 1,
+        "skeletons": 0,
+        "animations": 0
+      },
+      "pixels": {
+        "w": 960,
+        "h": 520,
+        "lum": 19,
+        "maxLum": 180,
+        "std": 9.02,
+        "mean": {
+          "r": 19,
+          "g": 19,
+          "b": 18
+        },
+        "center": 17,
+        "centerR": 17,
+        "centerB": 17,
+        "top": 23,
+        "bottom": 17
+      },
+      "problems": []
+    },
+    {
+      "id": "settings-signin",
+      "file": "14-settings-signin.png",
+      "viewport": "640×430",
+      "scale": 2,
+      "facts": {
+        "card": {
+          "w": 520,
+          "h": 444
+        },
+        "who": "Not signed in",
+        "note": "Signing in…",
+        "disabledButtons": 2,
+        "skeletons": 0,
+        "ring": null,
+        "animations": 0
+      },
+      "pixels": {
+        "w": 1280,
+        "h": 860,
+        "lum": 22,
+        "maxLum": 238,
+        "std": 20.13,
+        "mean": {
+          "r": 22,
+          "g": 22,
+          "b": 22
+        },
+        "center": 21,
+        "centerR": 21,
+        "centerB": 20,
+        "top": 26,
+        "bottom": 23
+      },
+      "problems": []
+    },
+    {
+      "id": "reader-page-pending",
+      "file": "15-reader-page-pending.png",
+      "viewport": "430×900",
+      "scale": 2,
+      "facts": {
+        "pages": 3,
+        "pending": 2,
+        "decoded": 1,
+        "page": {
+          "w": 430,
+          "h": 270
+        },
+        "animations": 3
+      },
+      "pixels": {
+        "w": 860,
+        "h": 1800,
+        "lum": 164,
+        "maxLum": 254,
+        "std": 89.08,
+        "mean": {
+          "r": 167,
+          "g": 164,
+          "b": 157
+        },
+        "center": 218,
+        "centerR": 222,
+        "centerB": 209,
+        "top": 205,
+        "bottom": 33
+      },
+      "problems": []
+    }
+  ]
+}

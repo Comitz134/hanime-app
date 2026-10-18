@@ -573,6 +573,164 @@ select.filter-select[data-set="true"] {
 
 
 /* --------------------------------------------------------------------------
+   Loading
+   --------------------------------------------------------------------------
+   What a screen draws while the thing it is waiting for is on its way.
+
+   The rule every screen here keeps: no empty box with a spinner in it, and no
+   word standing in for the work. A reader who opens a film waits a second or
+   two for the resolver to find a stream; a reader opening a manga chapter waits
+   for pages that arrive one at a time; a reader opening a title waits for its
+   detail page. A spinner says only that time is passing. The shape of the thing
+   that is coming says what is being waited for — the page it is about to
+   become, the stage the video will play on, the pages that are on their way.
+
+   So the detail sheet draws the detail page (the same `.detail-hero` and
+   `.detail-grid` the real one uses, with bars where its text will be), the
+   player draws its own 16:9 stage with the title's poster behind it, and the
+   reader draws page-shaped strips that inherit whatever layout it is set to.
+   Nothing here invents a geometry of its own: a skeleton that does not match
+   the thing it replaces makes the arrival jump.
+   -------------------------------------------------------------------------- */
+
+/* Shapes built out of `.skeleton` (30-grid.css), which is the shimmer itself. */
+.sk-card { display: grid; gap: .5rem; align-content: start; }
+.sk-card .skeleton:first-child { aspect-ratio: 2 / 3; }
+.sk-line { height: .55rem; border-radius: 999px; }
+.sk-line.tall { height: .95rem; }
+.sk-line.short { width: 38%; }
+.sk-line.mid { width: 64%; }
+.sk-line.wide { width: 86%; }
+.sk-line + .sk-line { margin-top: .5rem; }
+.sk-sep { margin-top: 1.25rem; }
+.sk-pill { width: 7rem; height: 2rem; border-radius: 999px; }
+.sk-stage { width: 100%; aspect-ratio: 16 / 9; border-radius: 1rem; }
+.sk-chip { width: 4.5rem; height: 1.5rem; border-radius: 999px; }
+.sk-chips { display: flex; flex-wrap: wrap; gap: .375rem; margin-top: .75rem; }
+
+/* A list of rows: the shape a playlist's sheet takes. */
+.sk-rows { display: grid; gap: .875rem; padding: .5rem 0; }
+.sk-row { display: flex; gap: .75rem; align-items: center; }
+.sk-square { width: 46px; height: 46px; border-radius: .5rem; flex: 0 0 auto; }
+.sk-row-text { flex: 1 1 auto; min-width: 0; }
+
+/* The detail sheet, drawn with the real page's own layout classes. */
+.sheet-skel { padding-top: .25rem; }
+.sheet-skel .detail-poster { background: none; border: 0; }
+.sheet-skel .sk-poster { width: 100%; height: 100%; border-radius: .625rem; }
+.sheet-skel .detail-hero-text { flex: 1 1 auto; padding-top: .15rem; }
+
+/* ---- the player's stage ------------------------------------------------- */
+
+/* The stage while a stream is being found: the poster the reader clicked,
+   blurred back behind the ring, at the size the video will be. */
+.stage-load {
+  position: relative; aspect-ratio: 16 / 9; overflow: hidden;
+  display: grid; place-items: center; background: #050505;
+  isolation: isolate;
+}
+.stage-load-bg {
+  position: absolute; inset: -12%; z-index: -1;
+  width: 124%; height: 124%; object-fit: cover;
+  filter: blur(22px) saturate(.85) brightness(.42);
+}
+.stage-load::after {
+  content: ""; position: absolute; inset: 0; z-index: -1;
+  background: radial-gradient(65% 65% at 50% 45%, hsl(var(--background) / .1), hsl(var(--background) / .82));
+}
+.stage-load .ring {
+  width: 3.25rem; height: 3.25rem; border-radius: 999px;
+  border: 3px solid hsl(0 0% 100% / .16);
+  border-top-color: hsl(var(--primary));
+  animation: spin .9s linear infinite;
+}
+.stage-load .cap {
+  position: absolute; left: 0; right: 0; bottom: 1rem;
+  text-align: center; font-size: .6875rem; letter-spacing: .12em;
+  text-transform: uppercase; color: hsl(0 0% 100% / .62);
+}
+/* The same 16:9 box with no poster to put behind it — an embed area that has
+   no cover yet still gets the stage, not the empty page. */
+.stage-load[data-empty="true"] .stage-load-bg { display: none; }
+
+/* The overlay over a video that has not drawn a frame yet: the poster again,
+   a small ring, and nothing that moves while the reader is watching it. */
+#player-slot { position: relative; }
+.vid-wait {
+  position: absolute; inset: 0; z-index: 2; pointer-events: none;
+  display: grid; place-items: center; background: #000; overflow: hidden;
+}
+.vid-wait .bg {
+  position: absolute; inset: -12%;
+  width: 124%; height: 124%; object-fit: cover;
+  filter: blur(20px) saturate(.85) brightness(.4);
+}
+.vid-wait .ring {
+  position: relative; width: 2.25rem; height: 2.25rem; border-radius: 999px;
+  border: 3px solid hsl(0 0% 100% / .18); border-top-color: hsl(var(--primary));
+  animation: spin .9s linear infinite;
+}
+
+/* ---- the reader --------------------------------------------------------- */
+
+/* Page-shaped strips that inherit the reader's own layout rules (they carry
+   `.rd-page`), so a two-page layout shows two strips and a strip layout shows
+   the same long scroll it will become. */
+.rd-pages .rd-skel { background: none; }
+.rd-pages .sk-page {
+  aspect-ratio: 2 / 3; min-height: 46vh; border-radius: .25rem;
+}
+
+/* One page while the rest of the chapter is still arriving: a page-shaped
+   shimmer where the image will be, gone the moment it is drawn. */
+.rd-page[data-pending="true"] {
+  background: hsl(var(--card));
+  min-height: 30vh;
+  position: relative; overflow: hidden;
+}
+.rd-page[data-pending="true"]::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, hsl(var(--accent) / .7), transparent);
+  animation: shimmer 1.4s linear infinite;
+}
+
+/* ---- first paint -------------------------------------------------------- */
+
+/* The veil over the page before the catalog has answered. It is not decoration
+   over a blank screen: the navigation behind it is already built, and this is
+   the app saying it is opening rather than leaving an empty grid to imply it.
+   boot.js takes it away (and takes it away on a timer if the catalog never
+   answers, so a network that fails cannot leave a screen with no way in). */
+.boot-veil {
+  position: fixed; inset: 0; z-index: 40000;
+  display: grid; place-items: center; gap: 1.1rem; align-content: center;
+  background: hsl(var(--background));
+  transition: opacity .35s var(--ease-out-expo);
+}
+.boot-veil[data-done="true"] { opacity: 0; pointer-events: none; }
+.boot-veil .mark {
+  width: 46px; height: 46px; color: hsl(var(--primary));
+  animation: boot-pulse 1.6s var(--ease-out-expo) infinite;
+}
+.boot-veil .bar {
+  width: 132px; height: 2px; border-radius: 999px;
+  background: hsl(var(--foreground) / .12); overflow: hidden;
+}
+.boot-veil .bar span {
+  display: block; width: 40%; height: 100%; border-radius: 999px;
+  background: hsl(var(--primary));
+  animation: boot-bar 1.15s var(--ease-out-expo) infinite;
+}
+@keyframes boot-bar {
+  0% { transform: translateX(-110%); }
+  100% { transform: translateX(360%); }
+}
+@keyframes boot-pulse {
+  0%, 100% { opacity: .55; transform: scale(.96); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+/* --------------------------------------------------------------------------
    Playlists
    -------------------------------------------------------------------------- */
 .pl-card {
@@ -1846,6 +2004,23 @@ select.filter-select.sort-select {
 </style>
 </head>
 <body>
+
+<!-- First paint. The page under this is already built — the pill, the rails,
+     the empty grid — but on a cold start the catalog has not answered yet, and
+     an empty grid reads as a broken screen rather than a loading one. This is
+     the mark and a sweep, over the background, until boot.js has something to
+     show; it also takes itself away on a timer if the catalog never answers.
+     Decorative, so it is hidden from assistive tech: what it covers is the
+     real page, not a message. -->
+<div class="boot-veil" id="boot-veil" aria-hidden="true">
+  <svg class="mark" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+       stroke-width="1.4" stroke-linecap="round" aria-hidden="true">
+    <path d="M3.2 5.4c2.4-.9 6-1.3 8.8-1.3s6.4.4 8.8 1.3"/>
+    <path d="M5.4 8.6h13.2"/>
+    <path d="M8.4 8.6V20M15.6 8.6V20"/>
+  </svg>
+  <div class="bar"><span></span></div>
+</div>
 
 <!-- floating pill nav -->
 <div class="nav-wrap">
@@ -3131,6 +3306,87 @@ select.filter-select.sort-select {
     updateBackState();
   }
   $("#menu-toggle").onclick = () => setMenuOpen(!menuIsOpen());
+
+  // client/src/loading.js
+  var line = (width = "") => `<div class="skeleton sk-line${width ? " " + width : ""}"></div>`;
+  function skeletonCards(n) {
+    return Array.from({ length: n }, () => `
+    <div class="sk-card">
+      <div class="skeleton"></div>
+      ${line("mid")}${line("short")}
+    </div>`).join("");
+  }
+  function sheetSkeleton() {
+    return `
+    <div class="sheet-skel" role="status" aria-label="Loading this title">
+      <div class="detail-hero">
+        <div class="detail-poster"><div class="skeleton sk-poster"></div></div>
+        <div class="detail-hero-text">
+          ${line("short")}
+          ${line("tall wide")}
+          ${line("mid")}
+          <div class="sk-chips">
+            <div class="skeleton sk-chip"></div>
+            <div class="skeleton sk-chip"></div>
+            <div class="skeleton sk-chip"></div>
+          </div>
+        </div>
+      </div>
+      <div class="detail-grid">
+        <div class="detail-main">
+          <div class="player-card"><div class="skeleton sk-stage"></div></div>
+          ${line("wide sk-sep")}
+          ${line("mid")}
+        </div>
+        <div class="detail-side">
+          ${line("short")}
+          ${line("wide")}${line("wide")}${line("mid")}
+          <div class="sk-chips">
+            <div class="skeleton sk-chip"></div>
+            <div class="skeleton sk-chip"></div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }
+  function stageLoading({ cover = "", caption = "Loading the player\u2026" } = {}) {
+    const art = cover ? `<img class="stage-load-bg" src="${esc(cover)}" alt="">` : "";
+    return `
+    <div class="stage-load" role="status" aria-label="${esc(caption)}"${cover ? "" : ' data-empty="true"'}>
+      ${art}
+      <div class="ring"></div>
+      <div class="cap">${esc(caption)}</div>
+    </div>`;
+  }
+  function videoWaitHtml({ cover = "" } = {}) {
+    const art = cover ? `<img class="bg" src="${esc(cover)}" alt="">` : "";
+    return `<div class="vid-wait" id="vid-wait" hidden>
+    ${art}
+    <div class="ring"></div>
+  </div>`;
+  }
+  function listSkeleton(n = 6) {
+    const row = `
+    <div class="sk-row">
+      <div class="skeleton sk-square"></div>
+      <div class="sk-row-text">${line("mid")}${line("short")}</div>
+    </div>`;
+    return `<div class="sk-rows" role="status" aria-label="Loading this list">${Array.from({ length: n }, () => row).join("")}</div>`;
+  }
+  function readerSkeleton(n = 3) {
+    const page = '<div class="rd-page rd-skel"><div class="skeleton sk-page"></div></div>';
+    return Array.from({ length: n }, () => page).join("");
+  }
+  function stageStillLooking(slot, caption) {
+    var _a10;
+    const cap = (_a10 = slot == null ? void 0 : slot.querySelector) == null ? void 0 : _a10.call(slot, ".stage-load .cap");
+    if (!cap) return () => {
+    };
+    const timer = setTimeout(() => {
+      cap.textContent = caption;
+    }, 4e3);
+    return () => clearTimeout(timer);
+  }
 
   // client/src/mal.js
   var MAL_CLIENT_ID = "63e08e44f57ef1b4644322939ebd9fa6";
@@ -8366,7 +8622,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     const grid = $("#manga-grid");
     const pager = $("#manga-pager");
     const listMode = mFiltered();
-    if (page > 1) grid.innerHTML = '<div class="center-spin"><div class="spinner"></div></div>';
+    if (page > 1) grid.innerHTML = skeletonCards(12);
     try {
       let items = [];
       let hasNext = false;
@@ -8489,7 +8745,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     paintReadProgress();
     bindReaderScroll();
   }
-  var pagesHtml = (pages, chapterId) => pages.length ? pages.map((p, i) => `<img class="rd-page" data-ch="${esc(String(chapterId))}" loading="lazy" decoding="async" src="${esc(proxied(p.url))}" alt="Page ${i + 1}">`).join("") : '<p class="note">No pages came back for this chapter.</p>';
+  var pagesHtml = (pages, chapterId) => pages.length ? pages.map((p, i) => `<img class="rd-page" data-ch="${esc(String(chapterId))}" data-pending="true" loading="lazy" decoding="async" src="${esc(proxied(p.url))}" alt="Page ${i + 1}">`).join("") : '<p class="note">No pages came back for this chapter.</p>';
   function chapterPages(chapterId) {
     const slot = $("#rd-pages");
     if (!slot) return [];
@@ -9059,7 +9315,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
         pagesCache.delete(chapter.id);
         const slot = $("#rd-pages");
         if (!slot) return;
-        slot.innerHTML = '<div class="center-spin"><div class="spinner"></div></div>';
+        slot.innerHTML = readerSkeleton();
         try {
           const again = await mangaPages(chapter.id);
           trimCache(pagesCache, 60);
@@ -9410,7 +9666,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     $("#sheet-count").textContent = `Ch. ${Number(ch.number)}`;
     $("#sheet").dataset.reader = "true";
     $("#sheet-body").innerHTML = `
-    <div class="rd-pages" id="rd-pages"><div class="center-spin"><div class="spinner"></div></div></div>
+    <div class="rd-pages" id="rd-pages">${readerSkeleton()}</div>
     <div class="rd-end">
       <div class="rd-end-title">${esc(((_a10 = dState.detail) == null ? void 0 : _a10.title) ?? "")}</div>
       <div class="rd-end-sub" id="rd-end-sub">Chapter ${esc(String(ch.number))} of ${total}${ch.name ? " \xB7 " + esc(ch.name) : ""}</div>
@@ -9698,13 +9954,13 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
   </article>`;
   }
   function sayUnlinked() {
-    const line = configured() ? "Link MyAnimeList in Settings and everything you already watch and read appears here." : "This build has no MyAnimeList client id, so this shelf stays empty.";
+    const line2 = configured() ? "Link MyAnimeList in Settings and everything you already watch and read appears here." : "This build has no MyAnimeList client id, so this shelf stays empty.";
     for (const kind of TABS) {
       const grid = document.getElementById(PANELS[kind].grid);
       if (grid) grid.innerHTML = "";
       const count = document.getElementById(PANELS[kind].count);
       if (count) count.textContent = "";
-      note(kind, line);
+      note(kind, line2);
     }
     document.querySelectorAll("[data-mal-refresh]").forEach((b) => {
       b.hidden = true;
@@ -10342,7 +10598,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     document.body.style.overflow = "hidden";
     sheet.scrollTop = 0;
     updateBackState();
-    $("#sheet-body").innerHTML = '<div class="center-spin"><div class="spinner"></div></div>';
+    $("#sheet-body").innerHTML = kind === "playlist" || kind === "public" ? listSkeleton() : sheetSkeleton();
     $("#sheet-count").hidden = true;
     return sheet;
   }
@@ -10403,7 +10659,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     <div class="detail-grid">
       <div class="detail-main">
         <div class="player-card">
-          <div id="player-slot"><div class="center-spin"><div class="spinner"></div></div></div>
+          <div id="player-slot">${stageLoading({ cover: v.cover, caption: "Finding a stream\u2026" })}</div>
         </div>
         <div id="in-playlists" hidden></div>
         <section id="detail-recs" hidden>
@@ -10421,7 +10677,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     });
     loadStudioRecs(v.brand, slug).catch(() => {
     });
-    await mountPlayer(slug);
+    await mountPlayer(slug, v.cover);
   }
   async function loadStudioRecs(brand, slug) {
     if (!brand) return;
@@ -10435,15 +10691,18 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     rail.innerHTML = items.map((v) => cardHtml(v)).join("");
     recs.hidden = false;
   }
-  async function mountPlayer(slug) {
+  async function mountPlayer(slug, cover = "") {
     const slot = $("#player-slot");
+    const stopLooking = stageStillLooking(slot, "Still looking \u2014 some titles take a few seconds");
     let sources;
     try {
       ({ sources } = await api(`/api/videos/${encodeURIComponent(slug)}/sources`));
     } catch (e) {
+      stopLooking();
       slot.innerHTML = `<p class="note">Could not resolve a stream \u2014 ${esc(e.message)}</p>`;
       return;
     }
+    stopLooking();
     if (!(sources == null ? void 0 : sources.length)) {
       slot.innerHTML = '<p class="note">No playable source was returned for this entry.</p>';
       return;
@@ -10452,6 +10711,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     const pipWanted = shellCall("pictureInPictureSupported") === true;
     slot.innerHTML = `
     <video id="vid" controls playsinline preload="metadata"></video>
+    ${videoWaitHtml({ cover })}
     <div class="quality">${sources.map((s, i) => `<button class="q-btn" data-i="${i}" aria-pressed="${i === 0}">${esc(s.label)}</button>`).join("")}</div>
     <div class="lib-tools">
       <button class="chip" id="fs-btn" type="button">Fullscreen</button>
@@ -10462,8 +10722,17 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     bindFullscreen($("#fs-btn"), () => vid);
     activeVid = vid;
     activeSlug = slug;
+    const veil2 = $("#vid-wait");
+    const veilOn = () => veil2 == null ? void 0 : veil2.removeAttribute("hidden");
+    const veilOff = () => veil2 == null ? void 0 : veil2.setAttribute("hidden", "");
+    vid.addEventListener("waiting", veilOn);
+    vid.addEventListener("stalled", veilOn);
+    vid.addEventListener("canplay", veilOff);
+    vid.addEventListener("playing", veilOff);
+    vid.addEventListener("error", veilOff);
     const attach = (url) => {
       var _a10;
+      veilOn();
       if (activeHls) {
         activeHls.destroy();
         activeHls = null;
@@ -10563,7 +10832,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     var _a10;
     const grid = $("#anime-grid");
     const pager = $("#anime-pager");
-    if (page > 1) grid.innerHTML = '<div class="center-spin"><div class="spinner"></div></div>';
+    if (page > 1) grid.innerHTML = skeletonCards(12);
     try {
       const params = new URLSearchParams({ q: aState.q, page: String(page) });
       if (aState.genre) params.set("genre", aState.genre);
@@ -10616,24 +10885,27 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     if (desc) desc.textContent = (ep == null ? void 0 : ep.description) || "";
     const list = $("#ep-list");
     if (list) list.innerHTML = epListHtml();
-    const line = $("#hero-ep-line");
-    if (line) line.textContent = `Episode ${dState2.ep}${ep ? " \xB7 " + ep.title : ""}`;
+    const line2 = $("#hero-ep-line");
+    if (line2) line2.textContent = `Episode ${dState2.ep}${ep ? " \xB7 " + ep.title : ""}`;
     const prev = $("#ep-prev");
     if (prev) prev.disabled = dState2.ep <= 1;
     const next = $("#ep-next");
     if (next) next.disabled = dState2.ep >= (((_a10 = dState2.details) == null ? void 0 : _a10.eps) ?? dState2.episodes.length);
   }
   async function loadPlayer(ep) {
-    var _a10, _b, _c, _d, _e, _f, _g;
+    var _a10, _b, _c, _d, _e, _f, _g, _h;
     const slot = $("#lx-slot");
     if (!slot) return;
     dState2.ep = ep;
     paintEpisodeSide();
+    if (!document.getElementById("lx-frame") && !slot.querySelector(".stage-load")) {
+      slot.innerHTML = stageLoading({ cover: (_a10 = dState2.details) == null ? void 0 : _a10.cover, caption: "Loading the player\u2026" });
+    }
     try {
       const res = await fetch(`/api/anime/${dState2.id}/player?ep=${ep}`);
       if (!res.ok) throw new Error(`status ${res.status}`);
       const data = await res.json();
-      const src = (_b = (_a10 = data.sources) == null ? void 0 : _a10[0]) == null ? void 0 : _b.url;
+      const src = (_c = (_b = data.sources) == null ? void 0 : _b[0]) == null ? void 0 : _c.url;
       if (!src) throw new Error("no source");
       let frame = document.getElementById("lx-frame");
       if (!frame) {
@@ -10641,13 +10913,13 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
         frame = mountEmbedStage(slot);
       }
       frame.src = src;
-      autoAdvance("anime", (_c = dState2.details) == null ? void 0 : _c.malId, ep, (_d = dState2.details) == null ? void 0 : _d.title);
+      autoAdvance("anime", (_d = dState2.details) == null ? void 0 : _d.malId, ep, (_e = dState2.details) == null ? void 0 : _e.title);
       noteOpen("anime", {
         id: dState2.id,
-        title: (_e = dState2.details) == null ? void 0 : _e.title,
-        cover: (_f = dState2.details) == null ? void 0 : _f.cover,
+        title: (_f = dState2.details) == null ? void 0 : _f.title,
+        cover: (_g = dState2.details) == null ? void 0 : _g.cover,
         number: ep,
-        total: Number((_g = dState2.details) == null ? void 0 : _g.eps) || dState2.episodes.length
+        total: Number((_h = dState2.details) == null ? void 0 : _h.eps) || dState2.episodes.length
       });
       renderActivity("anime");
     } catch (e) {
@@ -10701,7 +10973,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     <div class="detail-grid">
       <div class="detail-main">
         <div class="player-card">
-          <div id="lx-slot"><div class="center-spin"><div class="spinner"></div></div></div>
+          <div id="lx-slot">${stageLoading({ cover: details.cover, caption: "Loading the player\u2026" })}</div>
         </div>
         <div class="ep-nav">
           <button class="page-btn" id="ep-prev" type="button">\u2190 Previous</button>
@@ -10890,7 +11162,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     var _a10;
     const grid = $("#movies-grid");
     const pager = $("#movies-pager");
-    if (page > 1) grid.innerHTML = '<div class="center-spin"><div class="spinner"></div></div>';
+    if (page > 1) grid.innerHTML = skeletonCards(12);
     try {
       const params = new URLSearchParams({ q: mState2.q, page: String(page) });
       if (mState2.type) params.set("type", mState2.type);
@@ -11046,10 +11318,10 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     if (title) title.textContent = isTv ? (ep == null ? void 0 : ep.title) || `Episode ${dState3.ep}` : "";
     const list = $("#ep-list");
     if (list) list.innerHTML = epListHtml2();
-    const line = $("#hero-ep-line");
-    if (line) {
-      line.textContent = isTv ? `Episode ${dState3.ep}${(ep == null ? void 0 : ep.title) ? " \xB7 " + ep.title : ""}` : "";
-      line.hidden = !isTv;
+    const line2 = $("#hero-ep-line");
+    if (line2) {
+      line2.textContent = isTv ? `Episode ${dState3.ep}${(ep == null ? void 0 : ep.title) ? " \xB7 " + ep.title : ""}` : "";
+      line2.hidden = !isTv;
     }
     const prev = $("#ep-prev");
     if (prev) prev.disabled = dState3.ep <= 1;
@@ -11057,17 +11329,22 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     if (next) next.disabled = dState3.ep >= dState3.episodes.length;
   }
   async function loadShowPlayer(seq, ep) {
-    var _a10, _b;
+    var _a10, _b, _c;
     const slot = $("#fx-slot");
     if (!slot || seq !== openSeq) return;
     dState3.ep = ep;
     paintShowSide();
+    if (!document.getElementById("lx-frame")) {
+      slot.innerHTML = stageLoading({ cover: (_a10 = dState3.details) == null ? void 0 : _a10.poster, caption: "Looking for a stream\u2026" });
+    }
+    const stopLooking = stageStillLooking(slot, "Still looking \u2014 some titles take a few seconds");
     try {
       const params = new URLSearchParams({ season: String(dState3.season), episode: String(ep) });
       const res = await fetch(`/api/fmovies/${dState3.type}/${encodeURIComponent(dState3.slug)}/player?${params}`);
       if (!res.ok) throw new Error(`status ${res.status}`);
       const sources = (await res.json()).sources ?? [];
       if (!sources.length) throw new Error("no source");
+      stopLooking();
       if (seq !== openSeq) return;
       dState3.sources = sources;
       const live = sources.filter((s) => s.ok !== false);
@@ -11079,14 +11356,15 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
       frame.src = first.url;
       noteOpen("show", {
         id: dState3.ref,
-        title: (_a10 = dState3.details) == null ? void 0 : _a10.title,
-        cover: (_b = dState3.details) == null ? void 0 : _b.poster,
+        title: (_b = dState3.details) == null ? void 0 : _b.title,
+        cover: (_c = dState3.details) == null ? void 0 : _c.poster,
         number: dState3.type === "tv" ? ep : 1,
         total: dState3.type === "tv" ? dState3.episodes.length : 0,
         ref: dState3.type === "tv" ? `s${dState3.season}e${ep}` : null
       });
       renderActivity("show");
     } catch (e) {
+      stopLooking();
       if (seq !== openSeq) return;
       slot.innerHTML = `<p class="note">Could not resolve a player \u2014 ${esc(e.message)}</p>`;
     }
@@ -11180,7 +11458,7 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     <div class="detail-grid">
       <div class="detail-main">
         <div class="player-card">
-          <div id="fx-slot"><div class="center-spin"><div class="spinner"></div></div></div>
+          <div id="fx-slot">${stageLoading({ cover: details.poster, caption: "Looking for a stream\u2026" })}</div>
         </div>
         ${isTv ? `<div class="ep-nav">
           <button class="page-btn" id="ep-prev" type="button">\u2190 Previous</button>
@@ -11639,8 +11917,8 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
     if (state.q) params.set("q", state.q);
     if (state.tags.length) params.set("tags", state.tags.join(","));
     if (state.brand) params.set("brand", state.brand);
-    if (!grid.children.length) {
-      grid.innerHTML = Array.from({ length: 18 }, () => '<div class="skeleton" style="aspect-ratio:2/3"></div>').join("");
+    if (!grid.children.length || state.page > 0) {
+      grid.innerHTML = skeletonCards(18);
     }
     try {
       const body = await api("/api/videos?" + params);
@@ -12062,6 +12340,21 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
       e.target.style.visibility = "hidden";
     }
   }, true);
+  document.addEventListener("load", (e) => {
+    var _a10;
+    const img = e.target;
+    if (img.tagName !== "IMG") return;
+    if ((_a10 = img.dataset) == null ? void 0 : _a10.pending) delete img.dataset.pending;
+  }, true);
+  var veil = document.getElementById("boot-veil");
+  var veilGone = false;
+  function dropVeil() {
+    if (!veil || veilGone) return;
+    veilGone = true;
+    veil.setAttribute("data-done", "true");
+    setTimeout(() => veil.remove(), 400);
+  }
+  setTimeout(dropVeil, 15e3);
   $$(".rail").forEach(makeDraggable);
   (async () => {
     try {
@@ -12081,6 +12374,8 @@ MQqK9pLKe/g/IjwPU8lLaxj0wENLv7ycibixgCI/+FbcV6rnPGRDiq52DdZx+dlv9jdcfd7ei8+0jXZ
       await loadGrid();
     } catch (e) {
       $("#grid").innerHTML = `<p class="note">Could not reach the proxy \u2014 ${esc(e.message)}</p>`;
+    } finally {
+      dropVeil();
     }
     loadOwnIndex().catch(() => {
     });

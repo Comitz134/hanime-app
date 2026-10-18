@@ -124,6 +124,7 @@ with it.
 | `server/src/fmovies.mjs` | the films & series area: TMDB for catalog, details and episodes, the six cinehd doors for playback — see the note below |
 | `server/scripts/publish-desktop.mjs` | builds, zips and publishes a desktop release (the window's update source) |
 | `server/scripts/publish-apk.mjs`, `publish-github.mjs` | the same for the phone app |
+| `docs/loading-surfaces/` | screenshots of every screen the client draws while it waits, taken from the client's own code (`node docs/loading-surfaces/build.mjs`) — see its README |
 | `tools/update-fixture.mjs` | a loopback stand-in for the release API and its downloads, for exercising the updater without publishing |
 | `tools/click-at.ps1` | clicks at a point measured from a window's own corner — how the update banner's button is pressed on a build that has no harness for it |
 | `README-ANDROID-BUILD.md` | the long-form build and release documentation |

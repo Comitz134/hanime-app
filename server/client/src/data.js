@@ -8,6 +8,7 @@
 
 import { cardHtml } from './cards.js';
 import { $, api, esc, state } from './core.js';
+import { skeletonCards } from './loading.js';
 import { mountHero } from './hero.js';
 import { views } from './views.js';
 
@@ -75,8 +76,11 @@ async function loadGrid() {
   if (state.tags.length) params.set('tags', state.tags.join(','));
   if (state.brand) params.set('brand', state.brand);
 
-  if (!grid.children.length) {
-    grid.innerHTML = Array.from({ length: 18 }, () => '<div class="skeleton" style="aspect-ratio:2/3"></div>').join('');
+  // First load and every page turn: the grid is filled with the shape of the
+  // cards that are coming, rather than left as it was or emptied to one
+  // spinner. The page keeps its layout through the change.
+  if (!grid.children.length || state.page > 0) {
+    grid.innerHTML = skeletonCards(18);
   }
 
   try {

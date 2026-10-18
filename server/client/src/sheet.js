@@ -8,6 +8,9 @@
 
 import { $, $$, api, bindFullscreen, clock, esc, fmtCount } from './core.js';
 import { cardHtml } from './cards.js';
+import {
+  listSkeleton, sheetSkeleton, stageLoading, stageStillLooking, videoWaitHtml,
+} from './loading.js';
 import { lib, recordHistory, remember } from './library.js';
 import { clearPosition, favPill, savePosition } from './positions.js';
 import { dropClosedEntry, isApplying, pushNav } from './nav-history.js';
@@ -42,7 +45,12 @@ function openSheet(kind, ref, chapter) {
   document.body.style.overflow = 'hidden';
   sheet.scrollTop = 0;
   updateBackState();
-  $('#sheet-body').innerHTML = '<div class="center-spin"><div class="spinner"></div></div>';
+  // The sheet draws the page it is about to hold — a detail page for a title,
+  // rows for a playlist — rather than a spinner in an empty frame, so the wait
+  // is spent looking at the shape of the thing that is coming.
+  $('#sheet-body').innerHTML = kind === 'playlist' || kind === 'public'
+    ? listSkeleton()
+    : sheetSkeleton();
   $('#sheet-count').hidden = true;
   return sheet;
 }
@@ -124,7 +132,7 @@ async function openVideo(slug) {
     <div class="detail-grid">
       <div class="detail-main">
         <div class="player-card">
-          <div id="player-slot"><div class="center-spin"><div class="spinner"></div></div></div>
+          <div id="player-slot">${stageLoading({ cover: v.cover, caption: 'Finding a stream…' })}</div>
         </div>
         <div id="in-playlists" hidden></div>
         <section id="detail-recs" hidden>
@@ -147,7 +155,7 @@ async function openVideo(slug) {
   // made this one, so the rail is never a guess.
   loadStudioRecs(v.brand, slug).catch(() => {});
 
-  await mountPlayer(slug);
+  await mountPlayer(slug, v.cover);
 }
 
 async function loadStudioRecs(brand, slug) {
@@ -163,15 +171,22 @@ async function loadStudioRecs(brand, slug) {
   recs.hidden = false;
 }
 
-async function mountPlayer(slug) {
+async function mountPlayer(slug, cover = '') {
   const slot = $('#player-slot');
+  // The stage is already drawn (openVideo put it there before the request), so
+  // this only has to keep telling the truth if the resolver is slow. The films
+  // area boots a browser to find a playlist; four seconds in, the caption says
+  // that instead of leaving a ring that looks the same stuck or working.
+  const stopLooking = stageStillLooking(slot, 'Still looking — some titles take a few seconds');
   let sources;
   try {
     ({ sources } = await api(`/api/videos/${encodeURIComponent(slug)}/sources`));
   } catch (e) {
+    stopLooking();
     slot.innerHTML = `<p class="note">Could not resolve a stream — ${esc(e.message)}</p>`;
     return;
   }
+  stopLooking();
   if (!sources?.length) {
     slot.innerHTML = '<p class="note">No playable source was returned for this entry.</p>';
     return;
@@ -185,6 +200,7 @@ async function mountPlayer(slug) {
 
   slot.innerHTML = `
     <video id="vid" controls playsinline preload="metadata"></video>
+    ${videoWaitHtml({ cover })}
     <div class="quality">${sources
       .map((s, i) => `<button class="q-btn" data-i="${i}" aria-pressed="${i === 0}">${esc(s.label)}</button>`)
       .join('')}</div>
@@ -199,6 +215,19 @@ async function mountPlayer(slug) {
   activeVid = vid;
   activeSlug = slug;
 
+  // A video with no frames is a black rectangle, and a black rectangle reads as
+  // broken. The overlay is there from the first moment and leaves when the
+  // element can actually draw; `waiting`/`stalled` bring it back, which is the
+  // honest version of the word "buffering".
+  const veil = $('#vid-wait');
+  const veilOn = () => veil?.removeAttribute('hidden');
+  const veilOff = () => veil?.setAttribute('hidden', '');
+  vid.addEventListener('waiting', veilOn);
+  vid.addEventListener('stalled', veilOn);
+  vid.addEventListener('canplay', veilOff);
+  vid.addEventListener('playing', veilOff);
+  vid.addEventListener('error', veilOff);
+
   // Chrome and Firefox ship no native HLS demuxer; Safari and every iOS browser
   // do. Prefer Media Source Extensions when they exist, because some Android
   // WebViews answer `maybe` to canPlayType('application/vnd.apple.mpegurl')
@@ -206,6 +235,9 @@ async function mountPlayer(slug) {
   // readyState 4 and never decodes a single frame. Leaving the native route for
   // browsers with no MSE keeps iOS on its hardware path.
   const attach = (url) => {
+    // Switching quality (or re-attaching after an error) starts with the same
+    // black frame, so the veil comes back with it.
+    veilOn();
     if (activeHls) { activeHls.destroy(); activeHls = null; }
     if (window.Hls?.isSupported()) {
       activeHls = new window.Hls({ enableWorker: true, lowLatencyMode: false });
