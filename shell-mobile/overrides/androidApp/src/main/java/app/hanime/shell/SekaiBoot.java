@@ -32,6 +32,11 @@ public final class SekaiBoot extends ContentProvider {
         // from the socket layer's own idea of a context.
         SekaiServer.setContext(getContext());
         SekaiServer.start();
+        // The shell whose package this app inherits kept its account in a
+        // WebView; carry it across on the first activity, once. Registered
+        // here because a provider runs before any activity, and the import
+        // needs the storage initialisation an activity performs.
+        LegacyShellImport.watch(getContext());
         return true;
     }
 

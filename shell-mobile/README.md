@@ -153,6 +153,29 @@ Everything below was checked on the device, not inferred from a build:
     left. Kept titles live in the Library tab's Manga row. See *The manga tab*
     below.
 
+### The upgrade keeps you signed in
+
+2.0.1 imports the account the WebView shell left behind, so the update that
+replaces the old app does not ask for a password again. Both apps have the same
+package id, so the shell's WebView profile — and the `htv:account:v1` record the
+web client wrote there — survives the update. `LegacyShellImport` opens a
+WebView on `https://hanime.tv` (the origin the shell served its bundled client
+from; the page is answered by interception and nothing leaves the device), reads
+that record, and hands its access and refresh tokens to the Supabase SDK through
+`importAuthToken`. The SDK stores and refreshes them like any sign-in.
+
+It never overwrites a session that already exists, so a reader who signed in to
+2.0.0 before 2.0.1 arrived keeps that one. A failure (a spent refresh token, no
+network) is retried on the next launch, twice at most; a profile with no record
+at all is marked done immediately.
+
+The **library follows from the account**, not from the import: favourites,
+history and watch positions are the same Supabase project's `sync_*` rows the
+shell wrote, and the app's own sync adapter reads them as soon as the session
+exists. What does not come across is the manga area's local state — the shell
+kept chapter positions in its WebView storage and never synced them, and this
+app's Manga shelf is its own store — so that shelf starts empty.
+
 ### In-app playback, for every shelf
 
 A stream picker that hands the player a *page* is a stream picker that opens a

@@ -20,8 +20,12 @@ catalogue's upstreams were reverse-engineered; it is not developed any further.
 *   **Existing installs migrate, they are not stranded.** The successor keeps
     this app's package id and is signed with the same key, so the release the
     updater already consults installs *over* this app. Nothing needs to be
-    uninstalled first; the account is signed in again in the new app, because
-    preferences are not carried between the two implementations.
+    uninstalled first, and **2.0.1+ carries the account across**: this shell's
+    WebView profile survives the update, so the new app imports the Supabase
+    session from `htv:account:v1` on its first launch instead of asking for a
+    password. The account's library, history and positions come with it — they
+    are the same Supabase account's rows. Only this app's local manga state
+    (chapter positions, never synced) does not.
 *   **A phone that does not update stays on 1.0.42.** It keeps working while
     its catalogue upstreams do; it simply receives no fixes. Installing the
     current release by hand does the same thing the updater would.
