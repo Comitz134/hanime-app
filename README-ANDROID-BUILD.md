@@ -1,5 +1,13 @@
 # Android build, install and update
 
+> **Deprecated (2026-10-19).** The WebView shell described here is frozen at
+> 1.0.42 and receives no further builds. The phone app is now `shell-mobile/` —
+> the Kotlin + Compose client published as **2.0.0**, which installs over an
+> existing shell in place. See [`android/DEPRECATED.md`](android/DEPRECATED.md).
+> The build and release mechanics below are kept as the record of how 1.0.x was
+> produced; the release commands that apply now are in
+> [`shell-mobile/README.md`](shell-mobile/README.md) and [`AGENTS.md`](AGENTS.md).
+
 Everything needed to reproduce the APK this tree ships and to cut a new release.
 Toolchain versions and hashes below were read back from the machine that
 produced them.
