@@ -1,0 +1,9 @@
+// The version the Android release build reads (androidApp/build.gradle.kts).
+//
+// Upstream is 0.6.1 (144) at the pin. This fork is the successor to the phone
+// shell that shipped 1.0.42 (43), and it keeps that app's package id so an
+// installed shell updates into it in place — which means the number has to be
+// above 43, and the name has to read as newer than 1.0.42 to anyone looking.
+// 2.0.0 says "this is the rewrite", not "0.6.1 plus patches".
+CURRENT_PROJECT_VERSION=200
+MARKETING_VERSION=2.0.0

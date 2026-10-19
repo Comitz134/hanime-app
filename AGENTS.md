@@ -53,20 +53,41 @@ prefix before comparing versions (`releaseVersionTag` in the updater). The
 prerelease flag is a separate protection: `/releases/latest` is the phone's
 manifest URL, and it resolves by position, not by tag.
 
-**A phone change is two publishes, not one.** `publish-apk.mjs` writes the
-manifest this checkout's own server answers with (`/api/app/version`) and copies
-the APK into `server/data/apk/` — reachable from a phone only while this PC is
-up and only if the phone is pointed at it. The release a phone actually updates
-from is the GitHub one, and that is `publish-github.mjs`: it uploads the APK and
-`version.json` to a `v<versionName>` release (and refreshes the rolling
-`channel-beta` prerelease). Running the first without the second leaves every
-installed phone on the previous build while both logs read as published — it has
-happened, so neither script is a release on its own:
+**The phone app is `shell-mobile/`, and `android/` is retired.** The Kotlin
+fork is the one that ships; the WebView shell is frozen at 1.0.42 (see
+[`android/DEPRECATED.md`](android/DEPRECATED.md)). A phone release still takes
+two publishes, and neither script is a release on its own: `publish-apk.mjs`
+writes the manifest this checkout's own server answers with
+(`/api/app/version`) and copies the APK into `server/data/apk/` — reachable from
+a phone only while this PC is up and only if the phone is pointed at it. The
+release a phone actually updates from is the GitHub one, and that is
+`publish-github.mjs`: it uploads the APK and `version.json` to a
+`v<versionName>` release (and refreshes the rolling `channel-beta` prerelease).
+Running the first without the second leaves every installed phone on the
+previous build while both logs read as published — it has happened.
+
+The version is read from the fork's own xcconfig, not passed by hand:
+bump `CURRENT_PROJECT_VERSION` and `MARKETING_VERSION` in
+`shell-mobile/overrides/iosApp/Configuration/Version.xcconfig`. The published
+build keeps the **shell's** package id and signing key (the fork's
+`build.gradle.kts` sets `app.hanime.shell` for the release variant), which is
+what makes `/releases/latest` the old app's upgrade path; desktop releases stay
+prereleases so they never take that slot. The release key lives in
+`android/keystore.properties` (gitignored) and is handed to Gradle through the
+environment, so no password enters a tracked file:
 
 ```bash
+ks=android/keystore.properties
+export NUVIO_RELEASE_STORE_FILE="$PWD/android/$(sed -n 's/^storeFile=//p' "$ks" | tr -d '\r')"
+export NUVIO_RELEASE_STORE_PASSWORD="$(sed -n 's/^storePassword=//p' "$ks" | tr -d '\r')"
+export NUVIO_RELEASE_KEY_ALIAS="$(sed -n 's/^keyAlias=//p' "$ks" | tr -d '\r')"
+export NUVIO_RELEASE_KEY_PASSWORD="$(sed -n 's/^keyPassword=//p' "$ks" | tr -d '\r')"
+(cd shell-mobile/.upstream && "$JAVA_HOME/bin/java" -classpath gradle/wrapper/gradle-wrapper.jar \
+  org.gradle.wrapper.GradleWrapperMain :androidApp:assembleFullRelease --no-daemon --console=plain)
+
 cd server
-node scripts/publish-apk.mjs ../android/app/build/outputs/apk/release/app-release.apk
-node --env-file=../.env scripts/publish-github.mjs --repo Comitz134/hanime-app
+node scripts/publish-apk.mjs ../shell-mobile/.upstream/androidApp/build/outputs/apk/full/release/app-universal-release.apk --notes "..."
+node --env-file=../.env scripts/publish-github.mjs --repo Comitz134/hanime-app --notes "..."
 ```
 
 The token lives in the checkout-root `.env` (`GITHUB_TOKEN`), which
@@ -120,7 +141,8 @@ with it.
 | --- | --- |
 | `server/` | the Node catalogue server and the web client (`client/` builds `public/index.html`) |
 | `shell/` | the desktop app: `overrides/` is this fork's slice of NuvioDesktop, `sync.sh` fetches upstream and applies it, `install-desktop.sh` installs the result |
-| `android/`, `mobile/` | the phone clients |
+| `shell-mobile/` | the phone app: `overrides/` is this fork's slice of NuvioMobile (GPL-3.0, see its `NOTICE.md`), `sync.sh` fetches upstream and applies it, `install-mobile.sh` builds and installs on a phone |
+| `android/`, `mobile/` | the retired phone clients — `android/` is frozen at 1.0.42, see its `DEPRECATED.md` |
 | `server/src/fmovies.mjs` | the films & series area: TMDB for catalog, details and episodes, the six cinehd doors for playback — see the note below |
 | `server/scripts/publish-desktop.mjs` | builds, zips and publishes a desktop release (the window's update source) |
 | `server/scripts/publish-apk.mjs`, `publish-github.mjs` | the same for the phone app |

@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>mangafire signer</title>
+<!--
+  Host page for mangafire.to's signing bundle.
+
+  Every listing request their own client makes carries a `vrf` token minted from
+  the request's path and its canonical query. The bundle that mints it is
+  browser code — it decodes itself against `navigator.appCodeName`, so it does
+  not run in Node and cannot be ported to Java without reverse-engineering it.
+  A WebView runs it exactly as it shipped, and this page is the bridge: the same
+  arrangement as the hanime signer next door, one vendor over.
+
+  Like Java, this page never sends a request to their API. It is asked to sign
+  one, and answers with both the query string it signed and the token for it —
+  what is signed and what is sent have to be built from the same object, which
+  is why the two come out of one call.
+
+  The bundle registers its interceptor through its own obfuscated VM, and that
+  VM is allowed to be asynchronous, so nothing here assumes the interceptor
+  exists the moment `extendClient` returns: readiness is asked for again each
+  time Java looks, and every step is written to `window.__mfDiag` and to the
+  console, because a bundle that fails to boot fails silently otherwise.
+-->
+<style>body{background:#111;color:#666;font:12px monospace;margin:0;padding:8px}</style>
+</head>
+<body>
+<div id="state">booting…</div>
+<script type="module">
+const diag = (what) => {
+  const line = `${Date.now() % 100000} ${what}`;
+  window.__mfDiag = window.__mfDiag ? `${window.__mfDiag} | ${line}` : line;
+  console.log(`mf-signer ${line}`);
+};
+window.__mfDiag = '';
+
+const state = document.getElementById('state');
+window.onerror = (message, source, line) => diag(`onerror ${message} @${source}:${line}`);
+
+let mfMod = null;
+try {
+  mfMod = (await import('./mangafire-polyfill.js')).default;
+  diag(`module loaded, keys=${mfMod ? Object.keys(mfMod).join(',') : 'none'}`);
+} catch (e) {
+  diag(`module failed: ${e && e.message}`);
+}
+
+const extendClient = mfMod && mfMod.a;
+
+/** Their request interceptor, captured the way the web client captures it. */
+let signRequest = null;
+if (typeof extendClient === 'function') {
+  try {
+    const maybe = extendClient({
+      defaults: { headers: {} },
+      interceptors: {
+        request: { use: (fn) => { signRequest = fn; } },
+        response: { use: () => {} },
+      },
+    });
+    diag(`extendClient returned ${maybe && typeof maybe.then === 'function' ? 'a promise' : 'directly'}`);
+    Promise.resolve(maybe).then(
+      () => diag(`extendClient settled, signer=${typeof signRequest}`),
+      (e) => diag(`extendClient rejected: ${e && e.message}`),
+    );
+  } catch (e) {
+    diag(`extendClient threw: ${e && e.message}`);
+  }
+} else {
+  diag(`no extendClient export (keys=${mfMod ? Object.keys(mfMod).join(',') : 'none'})`);
+}
+
+/**
+ * These two are manga-api.js's own helpers, unchanged: what is signed and what
+ * is sent must be built from the same object — an extra or missing key changes
+ * the token, and upstream answers 403 without saying which.
+ */
+function clean(params) {
+  const out = {};
+  Object.keys(params).forEach((k) => {
+    const v = params[k];
+    if (v === undefined || v === null || v === '') return;
+    if (Array.isArray(v)) { if (v.length) out[k] = v; return; }
+    if (typeof v === 'object') { if (Object.keys(v).length) out[k] = v; return; }
+    out[k] = v;
+  });
+  return out;
+}
+
+function encode(params) {
+  const out = [];
+  const put = (k, v) => out.push(encodeURIComponent(k) + '=' + encodeURIComponent(v == null ? '' : v));
+  Object.keys(params).forEach((k) => {
+    const v = params[k];
+    if (Array.isArray(v)) v.forEach((x) => put(k + '[]', x));
+    else if (typeof v === 'object') Object.keys(v).forEach((s) => put(k + '[' + s + ']', v[s]));
+    else put(k, v);
+  });
+  return out.join('&');
+}
+
+// Readiness is asked for repeatedly, so it is a live view of the interceptor
+// rather than a snapshot taken before the VM had a chance to register it.
+Object.defineProperty(window, '__mfReady', {
+  configurable: true,
+  get: () => typeof signRequest === 'function',
+});
+
+/**
+ * Sign one request. `paramsJson` is the request's parameters as JSON; the
+ * answer lands in `window.__mfResult` as `{"qs":…,"vrf":…}` — Java polls for it,
+ * because the interceptor is allowed to be asynchronous.
+ */
+window.__mfSign = function (path, paramsJson) {
+  window.__mfResult = null;
+  let params;
+  try {
+    params = clean(JSON.parse(paramsJson || '{}'));
+  } catch (e) {
+    params = {};
+  }
+  const qs = encode(params);
+  const done = (vrf, why, debug) => {
+    if (why) diag(`sign ${path}: ${why}`);
+    window.__mfResult = JSON.stringify({ qs, vrf: vrf || '', why: why || '', debug: debug || '' });
+  };
+  if (!signRequest) return done('', 'no interceptor');
+  try {
+    Promise.resolve(signRequest({ url: path, method: 'get', params, headers: {}, baseURL: '/api' }))
+      .then((cfg) => {
+        // What the signer actually did with the config, for when the token is
+        // not where it is expected: keys, the params it left behind, the url.
+        let debug;
+        try {
+          debug = JSON.stringify({
+            keys: cfg ? Object.keys(cfg) : null,
+            params: cfg && cfg.params ? cfg.params : null,
+            url: cfg && cfg.url ? cfg.url : null,
+            baseURL: cfg && cfg.baseURL ? cfg.baseURL : null,
+          });
+        } catch (e) {
+          debug = `undumpable: ${e && e.message}`;
+        }
+        done(cfg && cfg.params && cfg.params.vrf, 'ok', debug);
+      })
+      .catch((e) => done('', `signer rejected: ${e && e.message}`));
+  } catch (e) {
+    done('', `signer threw: ${e && e.message}`);
+  }
+};
+
+/**
+ * Why the interceptor declines to sign. Their bundle keeps its own guards —
+ * a trusted-environment test and a pattern list of the paths it protects —
+ * and exports them onto `globalThis` while it boots, so the guards can be
+ * asked directly instead of inferred from a 403.
+ */
+const safe = (fn) => {
+  try {
+    return fn();
+  } catch (e) {
+    return `threw: ${e && e.message}`;
+  }
+};
+const probe = safe(() => ({
+  trusted: typeof globalThis.isTrustedEnvironment === 'function'
+    ? globalThis.isTrustedEnvironment() : 'missing',
+  // Which paths their own client signs, asked directly: `/titles/…` is
+  // protected and `/top-titles` is not, which is why trending answers to an
+  // unsigned request and a title does not.
+  signsTitles: typeof globalThis.shouldProtect === 'function'
+    ? globalThis.shouldProtect('/titles/ro8ro') : 'missing',
+  signsTrending: typeof globalThis.shouldProtect === 'function'
+    ? globalThis.shouldProtect('/top-titles') : 'missing',
+}));
+diag(`probe ${JSON.stringify(probe)}`);
+
+state.textContent = 'ready';
+window.__signerReady = () => typeof signRequest === 'function';
+</script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The fifth tab's label.
+
+  A file of its own rather than a line in the upstream `strings.xml`: that file
+  is not this fork's to keep in step with, and a key added here cannot collide
+  with one upstream adds later. The other four tab labels are localized; this
+  one is not, which is honest about who translated the tab.
+-->
+<resources>
+    <string name="compose_nav_manga">Manga</string>
+</resources>

@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SEKAI flixcloud mixer</title>
+<style>html,body{background:#0b0b0c;color:#a9a9b0;font:13px system-ui,sans-serif;margin:0;padding:12px}</style>
+</head>
+<body>
+<p id="state">booting</p>
+<script>
+/* Flixcloud's own steps, run where they can run.
+ *
+ * The desktop twin runs this chain in Node, where WebAssembly is a built-in.
+ * Android has no wasm runtime in Java — but its WebView has one, and the module
+ * is 389 bytes, so it is run here instead: the wasm mixes the three key
+ * fragments, WebCrypto does the PBKDF2/XOR/SHA-256 and the AES-CBC open, and
+ * the answer handed back to Java is the master playlist URL plus the 32-byte
+ * playlist key (base64url) the relay needs to unwrap everything below it.
+ *
+ * This page is this app's own bytes, served to the WebView from the APK for an
+ * origin that is not the provider's: unlike hanime's signer, nothing in the
+ * module folds a location into its answer, and the page makes no requests of
+ * its own. Java does the HTTP; this does the arithmetic.
+ */
+'use strict';
+
+var state = document.getElementById('state');
+
+function bytesFromBase64(text) {
+  return Uint8Array.from(atob(text), function (c) { return c.charCodeAt(0); });
+}
+
+function base64url(bytes) {
+  var s = '';
+  for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/** The wasm's key mix, run exactly as the provider's page runs it. */
+function mixKeys(wasmBytes, fragments, seedInt) {
+  var instance = new WebAssembly.Instance(new WebAssembly.Module(wasmBytes), {});
+  var e = instance.exports;
+  var memory = e.memory;
+  if (!memory || typeof e._s !== 'function' || typeof e._r !== 'function') return null;
+  if (memory.buffer.byteLength === 0) memory.grow(1);
+
+  var view = new Uint8Array(memory.buffer);
+  var len = fragments[0].length;
+  var offsets = [1000, 1000 + len, 1000 + 2 * len];
+  for (var i = 0; i < 3; i++) view.set(fragments[i], offsets[i]);
+  var out = 1000 + 3 * len;
+  e._s(seedInt);
+  e._r(offsets[0], offsets[1], offsets[2], out, len);
+
+  var mixed = new Uint8Array(memory.buffer).slice(out, out + len);
+  var key = null;
+  if (typeof e._c === 'function') {
+    var at = e._c();
+    key = new Uint8Array(memory.buffer).slice(at, at + 32);
+  }
+  return { mixed: mixed, key: key };
+}
+
+/** PBKDF2 over the mix, the seed's characters XORed back, then SHA-256. */
+async function openMasterUrl(mixed, seed, iv, ciphertext) {
+  var password = await crypto.subtle.importKey('raw', mixed, 'PBKDF2', false, ['deriveBits']);
+  var bits = new Uint8Array(await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt: new TextEncoder().encode(seed), iterations: 1000, hash: 'SHA-256' },
+    password,
+    256,
+  ));
+  for (var i = 0; i < bits.length; i++) bits[i] ^= seed.charCodeAt(i % seed.length);
+  var keyBytes = new Uint8Array(await crypto.subtle.digest('SHA-256', bits));
+  var aesKey = await crypto.subtle.importKey('raw', keyBytes, { name: 'AES-CBC' }, false, ['decrypt']);
+  var plain = await crypto.subtle.decrypt({ name: 'AES-CBC', iv: iv }, aesKey, ciphertext);
+  return new TextDecoder().decode(plain);
+}
+
+/**
+ * Everything the Java side needs, in one call.
+ *
+ * The payload is the same one the provider's page carries; Java has already
+ * fetched it and the token answer, because the HTTP reading is Java's job.
+ * Answers on window.SekaiFlix.done as `masterUrl|playlistKeyB64url`, or
+ * `!code` when a step refused.
+ */
+window.__flixOpen = function (payload) {
+  return (async function () {
+    try {
+      var mixedKeys = mixKeys(
+        bytesFromBase64(payload.wasm),
+        [payload.frag1, payload.frag2, payload.frag3].map(bytesFromBase64),
+        payload.seedInt,
+      );
+      if (!mixedKeys) return '!wasm_shape';
+      if (!mixedKeys.key) return '!no_playlist_key';
+
+      var url = await openMasterUrl(
+        mixedKeys.mixed,
+        payload.seed,
+        bytesFromBase64(payload.iv),
+        bytesFromBase64(payload.ciphertext),
+      );
+      if (!/^https:\/\//.test(url)) return '!not_a_url';
+      return url + '|' + base64url(mixedKeys.key);
+    } catch (err) {
+      return '!open_failed';
+    }
+  })().then(function (answer) {
+    state.textContent = 'answered';
+    if (window.SekaiFlix && window.SekaiFlix.done) window.SekaiFlix.done(answer);
+    return answer;
+  });
+};
+
+state.textContent = 'ready';
+</script>
+</body>
+</html>

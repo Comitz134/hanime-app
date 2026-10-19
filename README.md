@@ -9,14 +9,24 @@ never to the site.
   addon protocol (`server/src/addon.mjs`), which is what the desktop shell eats.
 - **`server/public/`** — a web client the server serves itself. Installable as a
   PWA on a phone, so you can use the whole thing today without a toolchain.
-- **`android/`** — the phone app, a Java shell around the same server, with a
-  device library per area and an in-app player.
+- **`android/`** — the **retired** phone app (1.0.42): a Java WebView shell
+  around the same server, with a device library per area and an in-app player.
+  It is deprecated and unsupported; its successor is `shell-mobile/`, which
+  keeps its package id so an installed shell updates into it. See
+  [`android/DEPRECATED.md`](android/DEPRECATED.md).
 - **`desktop/`** — a Kotlin + Compose desktop window written for this project.
 - **`shell/`** — the full desktop app: a fork of **NuvioDesktop** (Kotlin +
   Compose, native mpv player) rewired to this catalogue. This is the one that
   looks and behaves like a finished streaming app; see
   [`shell/README.md`](shell/README.md) for how to build it and for the GPL-3.0
   obligations that come with that upstream.
+- **`shell-mobile/`** — the phone app, and the successor to `android/`: a fork
+  of **NuvioMobile** (Kotlin + Compose, native player) carrying this catalogue
+  in-process. Published as `app.hanime.shell` 2.0.0, signed with the shell's
+  key, so an installed 1.0.x app updates into it in place. See
+  [`shell-mobile/README.md`](shell-mobile/README.md) for the build and release
+  commands, and [`shell-mobile/NOTICE.md`](shell-mobile/NOTICE.md) for the
+  GPL-3.0 obligations that come with that upstream.
 - **`mobile/`** — a Flutter app that talks only to your proxy.
 
 ### Films play in the app, not in a browser tab
@@ -115,6 +125,15 @@ the signature and writes it to `window.ssignature` / `window.stime`.
 
 So the server boots that module under a `node:vm` shim with a fake `window`, and
 dispatches the same event per request. Same signature, same path, no browser.
+
+It signs more than the clock. Dispatching the event makes the module read
+`window.top.location.origin`, and upstream checks that against the `Origin`
+header the request itself carries. A page served from anywhere else still mints
+a perfectly well-formed 64-hex signature — for the wrong origin — and every call
+it signs comes back `401 {"error_id":"UA1"}`, which reads like a user-agent
+refusal and is not one. The `node:vm` shim gets this for free by declaring
+`location.origin = "https://hanime.tv"`; on the phone the signer page is loaded
+from that origin and answered out of the APK, for the same reason.
 
 Exports are minified to single letters — `A` is the runtime init, `B` is
 `on_window_event`, `C` is `main`.

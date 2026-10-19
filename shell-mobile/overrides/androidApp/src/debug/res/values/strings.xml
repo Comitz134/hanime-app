@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      The debug variant's own label. Upstream's `debug` source set overrides
+      `app_name` here, and being the app module it wins over the library's copy —
+      so the release name in `composeApp/src/androidMain/res/values/strings.xml`
+      is not enough: without this file the installed debug build still calls
+      itself "Nuvio Debug". The word "Debug" stays: an install that cannot be
+      told apart from the release one is a trap, not a feature.
+    -->
+    <string name="app_name">SEKAI Debug</string>
+</resources>
