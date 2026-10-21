@@ -504,11 +504,21 @@ internal object MangaMal {
     }
 
     /**
-     * Opening a chapter tells MAL. The number only moves forward, the status
-     * is kept unless it was a plan, and the last chapter completes the title —
-     * the same rules the web client writes by, so the two agree.
+     * Opening a chapter tells MAL "I am at chapter [chapterNumber]". The number
+     * only moves forward, the status is kept unless it was a plan, and the last
+     * chapter completes the title — the same rules the web client writes by, so
+     * the two agree.
      *
      * A failure is swallowed: reading must never wait on a tracker.
+     *
+     * The account's number is a *position*, not a count of distinct chapters: a
+     * reader who opens chapter 40 has read up to 40 as far as MyAnimeList is
+     * concerned, and that is what everyone else's client writes there. So the
+     * chapter number is what is written, even when the device's own record knows
+     * only a few chapters were actually opened — the exact count is what this
+     * app's own title page shows, from its own read record. Sending the count
+     * here instead would make the account say "1 chapter" to someone sitting on
+     * chapter 40.
      */
     suspend fun chapterRead(title: String, chapterNumber: String) {
         ensureLoaded()

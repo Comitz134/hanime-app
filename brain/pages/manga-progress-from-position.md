@@ -2,55 +2,63 @@
 id: manga-progress-from-position
 title: "Manga progress is inferred from one stored position, not recorded per chapter"
 category: decision
-status: active
+status: archived
 tags: [manga, shelf, tracking]
 created: "2026-10-21T02:06:18"
-updated: "2026-10-21T02:06:46"
+updated: "2026-10-21T03:26:52"
 ---
 
 <!-- compiled_truth -->
-The reader stores one position per title, and the shelf derives its length and progress from that plus the catalogue's deduped chapter list.
+The reader stores which chapter numbers it has actually opened, per title, and the
+title page counts those instead of inferring a boundary from one saved position.
 
-## What was decided
+## What is stored
 
-The reader keeps **one position per title** (`hid`, `chapter`, `number`, `page`,
-`at`) and nothing else. Everything the UI says about progress is derived from
-that one number plus the chapter list:
+`read:<hid>` in the app's preferences: the set of chapter **numbers** (trimmed,
+never blank) that have been on screen for that title. Numbers, not ids, because a
+number survives the duplicate rule (two uploads, one number), is what a tracker
+speaks, and is what upstream re-issues ids around. A mark for a chapter the
+catalogue no longer lists simply stops matching. `/manga/read.json` reads one
+title, reads all of them, and writes one (`chapter=`) or many (`chapters=`).
 
-- **Total length** is the length of the catalogue's chapter list after dedupe.
-  Dedupe matters: mangafire repeats rows, and an undeduped count once made a
-  title claim 602 chapters when it had 301.
-- **Read count** is the boundary rule: the chapter left open, plus every chapter
-  older than it, because the catalogue lists newest first and readers read
-  forward from the old end. A position pointing at a chapter the list no longer
-  has counts as zero, not as everything.
-- **Shelf line** reads `Ch. 12 of 33` with a known length, `Ch. 12` without one,
-  `33 chapters` for a title never opened, `Not started` when neither is known.
+## The rule on the title page
 
-## Why not per-chapter
+- A chapter is read if its number is in the record.
+- The record, once it exists, is the answer. The account's number is a
+  **position** ("chapter 40"), not a set, so it is not merged with the record:
+  marking chapter 7 and unioning an account at 7 would claim seven chapters.
+- With no record (an import, or a title read on an older build), the old
+  boundary from the saved position stands in, and the account's boundary
+  replaces it only when it claims more.
+- A one-time seed fills the record from that boundary when a title has a position
+  and no record, so an existing shelf does not drop from "12 of 33" to "1 of 33"
+  the first time a chapter is opened on this build. The server refuses the seed
+  when a record already exists: it may fill a record, never rewrite one.
 
-A per-chapter read flag is the honest model, and mangafire does not publish one.
-Storing one position is what the reader already did for "continue reading", so
-progress cost no new state, no migration, and no new failure mode on a device
-that closes apps without warning.
+## What the trackers are told
 
-## Known limitation, and the fix
+The chapter **number**, not the count. MAL and AniList hold one number that every
+other client writes as "I am at chapter N"; sending the record's count instead
+made the account say "1 chapter" to someone sitting on chapter 40. So the app's
+fraction ("2 of 17 read") and the account's position ("8 / 13") answer different
+questions on the same screen, on purpose, and the read ink on the list comes from
+the record alone.
 
-The boundary rule is wrong for a reader who jumps: open chapter 40 of a 100
-chapter title and the shelf says "60 read". That is why the roadmap carries a
-per-chapter read record as the next step, and why this page exists: the
-inference is deliberate, not an oversight.
+## Where the record is written
 
-## The length backfill
+The reader, when a chapter comes under the finger (the same moment the trackers
+are told), through `MangaApi.markRead`. Best effort: a mark that does not land
+costs one count, and the next chapter marks itself. `readRevision` makes the
+title page re-read the record on return.
 
-The shelf cannot ask for a chapter list for every row on every render - a 123
-title shelf is 123 upstream requests. So a visit measures the rows **on screen**,
-fifteen per visit, a quarter-second apart, through `/manga/size.json`, which
-writes the count onto the stored row only when the reader already owns it (a
-measurement must never add a title to the shelf). The first attempt measured
-storage order instead and put fifteen counts below the fold while the top of the
-list stayed blank; ordering by what is visible is the fix, at the cost that rows
-further down fill in on later visits.
+## Limits
+
+- A record seeded from a boundary is still a guess for the chapters read before
+  this build: it cannot know which were opened, only what the old rule claimed.
+- 2000 marks per title, a ceiling no real series reaches.
+- The shelf line is unchanged: it shows the position and the length
+  (`Ch. 12 of 33`), because that is what a shelf row is for; the count is on the
+  title page and in the ink there.
 
 
 ## Timeline
@@ -71,4 +79,22 @@ further down fill in on later visits.
   kind: decision
   summary: index summary now reads as a sentence
   source: reworded the opening so the index summary reads as a sentence
+  affects: [manga-progress-from-position]
+
+- time: 2026-10-21T03:24:56
+  kind: reversal
+  summary: "The boundary rule is replaced by a per-chapter read record; a reader who jumps is now counted by the chapters actually opened"
+  source: session building the read record
+  affects: [manga-progress-from-position]
+
+- time: 2026-10-21T03:24:56
+  kind: decision
+  summary: "replaced the inferred count with a stored record of chapter numbers, and settled what the trackers are told"
+  source: "Manga.java, /manga/read.json, MangaApi.readChapterNumbers, MangaScreen"
+  affects: [manga-progress-from-position]
+
+- time: 2026-10-21T03:26:52
+  kind: reversal
+  summary: "Superseded by [[manga-read-record]]: progress is now a stored set of chapter numbers, not an inference from one position"
+  source: brain archive-page
   affects: [manga-progress-from-position]

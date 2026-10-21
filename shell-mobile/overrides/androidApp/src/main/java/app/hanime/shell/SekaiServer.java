@@ -586,6 +586,39 @@ final class SekaiServer {
                     return Resp.json(200, "{\"ok\":true}");
                 }
 
+                case "/manga/read.json": {
+                    // Which chapters have been read. `chapter` is one chapter and
+                    // `chapters` is a comma-joined list (the migration's seed),
+                    // and either one is a write; a `hid` alone is a read of that
+                    // title's marks, and no `hid` at all is all of them.
+                    String hid = text(q, "hid");
+                    String one = text(q, "chapter");
+                    String many = text(q, "chapters");
+                    if (hid.isEmpty()) {
+                        return Resp.json(200, new JSONObject()
+                                .put("items", Manga.allReadMarks()).toString());
+                    }
+                    if (!one.isEmpty() || !many.isEmpty()) {
+                        java.util.List<String> numbers = new java.util.ArrayList<>();
+                        if (!one.isEmpty()) numbers.add(one);
+                        for (String number : many.split(",")) {
+                            if (!number.trim().isEmpty()) numbers.add(number);
+                        }
+                        // `seed=1` is the one-time migration from the boundary
+                        // rule: it may only fill a record that does not exist,
+                        // or a visit to a title would rewrite the reader's own
+                        // history with a guess made from the last position.
+                        Manga.markRead(hid, numbers, "1".equals(text(q, "seed")));
+                        return Resp.json(200, "{\"ok\":true}");
+                    }
+                    JSONArray numbers = new JSONArray();
+                    java.util.List<String> sorted = new java.util.ArrayList<>(Manga.readMarks(hid));
+                    java.util.Collections.sort(sorted);
+                    for (String number : sorted) numbers.put(number);
+                    return Resp.json(200, new JSONObject()
+                            .put("chapters", numbers).toString());
+                }
+
                 case "/manga/page":
                     return page(q.get("u"));
             }

@@ -810,6 +810,18 @@ private fun MangaTitleScreen(
     var attempt by remember(id) { mutableIntStateOf(0) }
     var tracking by remember(id) { mutableStateOf(false) }
 
+    // The chapters this device has actually put on screen, by number. Empty is
+    // an answer (a title read before the record existed, or brought in by an
+    // import), and that answer falls back to the boundary rule below.
+    var recorded by remember(id) { mutableStateOf<Set<String>>(emptySet()) }
+
+    // Keyed on the record's revision as well as the title: coming back from the
+    // reader re-reads it, which is what puts the chapter just finished into the
+    // fraction and under a *read* mark without either screen telling the other.
+    LaunchedEffect(id, MangaApi.readRevision) {
+        recorded = runCatching { MangaApi.readChapters(id) }.getOrDefault(recorded)
+    }
+
     LaunchedEffect(id) {
         loading = true
         error = null
@@ -870,16 +882,31 @@ private fun MangaTitleScreen(
         MangaEta.estimate(chapters.toList(), card.status)
     }
 
-    // How much of the list is read. Two things know: this device's position,
-    // which is one chapter and implies every chapter below it, and the linked
-    // account, which also knows about chapters read on the website or on
-    // another phone. Whichever says further wins, capped at the list — a
-    // mismatched account entry can claim more chapters than the catalogue has,
-    // and a bar that overflows is worse than one that stops short.
-    val readCount = remember(chapters.size, resumeChapterId, lookup) {
-        val device = readChapterCount(chapters.toList(), resumeChapterId)
-        val account = (lookup as? MangaMalLookup.Found)?.entry?.read ?: 0
-        maxOf(device, account).coerceIn(0, chapters.size)
+    // How much of the list is read: the chapters this device recorded, the
+    // chapters the account claims, and — only when there is no record at all —
+    // the old boundary rule from the position. One function, because the bar,
+    // the fraction and the ink on each row have to be the same answer, and a
+    // rule that only a phone can check is a rule checked by looking at a phone.
+    // `MangaReadRecordTest` holds it on the JVM.
+    val accountRead = (lookup as? MangaMalLookup.Found)?.entry?.read ?: 0
+    val readNumbers = remember(chapters.size, resumeChapterId, lookup, recorded, accountRead) {
+        readChapterNumbers(chapters.toList(), recorded, accountRead, resumeChapterId)
+    }
+    val readCount = readNumbers.size
+
+    // A title read before this record existed has a position and no marks. The
+    // chapters the old boundary rule claims are offered once, so the count does
+    // not drop from "12 of 33" to "1 of 33" the first time the reader opens a
+    // chapter on this build. The server refuses the write if a record exists,
+    // so this can never overwrite the reader's own history.
+    LaunchedEffect(id, chapters.size, resumeChapterId, recorded) {
+        if (recorded.isNotEmpty() || chapters.isEmpty()) return@LaunchedEffect
+        val at = chapters.indexOfFirst { it.id == resumeChapterId }
+        if (at < 0) return@LaunchedEffect
+        val numbers = chapters.drop(at).map { it.number.trim() }.filter { it.isNotEmpty() }
+        if (numbers.isEmpty()) return@LaunchedEffect
+        recorded = numbers.toSet()
+        runCatching { MangaApi.seedReadMarks(id, numbers) }
     }
 
     // Asked with every id worth trying, in the order that outranks a guess: the
@@ -1120,11 +1147,13 @@ private fun MangaTitleScreen(
 
         itemsIndexed(chapters, key = { _, chapter -> chapter.id }) { index, chapter ->
             val isResume = resumeChapterId != null && chapter.id == resumeChapterId
-            // Read is a boundary, not a flag per row: the chapter last opened
-            // and every chapter below it. The bar and the ink are the same
-            // fact at two sizes — a reader scanning the list sees where they
-            // stopped without reading a word.
-            val isRead = readCount > 0 && index >= chapters.size - readCount
+            // Read is a record now, not a boundary: each row asks whether this
+            // chapter itself was opened. A reader who jumped to chapter 40 and
+            // left the first thirty-nine alone sees forty marked, not sixty —
+            // the bar and the ink are still the same fact at two sizes.
+            val isRead = chapter.number.trim().let { number ->
+                number.isNotEmpty() && number in readNumbers
+            }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1957,6 +1986,15 @@ private fun MangaReaderScreen(
             .distinctUntilChanged()
             .collect { index ->
                 val chapter = index?.let(route.chapters::getOrNull) ?: return@collect
+                // The device's own record: a chapter under the reader is a
+                // chapter read, and this is the write that makes the count
+                // exact rather than a boundary guessed from the last position.
+                // Best effort — the next chapter marks itself anyway.
+                runCatching { MangaApi.markRead(route.id, chapter.number) }
+                // The trackers keep their own meaning, which is a *position*:
+                // "I am at chapter N", not "N distinct chapters read". Writing
+                // the record's count here would tell an account the reader sat
+                // on chapter 40 that they have read one chapter.
                 MangaMal.chapterRead(route.title, chapter.number)
                 // The same chapter, to the other tracker when one is linked.
                 // A read is a read: whichever account is connected should hear

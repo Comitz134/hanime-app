@@ -2,7 +2,7 @@
 slug: stack
 title: Tech stack
 role: tech-stack choices
-updated: "2026-10-21T02:05:40"
+updated: "2026-10-21T03:27:25"
 ---
 
 # Tech stack
@@ -18,7 +18,8 @@ updated: "2026-10-21T02:05:40"
 | Desktop app | keep `desktop/` / fork a finished client | fork NuvioDesktop as `shell/` (Kotlin + Compose, native mpv) | the purpose-built window was a viewer; the fork is a finished streaming app |
 | Phone app | Flutter `mobile/` / Java WebView `android/` / fork NuvioMobile | fork NuvioMobile as `shell-mobile/`, published as `app.hanime.shell` signed with the old shell's key | keeps the package id, so an installed 1.0.x shell updates in place instead of being reinstalled |
 | Films catalogue | f-movies.org scrape / TMDB | TMDB for catalog, details and episodes; cinehd's six doors for playback | TMDB is a documented API; the doors are the only place the playlists exist |
-| Manga | mangafire.to | scraped through `server/src` and the app's own routes | the site is the catalogue; the reader keeps only a reading position locally |
+| Manga progress | boundary from one saved position / stored set of chapter numbers | the stored set, with the boundary only as the fallback for a title with no record | a boundary claims every chapter below the last one, including the ones a jumping reader never opened (see [[manga-read-record]]) |
+| Manga | mangafire.to | scraped through `server/src` and the app's own routes | the site is the catalogue; the reader keeps its position and its read record locally |
 | Anime tracking | MyAnimeList / AniList | both, each behind its own page | readers arrive with one or the other already populated |
 | Distribution | installer / self-update | GitHub releases: phone on `v<version>`, desktop as prereleases tagged `desktop-v<version>` | the two clients version independently and share one repository |
 | Font/UI glass, icons | - | upstream Nuvio conventions, kept in `overrides/` | diverging from upstream would make `sync.sh` a merge every time |
@@ -27,5 +28,3 @@ updated: "2026-10-21T02:05:40"
 
 - The Java film backend (`Fmovies.java`) still scrapes f-movies.org while Node
   answers TMDB. Porting it is the agreed next step for the phone.
-- Manga read progress is inferred from one stored position, not recorded per
-  chapter (see [[manga-progress-from-position]]).

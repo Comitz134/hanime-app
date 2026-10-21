@@ -61,6 +61,16 @@ final class Manga {
     /** Ceiling on the shelf of titles the reader added (see `library()`). */
     private static final int LIBRARY = 400;
 
+    /**
+     * Ceiling on the chapters one title can record as read.
+     *
+     * A number rather than no number because this is a preference file on a
+     * phone, not a database: the set costs nothing at a few hundred entries and
+     * should not be able to grow without a limit if something upstream ever
+     * answers with nonsense.
+     */
+    private static final int READ_MARKS = 2000;
+
     private static Context application;
     private static MangaSigner signer;
 
@@ -743,6 +753,131 @@ final class Manga {
             }
         }
         edit.putStringSet("hids", hids).apply();
+    }
+
+    // ------------------------------------------------------------ read marks
+
+    /**
+     * Which chapters of a title the reader has actually put on screen.
+     *
+     * A position is where the reader *is*, and one position implies every
+     * chapter below it — true of someone reading forward from the old end, and
+     * wrong for someone who jumps: open chapter 40 of a hundred and a boundary
+     * calls sixty chapters read, thirty-nine of which were never opened. That
+     * arithmetic is what the title page's fraction, its bar and the *read* ink
+     * on the list are drawn from, so a wrong boundary is a wrong answer in the
+     * one place a reader looks to find out how far along they are.
+     *
+     * This is the record that replaces the inference. What is stored is the set
+     * of chapter **numbers**, not chapter ids, because a number is what
+     * survives the duplicate rule (two rows, one number), what a tracker
+     * speaks, and what upstream re-issues ids around. A mark for a chapter the
+     * catalogue no longer lists simply stops matching anything.
+     */
+    static java.util.Set<String> readMarks(String hid) {
+        java.util.Set<String> out = new java.util.HashSet<>();
+        SharedPreferences prefs = prefs();
+        if (prefs == null || hid.isEmpty()) return out;
+        out.addAll(prefs.getStringSet("read:" + hid, new java.util.HashSet<>()));
+        return out;
+    }
+
+    /**
+     * Write down that one or more chapters of [hid] have been read.
+     *
+     * [onlyIfEmpty] is the one-time migration: a title that was read before
+     * this record existed has a position and no marks, so the caller offers the
+     * chapters the old boundary rule claimed. It must not run over a record
+     * that already exists — that record is the reader's own history, and a
+     * boundary recomputed from the last position would overwrite it with a
+     * guess on every visit.
+     *
+     * Nothing here touches the position or the shelf: a read is a fact about a
+     * chapter, and moving the reader's place is a different fact written by a
+     * different call.
+     */
+    static void markRead(String hid, java.util.Collection<String> numbers, boolean onlyIfEmpty) {
+        SharedPreferences prefs = prefs();
+        if (prefs == null || hid.isEmpty() || numbers == null) return;
+
+        java.util.Set<String> marks = readMarks(hid);
+        if (onlyIfEmpty && !marks.isEmpty()) return;
+
+        java.util.Set<String> hids = new java.util.HashSet<>(
+                prefs.getStringSet("readhids", new java.util.HashSet<>()));
+        java.util.Set<String> next = withMarks(marks, numbers, READ_MARKS);
+        boolean added = next.size() != marks.size();
+        marks = next;
+        if (!added) {
+            // Still remember that this title has a record, so that the
+            // migration does not offer the same seed on the next visit — an
+            // empty record and no record are different answers.
+            if (!hids.contains(hid)) {
+                hids.add(hid);
+                prefs.edit().putStringSet("readhids", hids).apply();
+            }
+            return;
+        }
+        hids.add(hid);
+        prefs.edit()
+                .putStringSet("read:" + hid, marks)
+                .putStringSet("readhids", hids)
+                .apply();
+    }
+
+    /**
+     * The record after offering these chapters, without touching storage.
+     *
+     * The rule a record has to keep, and the reason this is a function rather
+     * than a loop inside a write: a mark is a *trimmed number* and never a
+     * blank, the set is bounded so a nonsense answer cannot grow a preference
+     * file without limit, and offering the same chapter twice is offering it
+     * once. A blank is skipped rather than stored because every nameless extra
+     * would collide into one mark and claim a chapter nobody read.
+     */
+    static java.util.Set<String> withMarks(
+            java.util.Set<String> marks, java.util.Collection<String> offered, int cap) {
+        java.util.Set<String> out = new java.util.HashSet<>(
+                marks == null ? java.util.Collections.emptySet() : marks);
+        if (offered == null) return out;
+        for (String raw : offered) {
+            if (out.size() >= cap) break;
+            String number = raw == null ? "" : raw.trim();
+            if (number.isEmpty()) continue;
+            out.add(number);
+        }
+        return out;
+    }
+
+    /** One chapter read, the shape the reader itself calls. */
+    static void markRead(String hid, String number) {
+        if (number == null || number.trim().isEmpty()) return;
+        markRead(hid, java.util.Collections.singletonList(number), false);
+    }
+
+    /**
+     * Every title's marks, for a caller that wants more than one title.
+     *
+     * The app asks about one title at a time (the one whose chapter list is on
+     * screen); this exists so an import or a diagnostic can see the whole
+     * record in one request rather than a hundred.
+     */
+    static JSONArray allReadMarks() {
+        JSONArray out = new JSONArray();
+        SharedPreferences prefs = prefs();
+        if (prefs == null) return out;
+        for (String hid : prefs.getStringSet("readhids", new java.util.HashSet<>())) {
+            JSONArray numbers = new JSONArray();
+            List<String> sorted = new ArrayList<>(readMarks(hid));
+            java.util.Collections.sort(sorted);
+            for (String number : sorted) numbers.put(number);
+            try {
+                out.put(new JSONObject().put("id", hid).put("chapters", numbers));
+            } catch (Exception ignored) {
+                // A row that will not build is a row nobody can use.
+            }
+        }
+        return out;
     }
 
     // --------------------------------------------------------------- library

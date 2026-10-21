@@ -95,6 +95,80 @@ internal fun readChapterCount(chapters: List<MangaChapter>, resumeChapter: Strin
 }
 
 /**
+ * The chapters a title page should call read, by chapter number.
+ *
+ * Two things claim to know this, and neither is the whole answer on its own:
+ *
+ * - **This device's record** ([recorded]) holds the numbers the reader actually
+ *   put on screen. It is exact, and it is the reason a reader who jumped to
+ *   chapter 40 is not told they have read sixty chapters. It is empty for a
+ *   title read before the record existed, and for a title an import created.
+ * - **The account's number** ([accountRead]) is a *position*, not a set: a
+ *   tracker says "chapter forty" and means "read up to forty", because that is
+ *   what its one number has always meant. It is not evidence about which
+ *   chapters were opened, and it must not be merged with the record — a reader
+ *   who opened chapter 7 and whose account says 7 has read one chapter, and a
+ *   union would claim seven.
+ *
+ * So the record, once it exists, is the answer, and the account is not
+ * consulted; the two numbers are answering different questions. The account is
+ * the fallback for a title this device has no record of — an import, or a title
+ * read on an older build — where its boundary at the old end of the list is the
+ * only witness there is.
+ *
+ * With no record at all, the old boundary rule from the saved position (see
+ * [readChapterCount]) is used exactly as before, and the account's boundary
+ * replaces it only when the account claims more, so a title read on another
+ * device still shows that much and a title read on an older build does not
+ * suddenly claim nothing.
+ *
+ * Numbers, not ids: the duplicate rule keeps one row per number, a tracker
+ * speaks numbers, and a mark for a chapter the catalogue no longer lists simply
+ * matches nothing. A chapter with no number cannot be told apart from any other
+ * nameless extra, so it is never counted.
+ */
+internal fun readChapterNumbers(
+    chapters: List<MangaChapter>,
+    recorded: Set<String>,
+    accountRead: Int,
+    resumeChapter: String?,
+): Set<String> {
+    if (chapters.isEmpty()) return emptySet()
+    val numbers = chapters.map { it.number.trim() }
+    val account = accountRead.coerceIn(0, chapters.size)
+
+    // What this device recorded, as rows of this list.
+    val marks = LinkedHashSet<String>()
+    if (recorded.isNotEmpty()) {
+        for (number in numbers) {
+            // A blank is not a chapter: every nameless extra would answer to
+            // the same empty mark and claim a row nobody opened.
+            if (number.isNotEmpty() && number in recorded) marks += number
+        }
+        return marks
+    }
+
+    // No record: the position's boundary stands in for it.
+    val at = chapters.indexOfFirst { it.id == resumeChapter }
+    if (at >= 0) {
+        for (index in at until chapters.size) {
+            if (numbers[index].isNotEmpty()) marks += numbers[index]
+        }
+    }
+
+    if (account <= marks.size) return marks
+
+    // The account claims more than this device has marked. Its oldest-N
+    // boundary is what those chapters can be, and the bar and the ink agree on
+    // it rather than one of them claiming a chapter the other does not.
+    val boundary = LinkedHashSet<String>(account)
+    for (index in chapters.size - account until chapters.size) {
+        if (numbers[index].isNotEmpty()) boundary += numbers[index]
+    }
+    return boundary
+}
+
+/**
  * One row per chapter number, in the order the catalogue sent them.
  *
  * A mangafire title carries the same chapter twice more often than it should —
@@ -271,6 +345,10 @@ private data class PositionsResponse(val items: List<MangaPosition> = emptyList(
 @Serializable
 private data class LibraryResponse(val items: List<MangaLibraryItem> = emptyList())
 
+/** One title's read marks: the chapter numbers the reader has put on screen. */
+@Serializable
+private data class ReadResponse(val chapters: List<String> = emptyList())
+
 internal object MangaApi {
 
     private val http = createApiHttpClient()
@@ -283,6 +361,16 @@ internal object MangaApi {
      * knowing about the other.
      */
     internal var libraryRevision by mutableStateOf(0)
+        private set
+
+    /**
+     * Bumped whenever a chapter is written down as read. The title page keys
+     * its own load of the marks on it, so coming back from the reader redraws
+     * the list with the chapter just read already marked — the same trick the
+     * shelf uses with [libraryRevision], for the same reason: neither screen
+     * needs to know the other exists.
+     */
+    internal var readRevision by mutableStateOf(0)
         private set
 
     /**
@@ -403,6 +491,59 @@ internal object MangaApi {
                 else MangaFilterOption(genre.id.toString(), genre.name)
             },
         )
+    }
+
+    /**
+     * The chapter numbers this title's record holds.
+     *
+     * An empty set is an answer — "nothing recorded yet" — and the title page
+     * falls back to the boundary rule for it; a failed call is the same answer,
+     * because a record that cannot be read must not take the count away.
+     */
+    suspend fun readChapters(id: String): Set<String> {
+        if (id.isBlank()) return emptySet()
+        val json = body("/manga/read.json") {
+            parameter("hid", id)
+        }
+        return mangaJson.decodeFromString<ReadResponse>(json).chapters
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .toSet()
+    }
+
+    /**
+     * Write down that one chapter has been read, as the reader opens it.
+     *
+     * Best effort by design: a mark that does not land costs a count on one
+     * screen, and the reader is in the middle of a page. The next chapter marks
+     * itself, and the count catches up.
+     */
+    suspend fun markRead(id: String, number: String) {
+        if (id.isBlank() || number.trim().isEmpty()) return
+        body("/manga/read.json") {
+            parameter("hid", id)
+            parameter("chapter", number.trim())
+        }
+        readRevision++
+    }
+
+    /**
+     * The one-time migration from the boundary rule.
+     *
+     * A title read before this record existed has a position and no marks. The
+     * chapters the old rule claimed are offered here once; the server refuses
+     * the write when a record already exists, so a visit to a title can never
+     * overwrite the reader's own history with a guess made from the position.
+     */
+    suspend fun seedReadMarks(id: String, numbers: List<String>) {
+        val clean = numbers.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        if (id.isBlank() || clean.isEmpty()) return
+        body("/manga/read.json") {
+            parameter("hid", id)
+            parameter("chapters", clean.joinToString(","))
+            parameter("seed", 1)
+        }
+        readRevision++
     }
 
     /** One chapter's pages, already pointing at the app's own image route. */

@@ -795,7 +795,14 @@ internal object AniList {
         }
     }
 
-    /** Opening a chapter tells AniList, resolved from the catalogue's name. */
+    /**
+     * Opening a chapter tells AniList, resolved from the catalogue's name, as
+     * "I am at chapter [chapterNumber]".
+     *
+     * That is what the account's `progress` means to every other client. The
+     * exact number of chapters opened is the app's own record, not something
+     * AniList can hold: its progress is one number and it is read as a position.
+     */
     suspend fun chapterRead(title: String, chapterNumber: String) {
         ensureLoaded()
         if (session == null) return
