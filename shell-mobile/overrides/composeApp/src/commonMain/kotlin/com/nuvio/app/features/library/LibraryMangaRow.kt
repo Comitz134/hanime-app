@@ -23,6 +23,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -46,12 +47,74 @@ import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.features.manga.MangaApi
 import com.nuvio.app.features.manga.MangaLibraryItem
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 
 /** How the manga shelf is ordered; the series shelf's sorts, in manga terms. */
 internal enum class MangaShelfSort(val label: String) {
+    /**
+     * The one a shelf is usually wanted in: what was read most recently, first,
+     * never-read titles last. Kept first in this enum because that is also the
+     * default the chip starts on.
+     */
+    LAST_READ("Last read"),
     RECENT("Recently added"),
     TITLE("Title A–Z"),
     PROGRESS("Progress"),
+}
+
+/**
+ * The shelf in the order the chip names it.
+ *
+ * A function rather than a `when` inside the composable because the ordering is
+ * the part with a rule in it — what happens to a title nobody has read, and what
+ * breaks a tie — and a rule that only a phone can check is a rule that gets
+ * checked by looking at a phone. `MangaShelfTest` holds it on the JVM.
+ */
+internal fun sortShelf(
+    items: List<MangaLibraryItem>,
+    sort: MangaShelfSort,
+): List<MangaLibraryItem> = when (sort) {
+    // Read most recently first. A title that has never been read sits at the
+    // end rather than mixed in on its added stamp: "last read" answers "what
+    // was I reading", and the answer is not a title that has never been opened.
+    // Ties — and every unread row breaks ties at 0 — fall back to the order a
+    // title was added, newest first, so the order is total and stable.
+    MangaShelfSort.LAST_READ -> items.sortedWith(
+        compareByDescending<MangaLibraryItem> { it.read }
+            .thenByDescending { it.at }
+            .thenBy { it.title.lowercase() },
+    )
+
+    // The order the shelf is stored in: newest added first.
+    MangaShelfSort.RECENT -> items.sortedByDescending { it.at }
+    MangaShelfSort.TITLE -> items.sortedBy { it.title.lowercase() }
+    MangaShelfSort.PROGRESS -> items.sortedWith(
+        compareByDescending<MangaLibraryItem> { chapterNumber(it) }
+            .thenBy { it.title.lowercase() },
+    )
+}
+
+/**
+ * The line under a shelf poster: where the reader is, and how long the title is.
+ *
+ * The title page says *12 of 33 read*; a row on a shelf has one line and has to
+ * carry the place as well, so it says *Ch. 12 of 33* — the same count, with the
+ * chapter it belongs to. The length is the app's own count of the rows it draws
+ * (the deduped one, not the catalogue's), because two different answers to "how
+ * long is this" on two screens of the same app would be worse than no answer.
+ *
+ * A title whose chapter list has not been read yet has no length to give, and
+ * says only where the reader is rather than inventing a denominator.
+ */
+internal fun mangaShelfLine(item: MangaLibraryItem): String {
+    val number = item.number.trim()
+    return when {
+        number.isNotEmpty() && item.chapters > 0 -> "Ch. $number of ${item.chapters}"
+        number.isNotEmpty() -> "Ch. $number"
+        item.chapters > 0 ->
+            "${item.chapters} chapter${if (item.chapters == 1) "" else "s"}"
+        else -> "Not started"
+    }
 }
 
 /** What a reader means by "show me the ones I am reading". */
@@ -77,41 +140,41 @@ internal enum class MangaShelfFilter(val label: String) {
 @Stable
 internal class MangaShelf {
     val items = mutableStateListOf<MangaLibraryItem>()
-    var sortName by mutableStateOf(MangaShelfSort.RECENT.name)
+    var sortName by mutableStateOf(MangaShelfSort.LAST_READ.name)
     var filterName by mutableStateOf(MangaShelfFilter.ALL.name)
 
     /** False until the shelf has been read once, so "no manga" is not shown early. */
     var loaded by mutableStateOf(false)
 
     val sort: MangaShelfSort
-        get() = MangaShelfSort.entries.firstOrNull { it.name == sortName } ?: MangaShelfSort.RECENT
+        get() = MangaShelfSort.entries.firstOrNull { it.name == sortName } ?: MangaShelfSort.LAST_READ
 
     val filter: MangaShelfFilter
         get() = MangaShelfFilter.entries.firstOrNull { it.name == filterName } ?: MangaShelfFilter.ALL
 
-    /** The shelf as the chips describe it. */
-    val visible: List<MangaLibraryItem>
-        get() {
-            val filtered = items.filter { item ->
-                when (filter) {
-                    MangaShelfFilter.ALL -> true
-                    MangaShelfFilter.READING -> item.number.isNotBlank()
-                    MangaShelfFilter.NOT_STARTED -> item.number.isBlank()
-                }
-            }
-            return when (sort) {
-                // The order the shelf is stored in: newest first. For a shelf
-                // imported from MyAnimeList that is the order the list was last
-                // read in, because the import stamps each row from its place in
-                // the list (see `MangaMal.importLibrary`).
-                MangaShelfSort.RECENT -> filtered.sortedByDescending { it.at }
-                MangaShelfSort.TITLE -> filtered.sortedBy { it.title.lowercase() }
-                MangaShelfSort.PROGRESS -> filtered.sortedWith(
-                    compareByDescending<MangaLibraryItem> { chapterNumber(it) }
-                        .thenBy { it.title.lowercase() },
-                )
+    /**
+     * The shelf as the chips describe it.
+     *
+     * Computed once per change of what it depends on, not once per frame: the
+     * filter copies the list, the sort orders the copy, and both used to run
+     * every time the shelf was read — which during a scroll is every
+     * recomposition of every row, over a shelf that can hold a thousand titles.
+     * `derivedStateOf` keys it on the items, the sort and the filter, and hands
+     * back the list it built until one of them moves.
+     */
+    private val visibleState = derivedStateOf {
+        val filtered = items.filter { item ->
+            when (filter) {
+                MangaShelfFilter.ALL -> true
+                MangaShelfFilter.READING -> item.number.isNotBlank()
+                MangaShelfFilter.NOT_STARTED -> item.number.isBlank()
             }
         }
+        sortShelf(filtered, sort)
+    }
+
+    val visible: List<MangaLibraryItem>
+        get() = visibleState.value
 
     suspend fun reload() {
         try {
@@ -127,6 +190,66 @@ internal class MangaShelf {
         }
         loaded = true
     }
+
+    /** Titles whose chapter list this session has already asked for, or tried to. */
+    private val counted = mutableSetOf<String>()
+
+    /**
+     * Fill in the length of rows that do not have one yet.
+     *
+     * The count lives on the row because it is written when a title is opened,
+     * and a shelf is mostly titles that have not been opened this install — an
+     * import brings in eighty rows with a position and no length. Rather than
+     * fetch a chapter list for every row at once, this asks for a handful, one
+     * at a time, and stops: the next load of the tab asks for the next handful.
+     *
+     * Each answer is written back into the list the grid is drawing, so the rows
+     * fill in where they are rather than after a reload — and `MangaApi.chapters`
+     * has already told the stored row, so it is only paid for once.
+     *
+     * It measures what is **on screen** rather than what is stored: the shelf's
+     * order is the reader's (last read first), and the first fifteen rows in
+     * storage order are fifteen rows nobody is looking at — the first version
+     * did exactly that, and the top of a 123-title shelf stayed blank while the
+     * fifteen counts it had fetched sat on rows far below.
+     *
+     * A title that has no chapters yet is not asked again this session: an empty
+     * answer is an answer, and asking on every load would be a loop.
+     */
+    suspend fun fillMissingCounts() {
+        val pending = visible.asSequence()
+            .filter { it.id.isNotBlank() && it.chapters <= 0 }
+            .map { it.id }
+            .distinct()
+            .filter { counted.add(it) }
+            .take(COUNTED_PER_PASS)
+            .toList()
+        for (id in pending) {
+            val size = try {
+                MangaApi.chapters(id).size
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                0
+            }
+            if (size > 0) {
+                val at = items.indexOfFirst { it.id == id }
+                if (at >= 0) items[at] = items[at].copy(chapters = size)
+            }
+            // One at a time with a gap: the catalogue signs every call, and a
+            // phone that fires a hundred of them while a finger is scrolling a
+            // shelf is how a host starts refusing the app.
+            delay(COUNTED_GAP_MS)
+        }
+    }
+
+    private companion object {
+        /** How many unmeasured titles one visit to the shelf asks about. */
+        const val COUNTED_PER_PASS = 15
+
+        /** The pause between them. */
+        const val COUNTED_GAP_MS = 250L
+    }
 }
 
 private val MangaShelfSaver = Saver<MangaShelf, List<String>>(
@@ -135,7 +258,7 @@ private val MangaShelfSaver = Saver<MangaShelf, List<String>>(
     save = { shelf -> arrayListOf(shelf.sortName, shelf.filterName) },
     restore = { saved ->
         MangaShelf().apply {
-            sortName = saved.getOrElse(0) { MangaShelfSort.RECENT.name }
+            sortName = saved.getOrElse(0) { MangaShelfSort.LAST_READ.name }
             filterName = saved.getOrElse(1) { MangaShelfFilter.ALL.name }
         }
     },
@@ -154,6 +277,11 @@ internal fun rememberMangaShelf(active: Boolean): MangaShelf {
     val shelf = rememberSaveable(saver = MangaShelfSaver) { MangaShelf() }
     LaunchedEffect(active, MangaApi.libraryRevision) {
         if (active) shelf.reload()
+    }
+    // Lengths the rows are missing, a handful per visit. Separate from the
+    // reload so a slow catalogue never holds up the shelf it is filling in.
+    LaunchedEffect(active, shelf.items.size) {
+        if (active) shelf.fillMissingCounts()
     }
     return shelf
 }
@@ -209,7 +337,7 @@ internal fun LazyListScope.mangaShelfContent(
                 NuvioPosterCard(
                     title = item.title,
                     imageUrl = item.poster.ifBlank { null },
-                    detailLine = if (item.number.isNotBlank()) "Ch. ${item.number}" else "Not started",
+                    detailLine = mangaShelfLine(item),
                     onClick = { onOpen?.invoke(item) },
                 )
             }
@@ -350,7 +478,7 @@ private fun MangaGridTile(
             overflow = TextOverflow.Ellipsis,
         )
         Text(
-            text = if (item.number.isNotBlank()) "Ch. ${item.number}" else "Not started",
+            text = mangaShelfLine(item),
             style = MaterialTheme.typography.labelSmall,
             color = tokens.colors.textMuted,
             maxLines = 1,

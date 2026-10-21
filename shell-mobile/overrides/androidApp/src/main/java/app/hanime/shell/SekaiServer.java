@@ -72,6 +72,16 @@ final class SekaiServer {
     private static final int MAL_STATE_MAX = 256;
     private static final int MAL_CODE_MAX = 4096;
 
+    /**
+     * The same handover for AniList, kept apart by the state's prefix: both
+     * providers send the browser back to this server's root, so which map a
+     * code belongs in is decided by the state the app minted rather than by the
+     * path the browser landed on.
+     */
+    private static final Map<String, String> ANILIST_CODES = new ConcurrentHashMap<>();
+    private static final Map<String, Long> ANILIST_CODE_EXPIRY = new ConcurrentHashMap<>();
+    private static final String ANILIST_STATE_PREFIX = "anilist-";
+
     /** The origin covers are fetched with: the CDN checks this referer. */
     private static final String COVER_ORIGIN = "https://hanime.tv";
 
@@ -121,11 +131,25 @@ final class SekaiServer {
     static void setContext(android.content.Context context) {
         if (context != null) {
             application = context.getApplicationContext();
-            // manga needs one of its own: their API is signed by a bundle that
-            // only runs in a WebView (see [MangaSigner]).
-            Manga.ensure(application);
+            // manga needs a signer of its own: their API is signed by a bundle
+            // that only runs in a WebView (see [MangaSigner]), and building one
+            // costs the main thread about a fifth of a second. It is warmed
+            // here rather than on the request that needs it — the first chapter
+            // list after a cold start would otherwise wait for Chromium to
+            // load — but not from this provider, which runs before the first
+            // frame: the warm-up is put a second out, where it lands after the
+            // shell is drawn and still long before a thumb can reach the manga
+            // tab. Measured on the phone: the same WebView created on the boot
+            // path had the app displayed at 685 ms and finished loading *after*
+            // that frame anyway.
+            android.os.Handler main =
+                    new android.os.Handler(android.os.Looper.getMainLooper());
+            main.postDelayed(() -> Manga.ensure(application), WARM_UP_MS);
         }
     }
+
+    /** When the manga signer's WebView is built, in milliseconds after boot. */
+    private static final long WARM_UP_MS = 1_000L;
 
     /** Idempotent: the app may be started twice in one process. */
     static synchronized void start() {
@@ -138,16 +162,53 @@ final class SekaiServer {
 
     // ---------------------------------------------------------------- the socket
 
+    /**
+     * How long a build that lost the port waits before trying again.
+     *
+     * The port is the whole device's, not this package's: a release build and a
+     * debug build both carry this server, and whichever started first owns
+     * 127.0.0.1:8787 — so the second one silently answers from the first one's
+     * process, with the first one's code and the first one's stored list. That
+     * is a bug that looks like "the app needs a restart", and the restart only
+     * fixes it by accident (whichever build comes back first wins the port).
+     * Retrying means the build that lost the race takes the port over by itself
+     * the moment the other one stops, instead of needing that restart.
+     */
+    private static final long BIND_RETRY_MS = 2_000L;
+
     private static void acceptLoop() {
-        ServerSocket server;
-        try {
-            server = new ServerSocket(PORT, 64, InetAddress.getByName("127.0.0.1"));
-        } catch (Exception e) {
-            Log.e(TAG, "cannot bind 127.0.0.1:" + PORT + " — the addon will not load", e);
-            synchronized (SekaiServer.class) {
-                started = false;
+        ServerSocket server = null;
+        boolean told = false;
+        int attempt = 0;
+        while (server == null) {
+            attempt++;
+            try {
+                server = new ServerSocket(PORT, 64, InetAddress.getByName("127.0.0.1"));
+            } catch (java.net.BindException held) {
+                if (!told) {
+                    told = true;
+                    Log.e(TAG, "127.0.0.1:" + PORT + " is already in use — another install of this "
+                            + "app (release, fast or debug) is running and owns it. Only one build "
+                            + "can serve this port, and every request this app makes is being "
+                            + "answered by that one. Keeping this thread alive so it takes the "
+                            + "port over when the other build stops.", held);
+                }
+                // Capped backoff: quick enough to take over the moment the other
+                // build exits, lazy enough not to be a spin on a phone idle in a
+                // pocket for an hour.
+                try {
+                    Thread.sleep(Math.min(BIND_RETRY_MS * attempt, 30_000L));
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "cannot bind 127.0.0.1:" + PORT + " — the addon will not load", e);
+                synchronized (SekaiServer.class) {
+                    started = false;
+                }
+                return;
             }
-            return;
         }
         Log.i(TAG, "listening on http://127.0.0.1:" + PORT);
         // Eight, not four: a stream request can sit for seconds waiting on a
@@ -219,6 +280,11 @@ final class SekaiServer {
         if (path.equals("/manga/mal/callback")) return malCallback(request);
         if (path.equals("/api/mal/token")) return malToken(request);
         if (path.startsWith("/api/mal/")) return malApi(request, path);
+        // AniList: the same shape of handover and the same one-hop relay, with a
+        // GraphQL body instead of a REST path.
+        if (path.equals("/anilist/callback")) return anilistCallback(request);
+        if (path.equals("/api/anilist/token")) return anilistToken(request);
+        if (path.equals("/api/anilist/graphql")) return anilistGraphql(request);
 
         if (path.equals("/addon/") || path.equals("/addon/manifest.json")) {
             return Resp.json(200, manifest().toString());
@@ -236,25 +302,49 @@ final class SekaiServer {
     // ------------------------------------------------------ myanimelist
 
     /**
-     * The browser's half of a MyAnimeList login.
+     * The browser's half of a login, for MyAnimeList and for AniList.
      *
-     * MAL sends the browser back to `http://localhost:8787/` — the redirect URI
-     * registered on this project's MAL application. On a phone that address is
-     * this server, so the code arrives here and is kept for the app that minted
-     * the state, for ten minutes at most. A redirect carrying an `error` is
-     * MAL saying the person declined; the page says so and nothing is stashed.
+     * Both send the browser back to `http://localhost:8787/` — the redirect URI
+     * registered on each application. On a phone that address is this server,
+     * so the code arrives here and is kept for the app that minted the state,
+     * for ten minutes at most. The state's prefix says which provider the code
+     * belongs to, because the landing page cannot tell otherwise: AniList sends
+     * `code` and `state` exactly as MAL does. A redirect carrying an `error` is
+     * the provider saying the person declined; the page says so and nothing is
+     * stashed.
      */
     private static Resp malLanding(Request request) {
         String state = text(request.query, "state");
         String code = text(request.query, "code");
         String error = text(request.query, "error");
+        boolean anilist = state.startsWith(ANILIST_STATE_PREFIX);
+        String provider = anilist ? "AniList" : "MyAnimeList";
 
         if (!error.isEmpty()) return Resp.html(200, malPage(
                 "Not signed in",
-                "MyAnimeList sent this device back with: " + escapeHtml(error)
+                provider + " sent this device back with: " + escapeHtml(error)
                         + ". You can close this tab and try again in the app."));
 
         if (!code.isEmpty() && !state.isEmpty()) {
+            if (anilist) {
+                boolean believable = state.length() <= MAL_STATE_MAX && code.length() <= MAL_CODE_MAX;
+                if (believable) {
+                    long now = System.currentTimeMillis();
+                    for (Map.Entry<String, Long> entry : ANILIST_CODE_EXPIRY.entrySet()) {
+                        if (entry.getValue() <= now) {
+                            ANILIST_CODE_EXPIRY.remove(entry.getKey());
+                            ANILIST_CODES.remove(entry.getKey());
+                        }
+                    }
+                    ANILIST_CODES.put(state, code);
+                    ANILIST_CODE_EXPIRY.put(state, now + MAL_CODE_TTL_MS);
+                }
+                return Resp.html(200, malPage(
+                        believable ? "Signed in" : "Something looked wrong",
+                        believable
+                                ? "SEKAI has the code. Close this tab and go back to the app — the AniList card finishes the link on its own."
+                                : "That redirect did not look like one AniList produced, so the app did not take it."));
+            }
             boolean believable = state.length() <= MAL_STATE_MAX && code.length() <= MAL_CODE_MAX;
             if (believable) {
                 long now = System.currentTimeMillis();
@@ -275,6 +365,41 @@ final class SekaiServer {
         }
 
         return Resp.json(404, "{\"error\":\"not_found\"}");
+    }
+
+    /**
+     * GET /anilist/callback?state=… — the same one-read handover for AniList.
+     */
+    private static Resp anilistCallback(Request request) throws Exception {
+        String state = text(request.query, "state");
+        if (state.isEmpty()) return Resp.json(400, "{\"error\":\"missing_state\"}");
+        String code = ANILIST_CODES.remove(state);
+        ANILIST_CODE_EXPIRY.remove(state);
+        if (code == null) return Resp.json(404, "{\"error\":\"none_pending\"}");
+        return Resp.json(200, new JSONObject().put("code", code).put("state", state).toString());
+    }
+
+    /** POST /api/anilist/token?code=…&redirect_uri=… — the exchange, through [Anilist]. */
+    private static Resp anilistToken(Request request) throws Exception {
+        if (!"POST".equals(request.method)) {
+            return Resp.json(405, "{\"error\":\"method_not_allowed\"}");
+        }
+        Anilist.Result result = Anilist.token(encodeQuery(request.query));
+        return Resp.json(result.status, result.body);
+    }
+
+    /**
+     * POST /api/anilist/graphql — one hop onto AniList's single GraphQL endpoint,
+     * with the caller's bearer token. The JSON body goes over as it came.
+     */
+    private static Resp anilistGraphql(Request request) throws Exception {
+        if (!"POST".equals(request.method)) {
+            return Resp.json(405, "{\"error\":\"method_not_allowed\"}");
+        }
+        Anilist.Result result = Anilist.graphql(
+                request.body,
+                request.headers.get("authorization"));
+        return Resp.json(result.status, result.body);
     }
 
     /**
@@ -393,6 +518,11 @@ final class SekaiServer {
                     // `hid` and `chapter` together mean "the reader is here": a
                     // write. Either alone is not a position, and neither is a read.
                     if (!text(q, "hid").isEmpty() && !text(q, "chapter").isEmpty()) {
+                        // `at` is when this chapter was read. A page turning is
+                        // now; an import names the moment MyAnimeList says the
+                        // chapter was read, so that a shelf ordered by last
+                        // read is ordered by reading and not by importing.
+                        long readAt = Manga.atOr(q.get("at"));
                         Manga.savePosition(new JSONObject()
                                 .put("id", text(q, "hid"))
                                 .put("title", text(q, "title"))
@@ -401,7 +531,10 @@ final class SekaiServer {
                                 .put("number", text(q, "number"))
                                 .put("page", number(q, "page"))
                                 .put("pages", number(q, "pages"))
-                                .put("at", System.currentTimeMillis()));
+                                // A tracker sync writes the position, but it
+                                // does not claim the title was read just now.
+                                .put("quiet", text(q, "quiet"))
+                                .put("at", readAt > 0 ? readAt : System.currentTimeMillis()));
                         return Resp.json(200, "{\"ok\":true}");
                     }
                     return Resp.json(200, new JSONObject()
@@ -422,15 +555,36 @@ final class SekaiServer {
                         // first) that this stamp is what preserves. Without one
                         // the title was added now.
                         long at = Manga.atOr(q.get("at"));
+                        // And when it was last read, which an import knows from
+                        // MyAnimeList's own `updated_at` and nothing else here
+                        // does: `at` says when a title joined the shelf, and the
+                        // shelf's "Last read" order needs the other one.
+                        long read = Manga.atOr(q.get("read"));
+                        // And which row of the account this title is, when an
+                        // import is the one adding it.
+                        long mal = Manga.atOr(q.get("mal"));
                         Manga.addToLibrary(new JSONObject()
                                 .put("id", text(q, "hid"))
                                 .put("title", text(q, "title"))
                                 .put("poster", text(q, "poster"))
+                                .put("read", read)
+                                .put("mal", mal)
                                 .put("at", at > 0 ? at : System.currentTimeMillis()));
                         return Resp.json(200, "{\"ok\":true}");
                     }
                     return Resp.json(200, new JSONObject()
                             .put("items", Manga.library()).toString());
+
+                case "/manga/size.json": {
+                    // The chapter count the app saw, remembered on the shelf row
+                    // so the Library tab can say "Ch. 12 of 33" without asking
+                    // upstream for every title it draws. Not a read: it writes
+                    // no position and moves no stamp.
+                    String hid = text(q, "hid");
+                    if (hid.isEmpty()) return Resp.json(400, "{\"error\":\"missing_hid\"}");
+                    Manga.setLibrarySize(hid, number(q, "chapters"));
+                    return Resp.json(200, "{\"ok\":true}");
+                }
 
                 case "/manga/page":
                     return page(q.get("u"));
@@ -438,8 +592,28 @@ final class SekaiServer {
             return Resp.json(404, "{\"error\":\"not_found\",\"path\":" + quote(path) + "}");
         } catch (Exception e) {
             Log.w(TAG, "manga " + path + " failed", e);
-            return Resp.json(502, "{\"error\":\"upstream\",\"message\":" + quote(message(e)) + "}");
+            return Resp.json(502, "{\"error\":\"upstream\",\"message\":"
+                    + quote(mangaMessage(e)) + "}");
         }
+    }
+
+    /**
+     * The sentence a reader sees when a catalogue call fails.
+     *
+     * A resolver that refuses mangafire.to arrives here as
+     * `UnknownHostException("mangafire.to", "no address associated with
+     * hostname")`, and that string — which names a host and not a problem, and
+     * is not addressed to a person — was, for a while, exactly what the reader
+     * was shown after restarting onto a network that was not up yet. It says
+     * the thing that is true instead, and says what to do about it.
+     */
+    static String mangaMessage(Exception e) {
+        String raw = message(e);
+        if (e instanceof java.net.UnknownHostException || raw.contains("unable to resolve host")) {
+            return "The phone could not look up mangafire.to. "
+                    + "Check the connection and try again.";
+        }
+        return raw;
     }
 
     /** One reader page, with the referer their CDN insists on. */
@@ -1352,20 +1526,35 @@ final class SekaiServer {
         final String path;
         final Map<String, String> headers;
         final Map<String, String> query;
+        /**
+         * A request body, when there was one.
+         *
+         * Every route here but one is read from the head alone: an addon call
+         * and a manga listing are GETs with their arguments in the query. The
+         * exception is AniList's GraphQL endpoint, which is a POST of a JSON
+         * document — so the reader takes the declared length and stops there,
+         * and a route that does not look at {@code body} is unaffected.
+         */
+        final String body;
 
         Request(String method, String path, Map<String, String> headers, Map<String, String> query) {
+            this(method, path, headers, query, "");
+        }
+
+        Request(String method, String path, Map<String, String> headers, Map<String, String> query,
+                String body) {
             this.method = method;
             this.path = path;
             this.headers = headers;
             this.query = query;
+            this.body = body == null ? "" : body;
         }
 
         static Request read(InputStream in) throws Exception {
             // Read the head a byte at a time: a reader that stopped at a
             // declared body length would still have to be told where the body
-            // starts, and nothing here reads a body. The last four bytes are
-            // kept in a window so the terminator is recognised without
-            // rescanning what has been read.
+            // starts. The last four bytes are kept in a window so the
+            // terminator is recognised without rescanning what has been read.
             ByteArrayOutputStream head = new ByteArrayOutputStream();
             int window = 0;
             int b;
@@ -1405,7 +1594,36 @@ final class SekaiServer {
                     if (!key.isEmpty()) query.put(key, value);
                 }
             }
-            return new Request(method, path, headers, query);
+            String body = readBody(in, headers);
+            return new Request(method, path, headers, query, body);
+        }
+
+        /**
+         * The request body, when the head declared one.
+         *
+         * Only a GraphQL POST has a body, and it is a document rather than a
+         * file: 256 KB is far past anything this app writes and small enough
+         * that a client cannot make the server hold a large allocation. A
+         * chunked body with no declared length is not read — no caller here
+         * sends one, and guessing at a terminator is how a server hangs.
+         */
+        private static String readBody(InputStream in, Map<String, String> headers) throws Exception {
+            int length;
+            try {
+                length = Integer.parseInt(headers.getOrDefault("content-length", "0").trim());
+            } catch (NumberFormatException notANumber) {
+                return "";
+            }
+            if (length <= 0) return "";
+            if (length > 256 * 1024) throw new IllegalStateException("request body too large");
+            byte[] buffer = new byte[length];
+            int read = 0;
+            while (read < length) {
+                int count = in.read(buffer, read, length - read);
+                if (count < 0) break;
+                read += count;
+            }
+            return new String(buffer, 0, read, StandardCharsets.UTF_8);
         }
     }
 

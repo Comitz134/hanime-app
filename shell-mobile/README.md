@@ -42,7 +42,10 @@ what lag feels like: no R8, no shrinking, debug hooks on. `--fast` builds the
 `fast` type — the release pipeline (minified, shrunk, non-debuggable) signed
 with the **debug key** and installed under the same `com.nuviodebug.com`, so it
 replaces the debug build in place, keeps every preference and changes nothing
-visible. Switching back is the same command without `--fast`.
+visible. Switching back is the same command without `--fast`. Measured on this
+phone (2026-10-20, five to seven cold starts each, same tree, same 103-title
+shelf): debug **3053–3379 ms** to first frame, fast **421–450 ms** — 7× — and the
+APK goes from 166.8 MB to 124.6 MB.
 
 The **published** build is a third variant, `fullRelease`: `app.hanime.shell`,
 signed with this repository's own release key. Both of those are deliberate.
@@ -352,20 +355,69 @@ import puts every row of the account's list there, and reopening a title lands
 in the chapter and on the page left off, from the shelf or from *Continue
 Ch. 167*.
 
+The chapter list says how far in the reader is without being read themselves:
+the chapter left open is the accent colour, every chapter below it — already
+read — is muted, carries a thin grey bar down its left edge and says *read*
+where an unread row says its date, and everything above it keeps the normal ink.
+Under the *Chapters* heading a three-pixel bar fills with the fraction read and
+the line beside it counts it (*12 of 33 read*). The fraction is the further of
+two answers — this device's position, which is one chapter and implies every
+chapter below it, and the linked account's chapter count, which also knows about
+chapters read on the website or on another phone.
+
+The list is also **one row per chapter number**, because mangafire lists the same
+chapter twice whenever an upload is repeated or a second scanlation carries the
+same number: a 33-chapter title was drawn as 65 rows, with *Chapter 32* twice in
+a row and *Chapter 1* twice at the bottom. The first row of a number is kept
+(the catalogue is newest first, so that is the newest upload); a duplicate that
+knows the chapter's name gives that name to the row that stays; and a chapter
+with no number at all is never hidden, because there is nothing to compare it by
+and a hidden chapter cannot be read. The rule is applied where the chapter list
+is fetched rather than where it is drawn, so the count, the progress fraction,
+the tracker sync and the reader's own *next chapter* all see the same 33 — which
+is also what makes the strip skip a duplicate instead of carrying on into the
+chapter that was just read.
+
+The Library says the same two numbers: a row reads **Ch. 12 of 33** once the
+chapter list has been read, **33 chapters** for a title nobody has opened, and
+only **Ch. 12** when the length is not known yet — a row never invents a
+denominator it does not have. The length is stored on the shelf row by whichever
+screen reads chapters, so it survives the app closing, and a visit to the Manga
+shelf fills in a handful of rows still missing one — fifteen at a time, a
+quarter of a second apart — because an imported shelf arrives with eighty rows
+and no lengths, and a hundred chapter lists at once is how a host starts refusing
+the app.
+
 The shelf is organized the way the series beside it are: a **Sort** chip
-(*Recently added*, *Title A–Z*, *Progress*) and a **Show** chip (*All*,
-*Reading*, *Not started*) drawn with the library's own dropdown, so a shelf of
-four hundred imported rows can be narrowed to the ones being read without
-scrolling it. The choice is kept in saved state and the count line says what
-is being shown (`12 of 165`). The header's grid/row button switches it too —
-row mode is the horizontal shelf, grid mode the series grid's poster rows,
+(*Last read*, *Recently added*, *Title A–Z*, *Progress*) and a **Show** chip
+(*All*, *Reading*, *Not started*) drawn with the library's own dropdown, so a
+shelf of four hundred imported rows can be narrowed to the ones being read
+without scrolling it. The choice is kept in saved state and the count line says
+what is being shown (`12 of 165`). The header's grid/row button switches it too
+— row mode is the horizontal shelf, grid mode the series grid's poster rows,
 chunked by the list so a long shelf builds only what is on screen.
 
-An import keeps the account's order: the list is read `sort=list_updated_at`
-(last read first) and each row is stamped a millisecond older than the one
-above it, so *Recently added* on a freshly imported shelf lists the titles in
-the order they were last read on MyAnimeList rather than in the order their
-stamps collided.
+**Last read** is the default, and it is a stamp of its own rather than a
+reading of the added date: `at` says when a title joined the shelf and `read`
+says when it was last read, and only the second one moves when a reader reads.
+It is written from two places — a page turn (the server stamps it as the
+position is saved) and an import (MyAnimeList's own `updated_at`, which is the
+last time the account touched that row). Titles nobody has read carry 0 and
+sort last, then by when they were added, then by title, so the order is total
+and stable.
+
+Two things were wrong before that, and they are worth knowing because both
+looked like "the shelf is in import order". The import writes a position for
+every row it brings over with progress, to make *Ch. 41* appear — and those
+positions were stamped **now**, so every imported title claimed to have been
+read at the moment of the import. And a title already on the shelf kept its
+added stamp, so a re-import could not refresh the order it was shown in. Now
+an import sends the account's `updated_at` as the read stamp, and re-importing
+updates `read` on rows that are already there (the added stamp is still kept).
+The reading order itself is still read from the account
+(`sort=list_updated_at`), and a freshly imported row is stamped a millisecond
+after the one before it, so *Recently added* on a new import is the account's
+order rather than the order the stamps collided in.
 
 A search or a filter pull **every page** the catalogue has for it, not the first
 one and not the next page when the grid reaches its end: each page is appended
@@ -446,6 +498,14 @@ consent produced, instead of a bare status code. Network drops (a DNS miss on a
 phone that just switched networks) are retried three times on their own; MAL's
 own `400`/`401` is never retried.
 
+*Tracking* on a title page opens the picker: a field already filled with the
+name this app uses, and MyAnimeList's hits under it — the cover, the name, and
+the line that separates two same-named entries (*manga · 1989 · 374 chapters*),
+because that choice is the reader's. The cover arrives in the same search call
+(`main_picture` in the field list), so a list of hits is one request rather than
+one per row; an entry MAL has no art for keeps its space and draws a book mark,
+so the list does not go ragged.
+
 Once linked, the row shows the account's own status and progress on that title.
 Opening a chapter writes *chapters read* — never backwards, status kept unless
 it was *plan to read*, and *completed* when the last chapter is reached — the
@@ -454,6 +514,137 @@ first use and remembered; a miss stays a miss rather than attaching the title
 to the wrong entry. The exchange is real (MAL refuses a bogus code with
 `invalid_request`, not `invalid_client`), but completing a login needs an actual
 MAL account, which is the one step that could not be exercised here.
+
+### AniList, for both sides
+
+AniList sits under MyAnimeList on the same **Settings → Tracking** page, drawn
+by the same `TrackingProviderCard` and its own monogram, and it is a separate
+account on purpose: they are different lists on different services, and linking
+one must not depend on the other.
+
+The link is the same shape as MAL's — the app mints the state, the consent page
+redirects to this server's own root on loopback, the app polls `/anilist/callback`
+for the code the browser left, and the exchange, which is the one call that wants
+the registration's secret, happens in `Anilist.java`. Both providers land on the
+same path, so the landing page reads the state's `anilist-` prefix to know whose
+code it is holding.
+
+Everything after that is one GraphQL endpoint. The app does not talk to it
+directly: the document goes through `/api/anilist/graphql`, which is also the
+reason `SekaiServer` learned to read a request body at all — every other route
+here is answered from the head alone.
+
+The connected card has two imports, because AniList has two lists:
+
+* **Import my anime list** puts each title on the **Library** under the id the
+  bridge addon calls it (`ha:an:<id>`, which is AniList's own id), and writes the
+  last episode watched as a completed row with the next one resumable — that is
+  what puts the series in Continue Watching. No title is searched, so no title
+  can be the wrong one.
+* **Import my reading list** matches each row to the catalogue by name — the same
+  conservative rule the MAL import uses, an exact match after normalisation or
+  the edition words the catalogue appends — stamps the shelf with AniList's
+  `updatedAt` so it is in last-read order, and writes the chapters already read
+  as positions.
+
+Watching an episode and opening a chapter write back, never backwards, and a
+failed write is swallowed: playback and page turns never wait on a tracker.
+
+It also reads. Opening a title asks the linked accounts where that title stands
+and moves the reading position forward when they know a chapter this device does
+not — a chapter read on the website, on another phone, or by an import that only
+half finished. The order is deliberate: **MAL first, AniList second**, and
+AniList is only asked when MAL does not know the title at all. Nothing is ever
+moved backwards, and a title the account has read is put on the shelf if it is
+missing.
+
+### The reader's chrome
+
+The reader draws its controls in the floating navbar's own shape — dark glass
+pills with the tab bar's hairline edge, over the pages rather than in a bar that
+would push them down. One pill holds the way out and the chapter picker:
+`< Ch. 166 / 167 >` steps to the older or newer chapter and follows the strip
+across the seam. The rail down the right side holds everything else — the shelf,
+this title's page, its chapters, how the pages are drawn (dimming, and whether
+the strip runs on into the next chapter), how the reader works, and the flag
+that keeps the title on the shelf.
+
+The chrome starts **hidden**: pages are the point, and a chapter number is not
+worth a permanent band across a comic. A tap anywhere on the page brings it
+back, four idle seconds put it away, and a sheet the reader is using holds it
+open. The app's own tab bar hides with the chrome and returns with it — the same
+rule a full-screen route follows — so a page fills the screen rather than
+sitting on five tabs.
+
+A title opened from the Library's manga shelf belongs to the Library: closing it
+returns to that shelf, not to the manga tab, because that is the tab the reader
+chose.
+
+### How soon the next chapter
+
+The title page's action row has a second tile beside the shelf flag: a clock and
+`≈2h`, or `≈3d`, or `N/A`. mangafire publishes no schedule — only the chapters
+that exist and the date each went up — so the answer is the title's own rhythm
+projected forward: the median gap between its six most recent dated chapters,
+added to the newest one. That is the desktop client's `manga-eta.js` ported
+rather than reinvented, so the two surfaces say the same thing about the same
+title.
+
+It refuses more often than it answers, and each refusal is deliberate. A title
+whose status says it has stopped (finished, on hiatus, dropped) is not
+projected — nothing is coming, and a date would be a lie with a clock beside it.
+A title with fewer than four dated chapters has no rhythm, and two chapters a
+year apart are a fact rather than a cadence. A "cadence" under two hours or over
+a year is a re-upload or a gap in the scanlation, not a schedule.
+
+The words are kept to what a tile can hold: `≈1h` for anything inside ninety
+minutes, hours below a day, days below two months, months beyond that. Once the
+estimate has passed the tile reads `Any day` rather than a date in the past. The
+clock icon's spoken label carries what the label cannot — *Estimated around
+2026-10-23 — about every 7 days between chapters*, or *Any day now — the next
+chapter is overdue, on a rhythm of about every 7 days* — because a tile four
+tiles wide has room for four characters. All of the arithmetic lives in
+`MangaEta.kt`, with `now` as a parameter and no network, DOM or storage anywhere
+near it, so `MangaEtaTest` can hold the refusals and the rounding on the JVM.
+
+### A host the resolver refuses
+
+On a network that hands the phone an IPv6-only address, Java's resolver applies
+`AI_ADDRCONFIG` and turns a host that answers on IPv4 alone into *no address
+associated with hostname* — while the browser and `ping` still reach it. MAL hit
+this first (see above), and mangafire.to is the same failure: the catalogue's
+requests now go through OkHttp with the relay's DoH resolver as a fallback, tried
+only when the system refuses the name. The same fallback covers a page's images.
+
+The name is also refused *intermittently* on a network that resolves it the rest
+of the time — minutes at a stretch, seen on the phone this was built against,
+where one lookup failed and the next, twenty seconds later, answered. Two things
+followed from that. An upstream call is attempted three times over ~2.4 s before
+it is an error, because a phone that has just been handed a network — a restart,
+a Wi-Fi switch, the screen coming on — has the radio up before its resolver is.
+And a refusal that survives the retries is no longer shown as upstream's own
+words: *unable to resolve host "mangafire.to": no address associated with
+hostname* named a host rather than a problem, and is now *The phone could not
+look up mangafire.to. Check the connection and try again.* — with every other
+upstream message still passed through unchanged, because those are already
+written for a person.
+
+### One port, two installs
+
+`127.0.0.1:8787` belongs to the device, not to a package: the debug build
+(`com.nuviodebug.com`), the `fast` build and the published `app.hanime.shell` all
+carry this server, so whichever starts first owns the port and answers every
+request for all of them. The second one used to fail its bind silently and go on
+serving its UI from the *other* build's process — the other build's code, its
+stored shelf, its reader positions — which reads as "the app needs a restart",
+and the restart only fixed it by accident.
+
+The server now keeps trying: it logs once that the port is held, waits (2 s,
+growing to 30 s), and takes the port over by itself the moment the other build
+stops. What it cannot do is pre-empt a live listener, so while both installs are
+running it is still the first one's code that answers — the fix is to keep one
+of them installed. `adb shell pm list packages | grep -E 'nuvio|hanime'` says
+which ones are there, and the request line in logcat says whose code served it.
 
 ### The signer, again — and which calls need it
 
@@ -474,6 +665,13 @@ Two things about it are worth knowing, because both cost a build to learn:
     paths this app uses, `/titles/…` is protected and `/top-titles` and
     `/filter-options` are not: a shelf answering an unsigned request is not a
     sign that signing is broken, and a 403 on a title is.
+*   **A cold start outlasts the first wait.** The first call gives the signer
+    six seconds and then sends unsigned, on the theory that upstream's own `403`
+    is a clearer failure than a timeout invented here — which is true, but a
+    title screen showing *upstream HTTP 403* over a chapter list one second away
+    is not the reader's answer either. A token refusal on a request that went out
+    unsigned now waits for the signer and asks once more, signed; a refusal of a
+    *signed* request is upstream's own and is passed straight through.
 *   **An empty query string is an answer.** A title asked for by id has no
     parameters, so what comes back is a token and nothing to serialise. The first
     version read "no query" as "no answer", sent the request unsigned, and

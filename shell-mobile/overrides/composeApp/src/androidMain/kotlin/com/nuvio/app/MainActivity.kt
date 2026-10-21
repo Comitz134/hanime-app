@@ -130,6 +130,7 @@ open class MainActivity : AppCompatActivity() {
         SimklAuthStorage.initialize(applicationContext)
         SimklSyncStorage.initialize(applicationContext)
         com.nuvio.app.features.manga.MangaMalStorage.initialize(applicationContext)
+        com.nuvio.app.features.anilist.AniListStorage.initialize(applicationContext)
         LibraryDisplaySettingsStorage.initialize(applicationContext)
         ContinueWatchingPreferencesStorage.initialize(applicationContext)
         ResumePromptStorage.initialize(applicationContext)

@@ -1,7 +1,13 @@
 package com.nuvio.app.features.manga
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -11,10 +17,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -26,16 +34,35 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.ChevronLeft
+import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FavoriteBorder
+import androidx.compose.material.icons.rounded.Flag
+import androidx.compose.material.icons.rounded.HelpOutline
+import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.Language
+import androidx.compose.material.icons.rounded.MenuBook
+import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Subject
+import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -44,12 +71,16 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
@@ -58,16 +89,20 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
 import com.nuvio.app.core.ui.Chip
+import com.nuvio.app.core.ui.NuvioBottomSheetActionRow
+import com.nuvio.app.core.ui.NuvioBottomSheetDivider
 import com.nuvio.app.core.ui.NuvioDropdownChip
 import com.nuvio.app.core.ui.NuvioDropdownOption
 import com.nuvio.app.core.ui.NuvioInputField
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
+import com.nuvio.app.core.ui.NuvioModalBottomSheet
 import com.nuvio.app.core.ui.NuvioPosterCard
 import com.nuvio.app.core.ui.NuvioScreen
 import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.NuvioShelfSection
 import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.PlatformBackHandler
+import com.nuvio.app.core.ui.dismissNuvioBottomSheet
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.nuvioConsumePointerEvents
 import com.nuvio.app.features.home.MetaPreview
@@ -113,6 +148,15 @@ private sealed interface MangaRoute {
         val title: String,
         val poster: String,
         val resume: MangaPosition? = null,
+        /**
+         * Whether the Library handed this title over.
+         *
+         * A title opened from the Library's manga shelf is the Library's
+         * visit, not the manga tab's: closing it returns to the shelf that was
+         * open rather than dropping the reader in a tab they never chose. A
+         * title opened here stays here.
+         */
+        val fromLibrary: Boolean = false,
     ) : MangaRoute
     data class Reader(
         val id: String,
@@ -121,6 +165,24 @@ private sealed interface MangaRoute {
         val chapters: List<MangaChapter>,
         val index: Int,
         val startPage: Int = 0,
+        /** Carried through from the title page, so "back" still knows. */
+        val fromLibrary: Boolean = false,
+    ) : MangaRoute
+
+    /**
+     * The title on the site it came from, in this app's own window.
+     *
+     * The old client's WebView tile did exactly this: it did not hand the reader
+     * to a browser and hope they came back, it loaded mangafire's own title page
+     * over the app. The id is the page's address there — their API and their
+     * pages name a title by the same string — so no lookup stands between the
+     * tile and the page.
+     */
+    data class Source(
+        val id: String,
+        val title: String,
+        val poster: String,
+        val fromLibrary: Boolean = false,
     ) : MangaRoute
 }
 
@@ -140,6 +202,10 @@ internal fun MangaScreen(modifier: Modifier = Modifier) {
 
     LaunchedEffect(Unit) {
         feed.options = runCatching { MangaApi.filters() }.getOrDefault(MangaFilters())
+        // A shelf imported before the app stored an id per row has none to give,
+        // so the ids are derived once here — one list read, matched locally —
+        // rather than leaving every title to a name search that can lose it.
+        runCatching { MangaMal.matchShelf() }
     }
 
     // Typing, or any filter, is a new catalogue — always from its first page.
@@ -171,6 +237,7 @@ internal fun MangaScreen(modifier: Modifier = Modifier) {
             title = request.title,
             poster = request.poster,
             resume = request.resume,
+            fromLibrary = true,
         )
     }
 
@@ -178,16 +245,82 @@ internal fun MangaScreen(modifier: Modifier = Modifier) {
     // whether the title being looked at is on it, and the button under that
     // writes both the shelf and — when MyAnimeList is linked — the list.
     // Keyed on the revision the API bumps, so an id is never stale.
+    // Opening a title asks the linked accounts where this one stands — MAL
+    // first, AniList second — and moves the shelf forward when they know a
+    // chapter this device does not. The tracker is the source of truth for "how
+    // far am I", which is what makes a shelf imported elsewhere agree with it
+    // even after the reader stopped using one of the two.
+    LaunchedEffect((route as? MangaRoute.Title)?.id) {
+        val title = route as? MangaRoute.Title ?: return@LaunchedEffect
+        val synced = com.nuvio.app.features.anilist.AniList.syncProgress(
+            MangaCard(id = title.id, title = title.title, poster = title.poster),
+            // The shelf's own match, by id: the account is asked about the row it
+            // already knows instead of searching for the title again.
+            malId = MangaMal.shelfId(title.id),
+        ) ?: return@LaunchedEffect
+        positions.removeAll { it.id == title.id }
+        positions.add(synced)
+        // The page on screen should say the same thing the shelf now does.
+        route = title.copy(resume = synced)
+    }
+
     var libraryIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     LaunchedEffect(MangaApi.libraryRevision) {
-        libraryIds = runCatching { MangaApi.library().map { it.id }.toSet() }
-            .getOrDefault(emptySet())
+        val shelf = runCatching { MangaApi.library() }.getOrDefault(emptyList())
+        libraryIds = shelf.map { it.id }.toSet()
+        // The ids the shelf already holds are the ones the title page should ask
+        // by. Handing them over here, before any title is opened, is what means
+        // nobody has to re-open 121 titles to have them recognised.
+        MangaMal.learnShelf(shelf)
+    }
+
+    // One place that knows what adding a title to the shelf means, because more
+    // than one screen now says it: the title page's button and the reader's
+    // rail. A title added while an account is linked is a title the account
+    // should know about too — either account.
+    fun toggleLibrary(id: String, title: String, poster: String) {
+        val wanted = !libraryIds.contains(id)
+        scope.launch {
+            if (wanted) {
+                // An entry the reader picked rides along: a shelf row that knows
+                // its MAL id never has to be matched by name again.
+                MangaApi.addToLibrary(
+                    MangaCard(id = id, title = title, poster = poster),
+                    mal = MangaMal.pickedId(title).takeIf { it > 0L },
+                )
+                MangaMal.addToPlan(title.ifBlank { id })
+                com.nuvio.app.features.anilist.AniList.addToPlan(title.ifBlank { id })
+            } else {
+                MangaApi.removeFromLibrary(id)
+            }
+        }
+    }
+
+    // Closing a title that the Library opened is a return to the Library: the
+    // tab is asked to show it again, and the manga tab is left on its shelf for
+    // the next time it is chosen.
+    fun closeTitle(title: MangaRoute.Title) {
+        if (title.fromLibrary) MangaNav.requestReturnToLibrary()
+        route = MangaRoute.Browse
     }
 
     PlatformBackHandler(enabled = route != MangaRoute.Browse) {
-        route = when (val current = route) {
-            is MangaRoute.Reader -> MangaRoute.Title(current.id, current.title, current.poster)
-            else -> MangaRoute.Browse
+        when (val current = route) {
+            is MangaRoute.Reader ->
+                route = MangaRoute.Title(
+                    current.id,
+                    current.title,
+                    current.poster,
+                    fromLibrary = current.fromLibrary,
+                )
+            is MangaRoute.Source -> route = MangaRoute.Title(
+                current.id,
+                current.title,
+                current.poster,
+                fromLibrary = current.fromLibrary,
+            )
+            is MangaRoute.Title -> closeTitle(current)
+            else -> route = MangaRoute.Browse
         }
     }
 
@@ -224,25 +357,17 @@ internal fun MangaScreen(modifier: Modifier = Modifier) {
                 resume = current.resume,
                 inLibrary = libraryIds.contains(current.id),
                 onToggleLibrary = {
-                    val wanted = !libraryIds.contains(current.id)
-                    scope.launch {
-                        if (wanted) {
-                            MangaApi.addToLibrary(
-                                MangaCard(
-                                    id = current.id,
-                                    title = current.title,
-                                    poster = current.poster,
-                                ),
-                            )
-                            // A title added while the account is linked is a
-                            // title the account should know about too.
-                            MangaMal.addToPlan(current.title.ifBlank { current.id })
-                        } else {
-                            MangaApi.removeFromLibrary(current.id)
-                        }
-                    }
+                    toggleLibrary(current.id, current.title, current.poster)
                 },
-                onBack = { route = MangaRoute.Browse },
+                onBack = { closeTitle(current) },
+                onWeb = {
+                    route = MangaRoute.Source(
+                        id = current.id,
+                        title = current.title,
+                        poster = current.poster,
+                        fromLibrary = current.fromLibrary,
+                    )
+                },
                 onRead = { chapters, index, page ->
                     route = MangaRoute.Reader(
                         id = current.id,
@@ -251,14 +376,38 @@ internal fun MangaScreen(modifier: Modifier = Modifier) {
                         chapters = chapters,
                         index = index,
                         startPage = page,
+                        fromLibrary = current.fromLibrary,
+                    )
+                },
+            )
+
+            is MangaRoute.Source -> MangaSourceScreen(
+                url = mangafireUrl(current.id),
+                title = current.title,
+                onBack = {
+                    route = MangaRoute.Title(
+                        current.id,
+                        current.title,
+                        current.poster,
+                        fromLibrary = current.fromLibrary,
                     )
                 },
             )
 
             is MangaRoute.Reader -> MangaReaderScreen(
                 route = current,
+                inLibrary = libraryIds.contains(current.id),
                 onBack = {
-                    route = MangaRoute.Title(current.id, current.title, current.poster)
+                    route = MangaRoute.Title(
+                        current.id,
+                        current.title,
+                        current.poster,
+                        fromLibrary = current.fromLibrary,
+                    )
+                },
+                onHome = { route = MangaRoute.Browse },
+                onToggleLibrary = {
+                    toggleLibrary(current.id, current.title, current.poster)
                 },
                 onChapter = { index, page ->
                     route = current.copy(index = index, startPage = page)
@@ -638,9 +787,11 @@ private fun MangaTitleScreen(
     inLibrary: Boolean,
     onToggleLibrary: () -> Unit,
     onBack: () -> Unit,
+    onWeb: () -> Unit,
     onRead: (chapters: List<MangaChapter>, index: Int, startPage: Int) -> Unit,
 ) {
     val tokens = MaterialTheme.nuvio
+    val scope = rememberCoroutineScope()
     var card by remember(id) { mutableStateOf(MangaCard(id = id, title = title, poster = poster)) }
     val chapters = remember(id) { mutableStateListOf<MangaChapter>() }
     var loading by remember(id) { mutableStateOf(true) }
@@ -648,6 +799,16 @@ private fun MangaTitleScreen(
     // A shelf can hand a position over, and so can the title itself: the reader
     // who arrives here from a search has no card to carry it.
     var saved by remember(id) { mutableStateOf(resume) }
+
+    // Where this title sits on MyAnimeList. Held here rather than inside the
+    // tracking row because two things read it now — the row under the actions
+    // and the picker the tracking tile opens — and two copies would be two
+    // answers on one screen.
+    val auth = MangaMal.authState
+    var lookup by remember(id) { mutableStateOf<MangaMalLookup?>(null) }
+    var checking by remember(id) { mutableStateOf(false) }
+    var attempt by remember(id) { mutableIntStateOf(0) }
+    var tracking by remember(id) { mutableStateOf(false) }
 
     LaunchedEffect(id) {
         loading = true
@@ -679,8 +840,74 @@ private fun MangaTitleScreen(
     }
 
     // Where "continue" lands: the chapter that was open, or the newest one.
+    //
+    // By id first, then by number, because a position can name a row that the
+    // duplicate rule dropped — the stored id was one of two rows that both say
+    // "Ch. 32", and the one that is left says it too. Without the second look a
+    // reader's position would vanish from the screen that offers to resume it.
     val resumeIndex = remember(saved, chapters.size) {
-        if (saved == null) -1 else chapters.indexOfFirst { it.id == saved?.chapter }
+        val pending = saved
+        if (pending == null) {
+            -1
+        } else {
+            val byId = chapters.indexOfFirst { it.id == pending.chapter }
+            if (byId >= 0) byId else {
+                val number = pending.number.trim()
+                if (number.isEmpty()) -1
+                else chapters.indexOfFirst { it.number.trim() == number }
+            }
+        }
+    }
+
+    // What the rows compare against: the id of the row actually on screen, so a
+    // position found by number still marks its chapter the same way.
+    val resumeChapterId = chapters.getOrNull(resumeIndex)?.id
+
+    // The next chapter, read off the chapters' own posting dates. Recomputed
+    // when the list arrives and when the title's status does; nothing else can
+    // change the answer, so nothing else re-runs it.
+    val eta = remember(chapters.size, card.status) {
+        MangaEta.estimate(chapters.toList(), card.status)
+    }
+
+    // How much of the list is read. Two things know: this device's position,
+    // which is one chapter and implies every chapter below it, and the linked
+    // account, which also knows about chapters read on the website or on
+    // another phone. Whichever says further wins, capped at the list — a
+    // mismatched account entry can claim more chapters than the catalogue has,
+    // and a bar that overflows is worse than one that stops short.
+    val readCount = remember(chapters.size, resumeChapterId, lookup) {
+        val device = readChapterCount(chapters.toList(), resumeChapterId)
+        val account = (lookup as? MangaMalLookup.Found)?.entry?.read ?: 0
+        maxOf(device, account).coerceIn(0, chapters.size)
+    }
+
+    // Asked with every id worth trying, in the order that outranks a guess: the
+    // reader's pick, the shelf row's id, the catalogue's own `malId`, and only
+    // then a search. A detail that has not arrived yet asks with what it has and
+    // asks again when `card.malId` lands.
+    LaunchedEffect(card.title, card.malId, auth.connected, attempt) {
+        if (!auth.connected) {
+            lookup = null
+            return@LaunchedEffect
+        }
+        val name = card.title.ifBlank { title }
+        checking = true
+        lookup = runCatching {
+            MangaMal.lookup(
+                name,
+                mangaId = id,
+                malId = card.malId.toLongOrNull() ?: 0L,
+                force = attempt > 0,
+            )
+        }.getOrElse { MangaMalLookup.Failed(it.message ?: "MyAnimeList did not answer.") }
+        checking = false
+    }
+
+    // The browser's half of a sign-in is waited for here, so the row that says
+    // "finishing the sign-in" is the one that is on screen.
+    LaunchedEffect(auth.pendingState) {
+        if (auth.pendingState != null) MangaMal.awaitSignIn()
     }
 
     NuvioScreen(
@@ -731,7 +958,11 @@ private fun MangaTitleScreen(
                     }
                     Spacer(Modifier.height(14.dp))
                     if (chapters.isNotEmpty()) {
-                        val index = if (resumeIndex >= 0) resumeIndex else 0
+                        // The list is newest first, so the *first* chapter is
+                        // the last row — and a title nobody has opened starts
+                        // there, not at the newest chapter, which would mark a
+                        // whole unread series as read on the first tap.
+                        val index = if (resumeIndex >= 0) resumeIndex else chapters.lastIndex
                         val page = if (resumeIndex >= 0) saved?.page ?: 0 else 0
                         Button(
                             onClick = { onRead(chapters.toList(), index, page) },
@@ -739,17 +970,24 @@ private fun MangaTitleScreen(
                         ) {
                             Text(
                                 text = if (resumeIndex >= 0) {
-                                    "Continue Ch. ${chapters[resumeIndex].number}"
+                                    "Continue Ch. ${chapters[index].number}"
                                 } else {
-                                    "Start reading"
+                                    "Start Ch. ${chapters[index].number}"
                                 },
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
                         }
                         // A title left at chapter 167 still offers its first
-                        // chapter: continuing is the common case, not the only one.
-                        if (index > 0) {
+                        // chapter: continuing is the common case, not the only
+                        // one. Not when the resume *is* already the first
+                        // chapter — two buttons onto one chapter is a button
+                        // that does nothing. By name rather than by row: the
+                        // catalogue carries duplicate numbers (a re-upload, a
+                        // second scanlation), and "Continue Ch. 1" over a
+                        // "Ch. 1" button reads as a bug whether or not the
+                        // rows are different chapters.
+                        if (chapters.last().number != chapters[index].number) {
                             Spacer(Modifier.height(8.dp))
                             OutlinedButton(
                                 onClick = { onRead(chapters.toList(), chapters.lastIndex, 0) },
@@ -759,20 +997,24 @@ private fun MangaTitleScreen(
                             }
                         }
                     }
-
-                    // The one place a title is taken onto the Library tab's
-                    // manga shelf. It is drawn even when the chapter list has
-                    // not come back yet: wanting a title is not conditional on
-                    // its chapters loading.
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedButton(
-                        onClick = onToggleLibrary,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(if (inLibrary) "In your library — remove" else "Add to library")
-                    }
                 }
             }
+        }
+
+        // The four things that can be done with a title before reading it, in
+        // one row where the old client kept them: keep it, see when the next
+        // chapter is due, say which MyAnimeList entry it is, or walk to the
+        // site it came from. Drawn even when the chapter list has not come
+        // back: wanting a title is not conditional on its chapters loading.
+        item(key = "actions") {
+            MangaActionRow(
+                inLibrary = inLibrary,
+                eta = eta,
+                onLibrary = onToggleLibrary,
+                onTracking = { tracking = true },
+                onWeb = onWeb,
+            )
+            Spacer(Modifier.height(14.dp))
         }
 
         if (card.description.isNotEmpty()) {
@@ -800,19 +1042,58 @@ private fun MangaTitleScreen(
         }
 
         item(key = "mal") {
-            MangaMalSection(title = card.title.ifBlank { title })
+            MangaMalLine(
+                auth = auth,
+                lookup = lookup,
+                checking = checking,
+                onOpen = { tracking = true },
+                onRetry = { attempt++ },
+            )
+            Spacer(Modifier.height(12.dp))
         }
 
         item(key = "chapters-heading") {
             Column(modifier = Modifier.padding(horizontal = 16.dp)) {
                 HorizontalDivider(color = tokens.colors.borderDefault)
                 Spacer(Modifier.height(12.dp))
-                Text(
-                    text = "Chapters",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = tokens.colors.textPrimary,
-                    fontWeight = FontWeight.SemiBold,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "Chapters",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = tokens.colors.textPrimary,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    if (readCount > 0) {
+                        Text(
+                            text = "$readCount of ${chapters.size} read",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = tokens.colors.textMuted,
+                        )
+                    }
+                }
+                if (readCount > 0 && chapters.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    // The bar is drawn rather than asked for: three pixels of
+                    // accent under a heading is a track and a fill, and a
+                    // component with its own insets would be a taller thing
+                    // than the heading it belongs to.
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(3.dp)
+                            .clip(CircleShape)
+                            .background(tokens.colors.surfaceCard),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(readCount.toFloat() / chapters.size)
+                                .height(3.dp)
+                                .clip(CircleShape)
+                                .background(tokens.colors.accent),
+                        )
+                    }
+                }
                 if (error != null) {
                     Spacer(Modifier.height(4.dp))
                     Text(
@@ -838,7 +1119,12 @@ private fun MangaTitleScreen(
         }
 
         itemsIndexed(chapters, key = { _, chapter -> chapter.id }) { index, chapter ->
-            val isResume = chapter.id == saved?.chapter
+            val isResume = resumeChapterId != null && chapter.id == resumeChapterId
+            // Read is a boundary, not a flag per row: the chapter last opened
+            // and every chapter below it. The bar and the ink are the same
+            // fact at two sizes — a reader scanning the list sees where they
+            // stopped without reading a word.
+            val isRead = readCount > 0 && index >= chapters.size - readCount
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -846,15 +1132,39 @@ private fun MangaTitleScreen(
                     .padding(horizontal = 16.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                Box(
+                    modifier = Modifier
+                        .width(3.dp)
+                        .height(24.dp)
+                        .clip(CircleShape)
+                        .background(
+                            when {
+                                isResume -> tokens.colors.accent
+                                isRead -> tokens.colors.textMuted.copy(alpha = 0.45f)
+                                else -> Color.Transparent
+                            },
+                        ),
+                )
+                Spacer(Modifier.width(12.dp))
                 Text(
                     text = "Chapter ${chapter.number}",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = if (isResume) tokens.colors.accent else tokens.colors.textPrimary,
+                    color = when {
+                        isResume -> tokens.colors.accent
+                        isRead -> tokens.colors.textMuted
+                        else -> tokens.colors.textPrimary
+                    },
                 )
                 Spacer(Modifier.weight(1f))
                 if (isResume) {
                     Text(
                         text = "page ${(saved?.page ?: 0) + 1}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = tokens.colors.textMuted,
+                    )
+                } else if (isRead) {
+                    Text(
+                        text = "read",
                         style = MaterialTheme.typography.labelSmall,
                         color = tokens.colors.textMuted,
                     )
@@ -871,6 +1181,39 @@ private fun MangaTitleScreen(
         item(key = "tail") {
             Spacer(Modifier.height(24.dp))
         }
+    }
+
+    if (tracking) {
+        MangaTrackSheet(
+            title = card.title.ifBlank { title },
+            lookup = lookup,
+            checking = checking,
+            onPicked = { hit ->
+                val name = card.title.ifBlank { title }
+                if (MangaMal.rememberPick(name, hit.id, hit.title)) {
+                    // A shelf row that knows its id never has to be matched by
+                    // name again — a refresh, a sync and a chapter read all ask
+                    // by that id from here on. A title that is not on the shelf
+                    // is not put on it by picking: tracking is not keeping.
+                    if (inLibrary) {
+                        scope.launch {
+                            MangaApi.addToLibrary(
+                                MangaCard(
+                                    id = id,
+                                    title = name,
+                                    poster = card.poster.ifBlank { poster },
+                                ),
+                                mal = hit.id,
+                            )
+                        }
+                    }
+                    attempt++
+                }
+                tracking = false
+            },
+            onRetry = { attempt++ },
+            onDismiss = { tracking = false },
+        )
     }
 }
 
@@ -899,35 +1242,20 @@ private fun Poster(url: String, modifier: Modifier = Modifier) {
  * It is the whole visible surface of the tracker, and it is on the title page
  * rather than in Settings on purpose: the question "where is this on my list?"
  * is asked here, and a link that lives three taps away is not an answer. The
- * connection is the system browser's; the row waits for it and then shows the
- * list row MAL has — or says that it has none, rather than inventing one.
+ * row is short on purpose — it says which entry this title is and where the
+ * reader stands on it, and the tracking tile above it is where the entry is
+ * chosen. Two places that could disagree about the same fact would be one too
+ * many, so the choice lives in exactly one of them.
  */
 @Composable
-private fun MangaMalSection(title: String) {
+private fun MangaMalLine(
+    auth: MangaMalAuthState,
+    lookup: MangaMalLookup?,
+    checking: Boolean,
+    onOpen: () -> Unit,
+    onRetry: () -> Unit,
+) {
     val tokens = MaterialTheme.nuvio
-    val uriHandler = LocalUriHandler.current
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
-    val auth = MangaMal.authState
-    var entry by remember(title) { mutableStateOf<MangaMalEntry?>(null) }
-    var checking by remember(title) { mutableStateOf(false) }
-    var localError by remember(title) { mutableStateOf<String?>(null) }
-
-    LaunchedEffect(title, auth.connected) {
-        if (!auth.connected) {
-            entry = null
-            return@LaunchedEffect
-        }
-        checking = true
-        entry = runCatching { MangaMal.entry(title) }.getOrNull()
-        checking = false
-    }
-
-    LaunchedEffect(auth.pendingState) {
-        if (auth.pendingState != null) MangaMal.awaitSignIn()
-    }
-
-    val message = auth.error ?: localError
-
     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
         HorizontalDivider(color = tokens.colors.borderDefault)
         Spacer(Modifier.height(12.dp))
@@ -950,74 +1278,446 @@ private fun MangaMalSection(title: String) {
             }
         }
         Spacer(Modifier.height(4.dp))
-
-        when {
-            auth.pendingState != null -> {
-                Text(
-                    text = if (auth.busy) "Finishing the sign-in…" else "Finish signing in in your browser, then come back.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = tokens.colors.textSecondary,
-                )
-                TextButton(onClick = { MangaMal.cancelSignIn() }) { Text("Cancel") }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = when {
+                    auth.pendingState != null ->
+                        if (auth.busy) "Finishing the sign-in…"
+                        else "Finish signing in in your browser, then come back."
+                    !auth.connected ->
+                        "Not connected — the tracking tile above is where that is fixed."
+                    checking -> "Checking your list…"
+                    else -> malStatusLine(lookup)
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = if (lookup is MangaMalLookup.Failed) tokens.colors.textMuted
+                else tokens.colors.textSecondary,
+                modifier = Modifier.weight(1f),
+            )
+            // A question that could not be asked is worth asking again; a title
+            // the account does not know is not.
+            if (lookup is MangaMalLookup.Failed) {
+                TextButton(onClick = onRetry) { Text("Retry") }
             }
-
-            auth.connected -> {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = if (checking) "Checking your list…" else malStatusLine(entry),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = tokens.colors.textSecondary,
-                        modifier = Modifier.weight(1f),
-                    )
-                    TextButton(
-                        onClick = {
-                            localError = null
-                            scope.launch { MangaMal.disconnect() }
-                        },
-                    ) {
-                        Text("Disconnect", style = MaterialTheme.typography.labelMedium)
-                    }
-                }
-            }
-
-            else -> {
-                Text(
-                    text = "Chapters you read are written to your list automatically.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = tokens.colors.textMuted,
-                )
-                Spacer(Modifier.height(8.dp))
-                OutlinedButton(
-                    onClick = {
-                        localError = null
-                        val url = MangaMal.beginSignIn()
-                        runCatching { uriHandler.openUri(url) }
-                            .onFailure { MangaMal.failSignIn("Could not open a browser for the sign-in.") }
-                    },
-                ) {
-                    Text("Connect MyAnimeList")
+            if (auth.connected || auth.pendingState != null) {
+                TextButton(onClick = onOpen) {
+                    Text("Change", style = MaterialTheme.typography.labelMedium)
                 }
             }
         }
-
-        if (message != null) {
+        if (auth.error != null) {
             Spacer(Modifier.height(4.dp))
             Text(
-                text = message,
+                text = auth.error.orEmpty(),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )
         }
-        Spacer(Modifier.height(12.dp))
     }
 }
 
-private fun malStatusLine(entry: MangaMalEntry?): String = when {
-    entry == null ->
-        "Not matched to a MyAnimeList entry yet — a chapter read will look one up."
+/**
+ * The title page's four actions, in one row under the header.
+ *
+ * This is the old client's row, kept as it was: keep the title, read when the
+ * next chapter is due, say which MyAnimeList entry it is, or walk to the site it
+ * came from. The estimate is a reading rather than a control — there is nothing
+ * to press — so it is a tile with no handler and its own spoken label. The other
+ * three are buttons, and each one does the thing its name says.
+ */
+@Composable
+private fun MangaActionRow(
+    inLibrary: Boolean,
+    eta: MangaEta?,
+    onLibrary: () -> Unit,
+    onTracking: () -> Unit,
+    onWeb: () -> Unit,
+) {
+    val tokens = MaterialTheme.nuvio
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        MangaActionTile(
+            icon = if (inLibrary) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+            label = if (inLibrary) "In library" else "Library",
+            description = if (inLibrary) {
+                "Remove this title from your library"
+            } else {
+                "Add this title to your library"
+            },
+            tint = if (inLibrary) tokens.colors.accent else tokens.colors.textPrimary,
+            onClick = onLibrary,
+            modifier = Modifier.weight(1f),
+        )
+        MangaActionTile(
+            icon = Icons.Rounded.Schedule,
+            label = MangaEta.chip(eta),
+            description = "Next chapter — " + MangaEta.describe(eta),
+            tint = if (eta == null) tokens.colors.textMuted else tokens.colors.textPrimary,
+            onClick = null,
+            modifier = Modifier.weight(1f),
+        )
+        MangaActionTile(
+            icon = Icons.Rounded.Sync,
+            label = "Tracking",
+            description = "Pick the MyAnimeList entry this title is",
+            tint = tokens.colors.textPrimary,
+            onClick = onTracking,
+            modifier = Modifier.weight(1f),
+        )
+        MangaActionTile(
+            icon = Icons.Rounded.Language,
+            label = "WebView",
+            description = "Open this title on mangafire.to, in the app",
+            tint = tokens.colors.textPrimary,
+            onClick = onWeb,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+/** One tile of the action row: an icon over a short word. */
+@Composable
+private fun MangaActionTile(
+    icon: ImageVector,
+    label: String,
+    description: String,
+    tint: Color,
+    onClick: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    val tokens = MaterialTheme.nuvio
+    val shape = RoundedCornerShape(NuvioTokens.Radius.md)
+    Column(
+        modifier = modifier
+            .clip(shape)
+            .background(tokens.colors.surfaceCard)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 6.dp, vertical = 10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = description,
+            tint = tint,
+            modifier = Modifier.size(21.dp),
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = tokens.colors.textSecondary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/**
+ * The picker the tracking tile opens: search MyAnimeList, then say which entry
+ * this title is.
+ *
+ * It is the old client's tracking slot search, in a sheet. The field opens
+ * filled with the name this app uses, because a search starting from nothing
+ * would ask the reader to type a title the app already knows; it searches as the
+ * typing pauses, because a request per letter is a request per letter; and every
+ * hit says what separates two same-named entries — the kind, the year, the
+ * length — because that is the part only the reader can decide.
+ *
+ * A pick is written down where it outranks every automatic match, so the
+ * catalogue's guess and a search's best hit can never move it afterwards.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MangaTrackSheet(
+    title: String,
+    lookup: MangaMalLookup?,
+    checking: Boolean,
+    onPicked: (MangaMalHit) -> Unit,
+    onRetry: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val tokens = MaterialTheme.nuvio
+    val uriHandler = LocalUriHandler.current
+    val scope = rememberCoroutineScope()
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val auth = MangaMal.authState
+
+    var query by remember(title) { mutableStateOf(title) }
+    var hits by remember(title) { mutableStateOf<List<MangaMalHit>>(emptyList()) }
+    var searching by remember(title) { mutableStateOf(false) }
+    var failure by remember(title) { mutableStateOf<String?>(null) }
+
+    // Typing is a new search, and cancelling the previous one is the debounce:
+    // the answer for "Bew" can never land after the answer for "Beware the
+    // Villainess!" and paint a list that does not match the field.
+    LaunchedEffect(query, auth.connected) {
+        if (!auth.connected) return@LaunchedEffect
+        val text = query.trim()
+        failure = null
+        if (text.length < 2) {
+            hits = emptyList()
+            searching = false
+            return@LaunchedEffect
+        }
+        delay(320)
+        searching = true
+        hits = runCatching { MangaMal.searchHits(text) }
+            .getOrElse {
+                failure = it.message ?: "MyAnimeList did not answer."
+                emptyList()
+            }
+        searching = false
+    }
+
+    LaunchedEffect(auth.pendingState) {
+        if (auth.pendingState != null) MangaMal.awaitSignIn()
+    }
+
+    NuvioModalBottomSheet(
+        onDismissRequest = {
+            scope.launch { dismissNuvioBottomSheet(sheetState = sheetState, onDismiss = onDismiss) }
+        },
+        sheetState = sheetState,
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.86f)) {
+            Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+                Text(
+                    text = "Tracking",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = tokens.colors.textPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "This app calls it \"$title\". MyAnimeList may call it " +
+                        "something else — search, then pick the entry you mean. " +
+                        "A pick outranks every automatic match.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = tokens.colors.textMuted,
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+
+            when {
+                auth.pendingState != null -> {
+                    Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+                        Text(
+                            text = if (auth.busy) "Finishing the sign-in…"
+                            else "Finish signing in in your browser, then come back.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = tokens.colors.textSecondary,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        TextButton(onClick = { MangaMal.cancelSignIn() }) { Text("Cancel") }
+                    }
+                }
+
+                !auth.connected -> {
+                    Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+                        Text(
+                            text = "Connect MyAnimeList and chapters you read are written " +
+                                "to your list automatically — and the entry you pick here " +
+                                "is the one they are written to.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = tokens.colors.textSecondary,
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        OutlinedButton(
+                            onClick = {
+                                val url = MangaMal.beginSignIn()
+                                runCatching { uriHandler.openUri(url) }.onFailure {
+                                    MangaMal.failSignIn("Could not open a browser for the sign-in.")
+                                }
+                            },
+                        ) {
+                            Text("Connect MyAnimeList")
+                        }
+                    }
+                }
+
+                else -> {
+                    Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = if (checking) "Checking your list…" else malStatusLine(lookup),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = tokens.colors.textSecondary,
+                                modifier = Modifier.weight(1f),
+                            )
+                            if (lookup is MangaMalLookup.Failed) {
+                                TextButton(onClick = onRetry) { Text("Retry") }
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        NuvioInputField(
+                            value = query,
+                            onValueChange = { query = it },
+                            placeholder = "Search MyAnimeList",
+                            trailingContent = if (query.isNotBlank()) {
+                                {
+                                    IconButton(onClick = { query = "" }) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Close,
+                                            contentDescription = "Clear the search",
+                                            tint = tokens.colors.textMuted,
+                                        )
+                                    }
+                                }
+                            } else {
+                                null
+                            },
+                        )
+                    }
+                    Spacer(Modifier.height(4.dp))
+
+                    if (searching) {
+                        Box(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            NuvioLoadingIndicator()
+                        }
+                    }
+
+                    LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                        items(hits, key = { hit -> hit.id }) { hit ->
+                            val bound = (lookup as? MangaMalLookup.Found)?.entry?.malId == hit.id
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onPicked(hit) }
+                                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                // The cover is the fastest way to tell two entries
+                                // with the same name apart — the row already says
+                                // the year, but a reader knows the art.
+                                MangaHitCover(url = hit.picture)
+                                Spacer(Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = hit.title,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = if (bound) tokens.colors.accent
+                                        else tokens.colors.textPrimary,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    if (hit.meta.isNotEmpty()) {
+                                        Text(
+                                            text = hit.meta,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = tokens.colors.textMuted,
+                                        )
+                                    }
+                                }
+                                if (bound) {
+                                    Text(
+                                        text = "Tracking",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = tokens.colors.accent,
+                                    )
+                                }
+                            }
+                        }
+                        item(key = "search-note") {
+                            val note = when {
+                                query.trim().length < 2 && !searching ->
+                                    "Keep typing — MyAnimeList is searched from two letters."
+                                failure != null -> failure.orEmpty()
+                                hits.isEmpty() && !searching ->
+                                    "Nothing on MyAnimeList for that search. Try the name " +
+                                        "you know it by there, or a word from it."
+                                else -> ""
+                            }
+                            if (note.isNotEmpty()) {
+                                Text(
+                                    text = note,
+                                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = tokens.colors.textMuted,
+                                )
+                            }
+                        }
+                        item(key = "sheet-tail") { Spacer(Modifier.height(12.dp)) }
+                    }
+
+                    if (auth.error != null) {
+                        Text(
+                            text = auth.error.orEmpty(),
+                            modifier = Modifier.padding(horizontal = 20.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        TextButton(onClick = { scope.launch { MangaMal.disconnect() } }) {
+                            Text("Disconnect", style = MaterialTheme.typography.labelMedium)
+                        }
+                        Spacer(Modifier.weight(1f))
+                        TextButton(onClick = onDismiss) { Text("Close") }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The cover beside a MyAnimeList search hit.
+ *
+ * A thumbnail rather than a poster: the row is one line of text tall and the
+ * picture is there to be recognised, not read. An entry without art keeps the
+ * space and a book mark, so a list of hits does not go ragged.
+ */
+@Composable
+private fun MangaHitCover(url: String) {
+    val tokens = MaterialTheme.nuvio
+    Box(
+        modifier = Modifier
+            .height(56.dp)
+            .aspectRatio(0.7f)
+            .clip(RoundedCornerShape(NuvioTokens.Radius.sm))
+            .background(tokens.colors.surfaceCard),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (url.isNotEmpty()) {
+            AsyncImage(
+                model = url,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            Icon(
+                imageVector = Icons.Rounded.MenuBook,
+                contentDescription = null,
+                tint = tokens.colors.textMuted,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+    }
+}
+
+private fun malStatusLine(result: MangaMalLookup?): String = when (result) {
+    is MangaMalLookup.Failed -> "Couldn't reach MyAnimeList — ${result.message} A retry asks again."
+    null, MangaMalLookup.Missing ->
+        "Not matched to a MyAnimeList entry yet — tap Tracking to pick it."
+    is MangaMalLookup.Found -> malEntryLine(result.entry)
+}
+
+private fun malEntryLine(entry: MangaMalEntry): String = when {
     entry.status == null -> buildString {
         append("Not on your list")
         if (entry.total > 0) append(" · ${entry.total} chapters")
+        if (entry.title.isNotBlank()) append(" · ${entry.title}")
     }
     else -> buildString {
         append(
@@ -1032,8 +1732,45 @@ private fun malStatusLine(entry: MangaMalEntry?): String = when {
         )
         if (entry.total > 0) append(" · ${entry.read} / ${entry.total} chapters")
         else append(" · ${entry.read} chapters read")
+        if (entry.title.isNotBlank()) append(" · ${entry.title}")
     }
 }
+
+/**
+ * The title, on the site it came from.
+ *
+ * The reader is the app's own WebView, not a browser handoff: the old client's
+ * tile loaded mangafire in the app's window, and a reader checking an extra
+ * chapter or a scanlation note should not be leaving the app to do it.
+ */
+@Composable
+private fun MangaSourceScreen(url: String, title: String, onBack: () -> Unit) {
+    val tokens = MaterialTheme.nuvio
+    Column(modifier = Modifier.fillMaxSize().background(tokens.colors.background)) {
+        NuvioScreenHeader(
+            title = title,
+            onBack = onBack,
+            modifier = Modifier.padding(horizontal = 8.dp),
+        )
+        MangaWebView(
+            url = url,
+            modifier = Modifier.fillMaxWidth().weight(1f),
+        )
+    }
+}
+
+/** Where a title lives on the site it came from: their pages and API share an id. */
+private fun mangafireUrl(id: String): String = "https://mangafire.to/title/$id"
+
+/**
+ * The app's own window onto the web.
+ *
+ * An `expect` because a WebView is the one thing a multiplatform screen cannot
+ * draw for itself: the Android half owns the instance, its settings and its
+ * lifetime, and this side only says where to go.
+ */
+@Composable
+internal expect fun MangaWebView(url: String, modifier: Modifier = Modifier)
 
 // -------------------------------------------------------------------- reader
 
@@ -1058,13 +1795,44 @@ private data class ReaderPage(
 /** Pages before the end of the strip where the continuing chapter is fetched. */
 private const val SEAM_LEAD_PAGES = 3
 
+/** Which reader sheet is open; the chrome opens one at a time. */
+private enum class ReaderSheet { CHAPTERS, DISPLAY, HELP }
+
+/**
+ * Whether the reader is showing its own chrome, for the rest of the app.
+ *
+ * The tab bar lives above this tab, in `MainTabsDestination`, so a reader that
+ * hid only its own pills would still be sitting on a bar. This is the one fact
+ * that screen needs: the chrome is away, so the bar goes with it. Reset when
+ * the reader leaves the composition, which is why a backgrounded reader never
+ * leaves the tab bar hidden.
+ */
+internal object MangaReaderUi {
+    var immersive by mutableStateOf(false)
+        internal set
+}
+
 @Composable
 private fun MangaReaderScreen(
     route: MangaRoute.Reader,
+    inLibrary: Boolean,
     onBack: () -> Unit,
+    onHome: () -> Unit,
+    onToggleLibrary: () -> Unit,
     onChapter: (index: Int, startPage: Int) -> Unit,
 ) {
     val tokens = MaterialTheme.nuvio
+    // The chrome's own state: one sheet at a time, how far the pages are
+    // turned down, and whether the strip runs on into the next chapter.
+    var sheet by remember { mutableStateOf<ReaderSheet?>(null) }
+    var dim by rememberSaveable { mutableStateOf(0f) }
+    var continuous by rememberSaveable { mutableStateOf(true) }
+
+    // The chrome starts hidden: pages are the point, and a chapter number is not
+    // worth a permanent band across a comic. A tap in the middle of the page
+    // brings it back, and another — or four idle seconds — puts it away again.
+    var chromeVisible by rememberSaveable { mutableStateOf(false) }
+    val showChrome = chromeVisible || sheet != null
     // The strip: this chapter's pages, then the next chapter's, appended as the
     // reader approaches the end of what is already there. It is deliberately
     // *not* re-seated when the seam is crossed — that is the whole point — so
@@ -1127,6 +1895,7 @@ private fun MangaReaderScreen(
         snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
             .distinctUntilChanged()
             .collect { lastVisible ->
+                if (!continuous) return@collect
                 if (appending || strip.isEmpty()) return@collect
                 val seam = loaded.lastOrNull() ?: return@collect
                 val next = seam - 1
@@ -1189,6 +1958,10 @@ private fun MangaReaderScreen(
             .collect { index ->
                 val chapter = index?.let(route.chapters::getOrNull) ?: return@collect
                 MangaMal.chapterRead(route.title, chapter.number)
+                // The same chapter, to the other tracker when one is linked.
+                // A read is a read: whichever account is connected should hear
+                // about it, and neither write may delay the other or a page.
+                com.nuvio.app.features.anilist.AniList.chapterRead(route.title, chapter.number)
             }
     }
 
@@ -1222,7 +1995,14 @@ private fun MangaReaderScreen(
     Box(modifier = Modifier.fillMaxSize().background(tokens.colors.background)) {
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                // A tap is the only gesture the strip has to share: scrolling
+                // is the reader's, so this listens for taps alone and leaves
+                // drags to the list.
+                .pointerInput(Unit) {
+                    detectTapGestures { chromeVisible = !chromeVisible }
+                },
             contentPadding = PaddingValues(bottom = 24.dp),
         ) {
             itemsIndexed(
@@ -1287,38 +2067,477 @@ private fun MangaReaderScreen(
             }
         }
 
-        // The chrome floats over the pages: a strip has no room for a bar, and
-        // a chapter number is all the reader needs to know where they are.
-        Row(
+        // Night reading: the pages are turned down, the chrome is not. Drawn
+        // between the strip and the controls, and it takes no touches.
+        if (dim > 0f) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = dim)),
+            )
+        }
+
+        // The chrome floats over the pages in the app's own floating-navbar
+        // shape — one dark glass pill per group of controls, with the
+        // hairline edge the tab bar has — rather than in a bar that would push
+        // the strip down. The chapter pill says where the reader is and steps
+        // between chapters; the rail at the right is everything else, one tap
+        // away and out of the page's way.
+        AnimatedVisibility(
+            visible = showChrome,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.TopCenter),
+        ) {
+            ReaderTopChrome(
+                chapter = route.chapters.getOrNull(readingIndex)?.number ?: "—",
+                total = total,
+                canGoOlder = readingIndex + 1 < total,
+                canGoNewer = readingIndex - 1 >= 0,
+                onBack = onBack,
+                onOlder = { onChapter(readingIndex + 1, 0) },
+                onNewer = { onChapter(readingIndex - 1, 0) },
+            )
+        }
+
+        AnimatedVisibility(
+            visible = showChrome,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.CenterEnd),
+        ) {
+            ReaderRail(
+                inLibrary = inLibrary,
+                modifier = Modifier.padding(end = 10.dp),
+                onHome = onHome,
+                onTitle = onBack,
+                onChapters = { sheet = ReaderSheet.CHAPTERS },
+                onDisplay = { sheet = ReaderSheet.DISPLAY },
+                onHelp = { sheet = ReaderSheet.HELP },
+                onLibrary = onToggleLibrary,
+            )
+        }
+
+        // Shown chrome puts itself away once the reader has stopped touching
+        // it; a sheet is chrome the reader is using, so it holds.
+        LaunchedEffect(showChrome, sheet) {
+            if (!showChrome || sheet != null) return@LaunchedEffect
+            delay(4_000)
+            chromeVisible = false
+        }
+
+        // While the chrome is hidden the app's tab bar hides with it — the same
+        // request the app's own full-screen routes make — and it comes back
+        // with the chrome.
+        DisposableEffect(showChrome) {
+            MangaReaderUi.immersive = !showChrome
+            onDispose { MangaReaderUi.immersive = false }
+        }
+
+        when (sheet) {
+            ReaderSheet.CHAPTERS -> ReaderChapterSheet(
+                chapters = route.chapters,
+                current = readingIndex,
+                onPick = { index ->
+                    sheet = null
+                    onChapter(index, 0)
+                },
+                onDismiss = { sheet = null },
+            )
+
+            ReaderSheet.DISPLAY -> ReaderDisplaySheet(
+                dim = dim,
+                onDim = { dim = it },
+                continuous = continuous,
+                onContinuous = { continuous = it },
+                onDismiss = { sheet = null },
+            )
+
+            ReaderSheet.HELP -> ReaderHelpSheet(onDismiss = { sheet = null })
+
+            null -> Unit
+        }
+    }
+}
+
+// ------------------------------------------------------------------- chrome
+
+/**
+ * The reader's top row: a back pill, and the chapter pill the app's navbar
+ * would have drawn — the same glass, the same pill shape, the same hairline.
+ */
+@Composable
+private fun ReaderTopChrome(
+    chapter: String,
+    total: Int,
+    canGoOlder: Boolean,
+    canGoNewer: Boolean,
+    onBack: () -> Unit,
+    onOlder: () -> Unit,
+    onNewer: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            // The tab is drawn edge to edge, so the chrome has to keep itself
+            // out of the status bar rather than being placed below it.
+            .windowInsetsPadding(WindowInsets.statusBars)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ReaderPill {
+            Row(
+                modifier = Modifier.padding(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ReaderPillButton(
+                    icon = Icons.Rounded.ArrowBack,
+                    description = "Back to the title",
+                    onClick = onBack,
+                )
+            }
+        }
+        Spacer(Modifier.weight(1f))
+        ReaderPill {
+            Row(
+                modifier = Modifier.padding(5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                ReaderPillButton(
+                    icon = Icons.Rounded.ChevronLeft,
+                    description = "Previous chapter",
+                    onClick = onOlder,
+                    enabled = canGoOlder,
+                    circled = true,
+                )
+                Text(
+                    text = "Ch. $chapter / $total",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White,
+                    maxLines = 1,
+                    modifier = Modifier.padding(horizontal = 10.dp),
+                )
+                ReaderPillButton(
+                    icon = Icons.Rounded.ChevronRight,
+                    description = "Next chapter",
+                    onClick = onNewer,
+                    enabled = canGoNewer,
+                    circled = true,
+                )
+            }
+        }
+        Spacer(Modifier.weight(1f))
+        // Keeps the chapter pill centred on the page, with the back pill's
+        // width on the other side.
+        Spacer(Modifier.size(46.dp))
+    }
+}
+
+/**
+ * The reader's actions, stacked in one pill down the right edge.
+ *
+ * Six icons, each a real destination rather than a placeholder: leave the
+ * reader, the title's page, its chapters, how the pages are drawn, what the
+ * reader does, and whether this title is kept.
+ */
+@Composable
+private fun ReaderRail(
+    inLibrary: Boolean,
+    onHome: () -> Unit,
+    onTitle: () -> Unit,
+    onChapters: () -> Unit,
+    onDisplay: () -> Unit,
+    onHelp: () -> Unit,
+    onLibrary: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val accent = MaterialTheme.nuvio.colors.accent
+    ReaderPill(modifier) {
+        Column(
+            modifier = Modifier.padding(vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            ReaderPillButton(
+                icon = Icons.Rounded.Home,
+                description = "Back to the shelf",
+                onClick = onHome,
+            )
+            ReaderPillButton(
+                icon = Icons.Rounded.MenuBook,
+                description = "This title's page",
+                onClick = onTitle,
+            )
+            ReaderPillButton(
+                icon = Icons.Rounded.Subject,
+                description = "Chapters",
+                onClick = onChapters,
+            )
+            ReaderPillButton(
+                icon = Icons.Rounded.Settings,
+                description = "How the pages are drawn",
+                onClick = onDisplay,
+            )
+            ReaderPillButton(
+                icon = Icons.Rounded.HelpOutline,
+                description = "How the reader works",
+                onClick = onHelp,
+            )
+            ReaderPillButton(
+                icon = Icons.Rounded.Flag,
+                description = if (inLibrary) {
+                    "Remove from the manga shelf"
+                } else {
+                    "Add to the manga shelf"
+                },
+                onClick = onLibrary,
+                tint = if (inLibrary) accent else Color.White.copy(alpha = 0.82f),
+            )
+        }
+    }
+}
+
+/**
+ * The floating chrome's surface: the tab bar's own make, clipped to a pill.
+ *
+ * The same dark fill the navbar falls back to, and the same hairline edge —
+ * drawn here rather than through the bar's own surface because that one lives
+ * in Android's source set with the blur it needs, and this is a common screen.
+ * The strip underneath is a column of full-bleed images, so a blur pass over it
+ * would buy nothing the fill does not.
+ */
+@Composable
+private fun ReaderPill(
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    val shape = RoundedCornerShape(percent = 50)
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(ReaderChromeFill)
+            .border(
+                width = 0.75.dp,
+                brush = Brush.verticalGradient(
+                    listOf(Color.White.copy(alpha = 0.27f), Color.White.copy(alpha = 0.02f)),
+                ),
+                shape = shape,
+            ),
+    ) {
+        content()
+    }
+}
+
+/** The tab bar's own fill: the glass surface's colour, at its solid alpha. */
+private val ReaderChromeFill = Color(0xFF1C1C1E).copy(alpha = 0.82f)
+
+@Composable
+private fun ReaderPillButton(
+    icon: ImageVector,
+    description: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    tint: Color = Color.White.copy(alpha = 0.82f),
+    circled: Boolean = false,
+) {
+    Box(
+        modifier = Modifier
+            .size(38.dp)
+            .clip(CircleShape)
+            .then(
+                if (circled) {
+                    Modifier.background(Color.White.copy(alpha = 0.07f))
+                } else {
+                    Modifier
+                },
+            )
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = description,
+            tint = tint.copy(alpha = if (enabled) tint.alpha else 0.28f),
+            modifier = Modifier.size(20.dp),
+        )
+    }
+}
+
+// ------------------------------------------------------------------- sheets
+
+/** Every chapter, in the order the title lists them, with the current one lit. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ReaderChapterSheet(
+    chapters: List<MangaChapter>,
+    current: Int,
+    onPick: (Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val tokens = MaterialTheme.nuvio
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
+    val listState = rememberLazyListState(
+        initialFirstVisibleItemIndex = current.coerceIn(0, maxOf(0, chapters.lastIndex)),
+    )
+
+    NuvioModalBottomSheet(
+        onDismissRequest = {
+            scope.launch { dismissNuvioBottomSheet(sheetState = sheetState, onDismiss = onDismiss) }
+        },
+        sheetState = sheetState,
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.72f)) {
+            Text(
+                text = "Chapters",
+                style = MaterialTheme.typography.titleMedium,
+                color = tokens.colors.textPrimary,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
+            )
+            NuvioBottomSheetDivider()
+            LazyColumn(state = listState, modifier = Modifier.weight(1f)) {
+                itemsIndexed(
+                    items = chapters,
+                    key = { _, chapter -> chapter.id },
+                ) { index, chapter ->
+                    NuvioBottomSheetActionRow(
+                        title = buildString {
+                            append("Ch. ")
+                            append(chapter.number)
+                            if (chapter.name.isNotBlank()) {
+                                append("  ")
+                                append(chapter.name)
+                            }
+                        },
+                        selected = index == current,
+                        onClick = {
+                            scope.launch {
+                                dismissNuvioBottomSheet(sheetState = sheetState) { onPick(index) }
+                            }
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Dim the pages, and choose whether the strip runs on into the next chapter. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ReaderDisplaySheet(
+    dim: Float,
+    onDim: (Float) -> Unit,
+    continuous: Boolean,
+    onContinuous: (Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val tokens = MaterialTheme.nuvio
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
+    val dismiss: () -> Unit = {
+        scope.launch { dismissNuvioBottomSheet(sheetState = sheetState, onDismiss = onDismiss) }
+    }
+
+    NuvioModalBottomSheet(onDismissRequest = dismiss, sheetState = sheetState) {
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Color.Black.copy(alpha = 0.55f))
-                // The tab is drawn edge to edge, so the strip has to keep itself
-                // out of the status bar rather than being placed below it.
-                .windowInsetsPadding(WindowInsets.statusBars)
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
+                .padding(horizontal = 20.dp, vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Text(
-                text = "←",
+                text = "Reading",
                 style = MaterialTheme.typography.titleMedium,
-                color = Color.White,
-                modifier = Modifier.clickable(onClick = onBack).padding(end = 16.dp),
+                color = tokens.colors.textPrimary,
+                modifier = Modifier.padding(vertical = 10.dp),
             )
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "Turn the pages down",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = tokens.colors.textPrimary,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = "${(dim * 100).toInt()}%",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = tokens.colors.textMuted,
+                )
+            }
+            Slider(
+                value = dim,
+                onValueChange = onDim,
+                valueRange = 0f..0.7f,
+            )
+
+            Row(
+                modifier = Modifier.padding(vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Run on into the next chapter",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = tokens.colors.textPrimary,
+                    )
+                    Text(
+                        text = "Scrolling past the last page loads what comes after it.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = tokens.colors.textMuted,
+                    )
+                }
+                Switch(checked = continuous, onCheckedChange = onContinuous)
+            }
+
+            Spacer(Modifier.height(10.dp))
+        }
+    }
+}
+
+/** What this reader does, said plainly — it is not the same as other readers. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ReaderHelpSheet(onDismiss: () -> Unit) {
+    val tokens = MaterialTheme.nuvio
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
+    NuvioModalBottomSheet(
+        onDismissRequest = {
+            scope.launch { dismissNuvioBottomSheet(sheetState = sheetState, onDismiss = onDismiss) }
+        },
+        sheetState = sheetState,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
             Text(
-                text = "Ch. ${route.chapters.getOrNull(readingIndex)?.number ?: "—"} / $total",
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.White,
+                text = "How reading works",
+                style = MaterialTheme.typography.titleMedium,
+                color = tokens.colors.textPrimary,
+                modifier = Modifier.padding(top = 10.dp),
             )
-            Spacer(Modifier.weight(1f))
-            Text(
-                text = route.title,
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.White.copy(alpha = 0.8f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.width(160.dp),
-            )
+            listOf(
+                "The chapters are one strip. Scrolling past the last page of one brings the " +
+                    "next one in underneath it, and the chapter pill follows you across the seam.",
+                "Where you stop is written down, so opening the title again lands in that " +
+                    "chapter and on that page.",
+                "On the pill, < is the chapter before this one and > is the one after it.",
+                "The flag keeps this title on the manga shelf — and tells a linked " +
+                    "MyAnimeList or AniList account that you mean to read it.",
+            ).forEach { line ->
+                Text(
+                    text = line,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = tokens.colors.textMuted,
+                )
+            }
+            Spacer(Modifier.height(10.dp))
         }
     }
 }

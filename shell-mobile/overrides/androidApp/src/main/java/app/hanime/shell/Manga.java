@@ -10,13 +10,16 @@ import org.json.JSONObject;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
+import java.net.InetAddress;
 import java.net.URL;
 import java.net.URLEncoder;
+import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 /**
  * manga, straight from mangafire.to — the phone's side of
@@ -41,6 +44,15 @@ final class Manga {
     private static final String API = "https://mangafire.to/api";
     private static final String SITE = "https://mangafire.to/";
     private static final int TIMEOUT_MS = 15_000;
+
+    /**
+     * How many times one upstream call is attempted, and how long it waits
+     * between them. Three attempts over ~2.4 s: long enough to ride out the
+     * resolver of a phone that has just woken up, short enough that a real
+     * outage still reaches the reader as an error rather than a spinner.
+     */
+    private static final int NETWORK_ATTEMPTS = 3;
+    private static final long NETWORK_RETRY_MS = 600L;
 
     private static final String PREFS = "sekai-manga";
     /** Positions kept before the oldest is forgotten. */
@@ -78,27 +90,84 @@ final class Manga {
 
     static Transport transport = new HttpTransport();
 
+    /**
+     * The catalogue's hosts through DoH when Android's own resolver refuses a
+     * name, and through Android when it does not.
+     *
+     * On a network that hands the phone an IPv6-only address, Java's resolver
+     * applies AI_ADDRCONFIG and turns a host that answers on IPv4 alone into
+     * *no address associated with hostname* — while the browser and `ping`
+     * still reach it, because they do not. MyAnimeList hit this first and the
+     * relay looks its hosts up over DoH ([Mal.resolveOverDoh]); mangafire.to is
+     * the same shape of failure, so it gets the same answer. The system is
+     * always tried first: this only runs where the request would have failed.
+     */
+    static List<InetAddress> lookup(String hostname) throws UnknownHostException {
+        UnknownHostException refused;
+        try {
+            return okhttp3.Dns.SYSTEM.lookup(hostname);
+        } catch (UnknownHostException refusedBySystem) {
+            refused = refusedBySystem;
+            Log.w(TAG, "lookup " + hostname + " refused, trying DoH");
+        }
+        List<InetAddress> resolved = Mal.resolveOverDoh(hostname);
+        if (!resolved.isEmpty()) return resolved;
+        throw refused;
+    }
+
+    private static final okhttp3.OkHttpClient CLIENT = new okhttp3.OkHttpClient.Builder()
+            .connectTimeout(TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            .readTimeout(TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            .dns(Manga::lookup)
+            .build();
+
     static final class HttpTransport implements Transport {
         @Override
         public String get(String url) throws Exception {
-            HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
-            conn.setConnectTimeout(TIMEOUT_MS);
-            conn.setReadTimeout(TIMEOUT_MS);
-            conn.setRequestProperty("Accept", "application/json");
-            conn.setRequestProperty("Referer", SITE);
-            // The default `User-Agent: Java/21` is a thing their edge has never
-            // seen from a client of theirs; the fork already sends this one to
-            // hanime.
-            conn.setRequestProperty("User-Agent", Streams.USER_AGENT);
-            try {
-                int code = conn.getResponseCode();
-                if (code != 200) throw new IllegalStateException("upstream HTTP " + code);
-                try (InputStream in = conn.getInputStream()) {
-                    return readAll(in);
+            // OkHttp rather than HttpURLConnection for one reason: it can be
+            // handed a resolver. Everything about the request is the same —
+            // the referer and user agent are what their edge checks.
+            okhttp3.Request request = new okhttp3.Request.Builder()
+                    .url(url)
+                    .header("Accept", "application/json")
+                    .header("Referer", SITE)
+                    // The default `User-Agent: Java/21` is a thing their edge has
+                    // never seen from a client of theirs; the fork already sends
+                    // this one to hanime.
+                    .header("User-Agent", Streams.USER_AGENT)
+                    .build();
+            Exception last = null;
+            for (int attempt = 0; attempt < NETWORK_ATTEMPTS; attempt++) {
+                if (attempt > 0) {
+                    try {
+                        Thread.sleep(NETWORK_RETRY_MS * attempt);
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                        throw last;
+                    }
                 }
-            } finally {
-                conn.disconnect();
+                try {
+                    try (okhttp3.Response response = CLIENT.newCall(request).execute()) {
+                        if (response.code() != 200) {
+                            throw new IllegalStateException("upstream HTTP " + response.code());
+                        }
+                        return response.body() == null ? "" : response.body().string();
+                    }
+                } catch (UnknownHostException | java.net.ConnectException
+                         | java.net.SocketTimeoutException network) {
+                    // A phone that has just been handed a network — a restart, a
+                    // Wi-Fi switch, the screen coming on — has the radio up before
+                    // its resolver is, and the first lookup after that is the one
+                    // that fails. One refused name is not a catalogue that is
+                    // down, so the request is asked again before the reader is
+                    // told anything.
+                    last = network;
+                    Log.w(TAG, "upstream " + url + " attempt " + (attempt + 1) + " of "
+                            + NETWORK_ATTEMPTS + " failed: " + network.getClass().getName()
+                            + ": " + network.getMessage());
+                }
             }
+            throw last;
         }
     }
 
@@ -106,7 +175,13 @@ final class Manga {
      * One signed GET of their API, shaped as a JSONObject. The signer is given
      * a moment to boot on the first call; if it never does, the request is
      * still sent unsigned, because their own `403 Missing token.` is a clearer
-     * failure than a timeout invented here.
+     * failure than a timeout invented here — but that refusal is then not the
+     * reader's answer either. A cold start on a slow phone spends well past the
+     * first wait loading the signer's WebView, and the title screen used to say
+     * *upstream HTTP 403* over a chapter list that was one second away. So a
+     * token refusal on a request that went out unsigned gets one signed retry
+     * once the signer is up; a refusal of a signed request is upstream's own
+     * answer and is passed straight through.
      */
     private static JSONObject get(String path, JSONObject params) throws Exception {
         MangaSigner s = signer;
@@ -125,12 +200,35 @@ final class Manga {
             }
         }
 
+        String url = url(path, qs, vrf);
+        Log.d(TAG, (vrf.isEmpty() ? "unsigned" : "signed") + " GET " + url);
+        try {
+            return new JSONObject(transport.get(url));
+        } catch (IllegalStateException refused) {
+            if (vrf.length() > 0 || s == null || !tokenRefusal(refused)) throw refused;
+            s.awaitReady(9_000);
+            String[] signed = s.sign(path, params.toString());
+            if (signed == null) throw refused;
+            String retry = url(path, signed[0], signed[1]);
+            Log.i(TAG, "signed GET " + retry + " (after a token refusal)");
+            return new JSONObject(transport.get(retry));
+        }
+    }
+
+    private static String url(String path, String qs, String vrf) throws Exception {
         StringBuilder url = new StringBuilder(API).append(path);
         if (!qs.isEmpty()) url.append('?').append(qs);
-        if (!vrf.isEmpty()) url.append(qs.isEmpty() ? '?' : '&').append("vrf=").append(URLEncoder.encode(vrf, "UTF-8"));
+        if (!vrf.isEmpty()) {
+            url.append(qs.isEmpty() ? '?' : '&').append("vrf=")
+                    .append(URLEncoder.encode(vrf, "UTF-8"));
+        }
+        return url.toString();
+    }
 
-        Log.d(TAG, (vrf.isEmpty() ? "unsigned" : "signed") + " GET " + url);
-        return new JSONObject(transport.get(url.toString()));
+    /** Upstream's answer to a request that carried no token: not a refusal of the reader. */
+    private static boolean tokenRefusal(IllegalStateException refused) {
+        String text = refused.getMessage() == null ? "" : refused.getMessage();
+        return text.contains("403") || text.contains("401");
     }
 
     /**
@@ -414,13 +512,46 @@ final class Manga {
             if (item == null) continue;
             String id = item.optString("id", "");
             if (id.isEmpty()) continue;
+            // `created` is when the chapter was posted, in epoch seconds — the
+            // only fact the next-chapter estimate can read a rhythm from. The
+            // display date (`at`) stays a string because it is drawn as one.
             out.put(new JSONObject()
                     .put("id", id)
                     .put("number", item.optString("number", ""))
                     .put("name", item.optString("name", ""))
-                    .put("at", item.optString("updatedAt", "")));
+                    .put("at", item.optString("updatedAt", ""))
+                    .put("created", stamp(item)));
         }
         return out;
+    }
+
+    /**
+     * When a chapter went up, in epoch seconds, or 0.
+     *
+     * mangafire's listing mixes its spellings — `meta.lastPage` is camelCase and
+     * the order it is asked for is `chapter_updated_at` — so both spellings of
+     * the posting date are read rather than betting on one. A number is taken as
+     * it is; a number written as a string is parsed; anything else (a null, an
+     * ISO string this app has no parser for) stays 0, which is the estimate's
+     * honest "not dated" rather than a wrong date.
+     */
+    private static long stamp(JSONObject item) {
+        for (String key : new String[] {"createdAt", "created_at", "created", "updatedAt", "updated_at"}) {
+            Object raw = item.opt(key);
+            if (raw == null) continue;
+            if (raw instanceof Number) {
+                long value = ((Number) raw).longValue();
+                if (value > 0) return value;
+                continue;
+            }
+            try {
+                long value = Long.parseLong(String.valueOf(raw).trim());
+                if (value > 0) return value;
+            } catch (NumberFormatException ignored) {
+                // Not a stamp this reader understands; try the next spelling.
+            }
+        }
+        return 0L;
     }
 
     private static String first(JSONObject object, String... keys) {
@@ -482,6 +613,8 @@ final class Manga {
         }
         if (hit != null) return hit;
 
+        byte[] body;
+        String type;
         try {
             HttpURLConnection conn = (HttpURLConnection) new URL(target).openConnection();
             conn.setConnectTimeout(TIMEOUT_MS);
@@ -492,25 +625,48 @@ final class Manga {
             try {
                 int code = conn.getResponseCode();
                 if (code != 200) throw new IllegalStateException("page returned HTTP " + code);
-                String type = conn.getContentType();
+                type = conn.getContentType();
                 try (InputStream in = conn.getInputStream()) {
-                    byte[] body = readBytes(in);
-                    Page page = new Page(body, type == null || type.isEmpty() ? "image/jpeg" : type);
-                    synchronized (PAGES) {
-                        if (pageBytes + body.length <= PAGE_CACHE_BYTES) {
-                            PAGES.put(target, page);
-                            pageBytes += body.length;
-                        }
-                    }
-                    return page;
+                    body = readBytes(in);
                 }
             } finally {
                 conn.disconnect();
+            }
+        } catch (UnknownHostException refused) {
+            // A name the system resolver would not answer: the same fallback
+            // the API uses, for the same reason (see [lookup]).
+            try {
+                okhttp3.Request request = new okhttp3.Request.Builder()
+                        .url(target)
+                        .header("Referer", SITE)
+                        .header("Accept", "image/avif,image/webp,image/*,*/*;q=0.8")
+                        .header("User-Agent", Streams.USER_AGENT)
+                        .build();
+                try (okhttp3.Response response = CLIENT.newCall(request).execute()) {
+                    if (!response.isSuccessful() || response.body() == null) {
+                        Log.w(TAG, "page failed: " + target + " HTTP " + response.code());
+                        return null;
+                    }
+                    type = response.header("Content-Type");
+                    body = response.body().bytes();
+                }
+            } catch (Exception failure) {
+                Log.w(TAG, "page failed: " + target, failure);
+                return null;
             }
         } catch (Exception e) {
             Log.w(TAG, "page failed: " + target, e);
             return null;
         }
+
+        Page page = new Page(body, type == null || type.isEmpty() ? "image/jpeg" : type);
+        synchronized (PAGES) {
+            if (pageBytes + body.length <= PAGE_CACHE_BYTES) {
+                PAGES.put(target, page);
+                pageBytes += body.length;
+            }
+        }
+        return page;
     }
 
     // ------------------------------------------------------------- positions
@@ -551,6 +707,29 @@ final class Manga {
         hids.add(hid);
 
         SharedPreferences.Editor edit = prefs.edit().putString("hid:" + hid, row.toString());
+        // The shelf remembers when this title was last read, so that it can be
+        // ordered by that without re-reading every position. The stamp is the
+        // position's own: the reader turning a page (now), or an import writing
+        // the chapter MyAnimeList says was read (the account's own time).
+        // The shelf follows a page turning and an import (both carry a moment
+        // worth keeping) but not a tracker sync: that one copies the *account's*
+        // order of reading, and stamping it now would make every title in the
+        // walk look read at the moment the walk ran — the ordering bug this
+        // whole change exists for, reintroduced by its own repair button. The
+        // caller says so with `quiet`, which is not part of the stored row.
+        long readAt = row.optLong("at", System.currentTimeMillis());
+        boolean quiet = !row.optString("quiet", "").isEmpty();
+        row.remove("quiet");
+        String shelved = prefs.getString("lib:" + hid, null);
+        if (shelved != null && !quiet) {
+            try {
+                JSONObject row2 = new JSONObject(shelved);
+                row2.put("read", Math.max(readAt, row2.optLong("read", 0)));
+                edit.putString("lib:" + hid, row2.toString());
+            } catch (Exception ignored) {
+                // An unreadable shelf row is replaced the next time it is added.
+            }
+        }
         if (hids.size() > POSITIONS) {
             JSONArray rows = positions();
             // The row being written is not in `rows` yet, so the tail is cut one
@@ -603,6 +782,19 @@ final class Manga {
                     row.put("number", at.optString("number", ""));
                     row.put("page", at.optInt("page", 0));
                 }
+                // Last read is the shelf's own stamp, not the position's: a
+                // position is also written *by an import* (to make "Ch. 41"
+                // appear), and one stamped now made every imported title look
+                // read at import time — which is exactly how a shelf ends up
+                // ordered by when it was imported. `savePosition` keeps this
+                // stamp current when a page actually turns, and the import
+                // passes MyAnimeList's own `updated_at` when it writes one.
+                //
+                // No fallback to the position's stamp: for a shelf brought over
+                // from MyAnimeList those positions were written *by the import*,
+                // so falling back to them is what made "last read" mean "when
+                // the import ran". A row with no stamp is a row nobody has read
+                // here, and it sorts after the ones that have.
                 rows.add(row);
             } catch (Exception ignored) {
                 // A row that will not parse is a row nobody can use.
@@ -643,6 +835,29 @@ final class Manga {
             try {
                 JSONObject kept = new JSONObject(existing);
                 stored.put("at", kept.optLong("at", row.optLong("at")));
+                // The moment of last read *is* refreshed, unlike the moment of
+                // adding, and the import's value wins rather than the newer of
+                // the two. A re-import is the only way to correct a stamp this
+                // app wrote wrongly (a tracker sync stamping "now" did exactly
+                // that once), and `max` could never move a stamp backwards. The
+                // account is the source of truth for when a title was last read
+                // — the app writes every chapter it sees to it — so its word
+                // replaces the local guess.
+                long imported = row.optLong("read", 0);
+                if (imported > 0) stored.put("read", imported);
+                else stored.put("read", kept.optLong("read", 0));
+                // The account's id outlives the row it was matched by: a second
+                // import must not have to match the same title by name again.
+                long importedMal = row.optLong("mal", 0);
+                if (importedMal > 0) stored.put("mal", importedMal);
+                else if (kept.optLong("mal", 0) > 0) stored.put("mal", kept.optLong("mal", 0));
+                // A length already counted is kept across a re-add: an import
+                // that puts a title back on the shelf knows nothing about the
+                // chapter list, and dropping the count would make the row fall
+                // back to "Ch. 12" until it is opened again.
+                if (row.optInt("chapters", 0) <= 0 && kept.optInt("chapters", 0) > 0) {
+                    stored.put("chapters", kept.optInt("chapters", 0));
+                }
             } catch (Exception ignored) {
                 // Unreadable is as good as absent: the new row replaces it.
             }
@@ -651,6 +866,32 @@ final class Manga {
                 .putStringSet("libhids", hids)
                 .putString("lib:" + hid, stored.toString())
                 .apply();
+    }
+
+    /**
+     * How many chapters a title has, as the app counted them.
+     *
+     * The count belongs to the row rather than being fetched with the shelf: it
+     * is the number of rows the *app* draws, which is what the dedupe makes it,
+     * and the shelf has no business calling upstream for a hundred titles every
+     * time the Library tab opens. The app sends it once it has read the chapter
+     * list — which it already does to open a title — and this remembers it only
+     * for a title that is on the shelf: stamping a count onto a title nobody
+     * kept would be the shelf growing behind the reader's back.
+     */
+    static void setLibrarySize(String hid, int chapters) {
+        SharedPreferences prefs = prefs();
+        if (prefs == null || hid.isEmpty() || chapters <= 0) return;
+        String raw = prefs.getString("lib:" + hid, null);
+        if (raw == null) return;
+        try {
+            JSONObject row = new JSONObject(raw);
+            if (row.optInt("chapters", 0) == chapters) return;
+            row.put("chapters", chapters);
+            prefs.edit().putString("lib:" + hid, row.toString()).apply();
+        } catch (Exception ignored) {
+            // A row that will not parse is one no count can be added to.
+        }
     }
 
     /** Take one title off the shelf. Its position, if any, stays where it was. */

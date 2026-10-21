@@ -8,6 +8,7 @@ import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
 import io.ktor.client.statement.bodyAsText
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
@@ -51,6 +52,15 @@ internal data class MangaCard(
     val rating: String = "",
     val latestChapter: String = "",
     val genres: List<String> = emptyList(),
+    /**
+     * The catalogue's own MyAnimeList id for this title, when it carries one.
+     *
+     * mangafire knows which MAL entry a series is, so this is an answer rather
+     * than a guess — the one thing a title search can lose. It is empty for a
+     * title the catalogue has no id for, which is when a search (or the
+     * reader's own pick) is what finds the entry.
+     */
+    val malId: String = "",
 )
 
 @Serializable
@@ -58,8 +68,78 @@ internal data class MangaChapter(
     val id: String = "",
     val number: String = "",
     val name: String = "",
+    /** The date the chapter was posted, as the catalogue spells it for display. */
     val at: String = "",
+    /** The same moment in epoch seconds; 0 when upstream did not say. */
+    val created: Long = 0L,
 )
+
+/**
+ * How many of [chapters] the reader has read, from the one position the device
+ * keeps and the order the catalogue sends them in.
+ *
+ * The catalogue lists newest first, and a reader reads forward from the old
+ * end, so the chapter left open is the boundary: it and every chapter older
+ * than it are read, everything above it is not. That is an inference, not a
+ * record — mangafire has no per-chapter read flag and this app stores one
+ * position per title — and it is the inference the shelf has always made
+ * (*Continue Ch. 167* means 167 chapters). A position on a chapter the list no
+ * longer has counts as nothing rather than as everything, which is the safe way
+ * round for a boundary that colours a list.
+ */
+internal fun readChapterCount(chapters: List<MangaChapter>, resumeChapter: String?): Int {
+    if (resumeChapter.isNullOrBlank() || chapters.isEmpty()) return 0
+    val index = chapters.indexOfFirst { it.id == resumeChapter }
+    if (index < 0) return 0
+    return chapters.size - index
+}
+
+/**
+ * One row per chapter number, in the order the catalogue sent them.
+ *
+ * A mangafire title carries the same chapter twice more often than it should —
+ * the same upload listed again, or a second scanlation under the same number —
+ * and the list, the count and the reader all took that at face value: 65 rows
+ * for 33 chapters, *Chapter 32* twice in a row, and a strip that carried on into
+ * a chapter the reader had just read. The duplicate is dropped here rather than
+ * in the screen so that everything that reads a chapter list reads the same
+ * one: the title page, the progress fraction, the two-way sync that maps a
+ * tracker's chapter number onto a chapter, and the reader's own seam.
+ *
+ * The first row wins, because the catalogue is newest first and the newest
+ * upload of a number is the one a reader means. Two exceptions: a chapter with
+ * no number at all is kept (there is nothing to compare it by, and it is
+ * usually an extra), and if the kept row has no name while a later duplicate
+ * does, the name is taken from the duplicate — the row that is shown should be
+ * the one that knows the most.
+ *
+ * This is the whole rule, and it deliberately errs towards showing a chapter:
+ * a hidden chapter cannot be read at all, where a duplicate can be scrolled
+ * past.
+ */
+internal fun uniqueChapters(chapters: List<MangaChapter>): List<MangaChapter> {
+    if (chapters.size < 2) return chapters
+    val kept = ArrayList<MangaChapter>(chapters.size)
+    val slots = HashMap<String, Int>()
+    for (chapter in chapters) {
+        val number = chapter.number.trim()
+        if (number.isEmpty()) {
+            kept += chapter
+            continue
+        }
+        val slot = slots[number]
+        if (slot == null) {
+            slots[number] = kept.size
+            kept += chapter
+        } else if (kept[slot].name.isBlank() && chapter.name.isNotBlank()) {
+            kept[slot] = kept[slot].copy(name = chapter.name)
+        }
+    }
+    // The common answer is "there were no duplicates": handing back the list
+    // that came in keeps every caller's identity check meaningful and allocates
+    // nothing on a title with 400 chapters and no repeats.
+    return if (kept.size == chapters.size) chapters else kept
+}
 
 @Serializable
 internal data class MangaBrowse(
@@ -106,6 +186,25 @@ internal data class MangaLibraryItem(
     val page: Int = 0,
     /** When the title was put on the shelf; 0 for a row stored without one. */
     val at: Long = 0L,
+    /** The account's id for this title, when an import matched it. */
+    val mal: Long = 0L,
+    /**
+     * How many chapters the title has, as the app counted them once the list
+     * was deduped; 0 until a chapter list has been read for this title.
+     *
+     * The shelf carries it so a row can say "Ch. 12 of 33" without fetching a
+     * chapter list for every title in the Library. It is written by whichever
+     * screen reads chapters (see [MangaApi.chapters]) and lives on the row, so
+     * it survives the app being closed.
+     */
+    val chapters: Int = 0,
+    /**
+     * When the title was last read — the newest of the reader's own position
+     * (written as a page turns) and MyAnimeList's `updated_at` brought over by
+     * an import. 0 for a title nobody has read, which is what puts it at the
+     * end of a last-read order rather than spreading it through it.
+     */
+    val read: Long = 0L,
 ) {
     /** Where to resume, or null when this title has never been opened. */
     val position: MangaPosition?
@@ -264,7 +363,32 @@ internal object MangaApi {
         val json = body("/manga/chapters.json") {
             parameter("hid", id)
         }
-        return mangaJson.decodeFromString<ChaptersResponse>(json).chapters
+        val list = uniqueChapters(mangaJson.decodeFromString<ChaptersResponse>(json).chapters)
+        // Whoever read this list now knows how long the title is, and the shelf
+        // does not: it draws a hundred rows and cannot fetch a chapter list for
+        // each. Telling the row costs one loopback request and no upstream call,
+        // and failing to tell it must never fail the read — a chapter list that
+        // arrived is a chapter list, count or no count.
+        try {
+            recordChapterCount(id, list.size)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // The shelf will catch up the next time this title is opened.
+        }
+        return list
+    }
+
+    /**
+     * Remember how long a title is, on its shelf row. A no-op for a title that
+     * is not on the shelf, and for a count of nothing.
+     */
+    suspend fun recordChapterCount(id: String, chapters: Int) {
+        if (id.isBlank() || chapters <= 0) return
+        body("/manga/size.json") {
+            parameter("hid", id)
+            parameter("chapters", chapters)
+        }
     }
 
     /** Type, status and genre options — one call, on first landing. */
@@ -333,13 +457,24 @@ internal object MangaApi {
      * last read in) that "every row at the same millisecond" would throw away.
      * A title already on the shelf keeps the moment it was first added.
      */
-    suspend fun addToLibrary(card: MangaCard, at: Long? = null) {
+    suspend fun addToLibrary(
+        card: MangaCard,
+        at: Long? = null,
+        read: Long? = null,
+        mal: Long? = null,
+    ) {
         if (card.id.isBlank()) return
         body("/manga/library.json") {
             parameter("hid", card.id)
             parameter("title", card.title)
             parameter("poster", card.poster)
             if (at != null && at > 0L) parameter("at", at)
+            if (read != null && read > 0L) parameter("read", read)
+            // An import knows the account's id for this title; a title added by
+            // hand does not. Kept so that asking "how far am I" later does not
+            // depend on matching a name again — which is what left a shelf full
+            // of "Not started" rows the import had already matched once.
+            if (mal != null && mal > 0L) parameter("mal", mal)
         }
         libraryRevision++
     }
@@ -359,7 +494,7 @@ internal object MangaApi {
      * the server reads a request's head and no body, and a page number is not
      * worth making it read one.
      */
-    suspend fun savePosition(position: MangaPosition) {
+    suspend fun savePosition(position: MangaPosition, readAt: Long? = null) {
         body("/manga/pos.json") {
             parameter("hid", position.id)
             parameter("chapter", position.chapter)
@@ -368,6 +503,15 @@ internal object MangaApi {
             parameter("number", position.number)
             parameter("page", position.page)
             parameter("pages", position.pages)
+            // Only an import passes one: a page turn is "now", and the server
+            // stamps that itself. A sync from a tracker passes 0 — it knows the
+            // chapter, not when it was read, so the position moves and the
+            // shelf's last-read stamp is left alone.
+            when {
+                readAt == null -> Unit
+                readAt > 0L -> parameter("at", readAt)
+                else -> parameter("quiet", 1)
+            }
         }
         libraryRevision++
     }

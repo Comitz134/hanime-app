@@ -1,5 +1,6 @@
 package com.nuvio.app.core.auth
 
+import co.touchlab.kermit.Logger
 import com.nuvio.app.core.network.SupabaseProvider
 import io.github.jan.supabase.auth.auth
 import kotlinx.coroutines.CoroutineScope
@@ -38,6 +39,7 @@ object LegacyShellAccount {
     const val FAILED = "failed"
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val log = Logger.withTag("LegacyShellAccount")
 
     @JvmStatic
     fun importSession(accessToken: String, refreshToken: String, callback: LegacyImportCallback) {
@@ -57,7 +59,13 @@ object LegacyShellAccount {
                 auth.importAuthToken(accessToken, refreshToken)
                 withTimeoutOrNull(10_000L) { auth.awaitInitialization() }
                 if (auth.currentSessionOrNull() != null) IMPORTED else FAILED
-            }.getOrElse { FAILED }
+            }.getOrElse { error ->
+                // The reason matters and the tokens do not: an expired refresh
+                // token and an unreachable backend look identical from here,
+                // and only one of them is worth another launch.
+                log.w(error) { "could not import the old shell's session" }
+                FAILED
+            }
             callback.onResult(outcome)
         }
     }

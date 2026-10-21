@@ -46,19 +46,22 @@ the addition named; nothing upstream is deleted:
 | `androidApp/src/test/java/app/hanime/shell/MangaRouteTest.java` | *new*: ten JVM tests over the manga routes' parameter resolution and upstream URL — the search/page/limit bug they exist for, the filter vocabulary, `hasNext`, trending's limit and the `added_at` stamp an import carries. No phone and no network: `Manga.transport` is a double |
 | `androidApp/src/main/java/app/hanime/shell/MainThread.java` | *new*: a `Handler` on the main looper, used by both signers to create and start their WebViews on the UI thread — without dragging in a scheduler library for the one thing they need from one |
 | `androidApp/src/main/java/app/hanime/shell/Mal.java` | *new*: the MyAnimeList relay, the JVM twin of `server/src/mal.mjs` — the PKCE token exchange (the registration's secret added here, out of `BuildConfig`, never from the UI) and a query-only passthrough of MAL's API with the caller's own Bearer token. Query-only because Android's `WebResourceRequest` has no request body to forward, so one contract both backends can honour beats two that nearly match. Within ten minutes the relay remembers the names' addresses, and it resolves MAL's hosts through DNS-over-HTTPS (Cloudflare, then Google) when the phone's resolver refuses them; every other host keeps the system resolver. A network failure is retried three times, and the exchange alone is asked twice more when MAL's edge answers `502`/`503`/`504`; a gateway that stays down is answered with a sentence instead of a bare status. Requests carry a `SEKAI-Mobile` User-Agent |
+| `androidApp/src/main/java/app/hanime/shell/Anilist.java` | *new*: the AniList relay — the authorization-code token exchange (the registration's secret added here and nowhere else) and a passthrough of `graphql.anilist.co` that forwards the app's own JSON document and Bearer token. Unlike the MAL relay it must carry a request body, which is why `SekaiServer`'s reader learned to read one; it shares `Mal`'s DoH resolver and its retry loop, and adds nothing to a response it did not write |
+| `composeApp/src/commonMain/kotlin/com/nuvio/app/features/anilist/`, `composeApp/src/androidMain/kotlin/com/nuvio/app/features/anilist/` | *new*: the AniList account — `AniList` with its one GraphQL hop, the list read, both imports (the anime list into the Library and Continue Watching under `ha:an:<id>`, the reading list onto the manga shelf stamped with AniList's own `updatedAt`) and the writes back — plus `AniListStorage`, the session in the app's private preferences. Its card, `AniListProviderCard`, lives in `MangaTrackingSection.kt` and is drawn by the same `TrackingProviderCard` as MyAnimeList's, and `TrackingProviderCards.kt` gains the `ANILIST` brand: its own blue brush and a drawn `A` monogram |
 | `androidApp/src/main/assets/htv-signer.js`, `htv-signer.wasm`, `signer.html` | hanime.tv's own signature module and the page that boots it, as the phone shell already bundled them |
 | `composeApp/src/androidMain/res/values/strings.xml`, `composeApp/src/androidMain/res/values-bn/strings.xml`, `composeApp/src/androidMain/res/values-es/strings.xml`, `androidApp/src/debug/res/values/strings.xml` | the app calls itself **SEKAI**, and `SEKAI Debug` for the variant that installs beside it. Each file is replaced whole at its own path: upstream names the app in the default resources *and* in the Bengali and Spanish ones, and a locale that kept the old name would be the one screen that disagreed, so those three are overridden and every other locale inherits the default. The debug source set — which would otherwise still say "Nuvio Debug" — gets one of its own |
 | `composeApp/src/androidMain/res/mipmap-*/ic_launcher*.webp`, `drawable-nodpi/ic_splash_logo*.webp`, `composeApp/src/commonMain/composeResources/drawable/app_icon_*.png`, `app_logo_wordmark*.png` | the launcher icon (legacy, round, adaptive foreground, monochrome, and the five themed variants upstream's app-icon picker offers), the Android 12+ splash marks and the in-app wordmark/lockup — every file of these names, replaced with this repository's own mark |
 | `tools/make-app-icons.py` | *new*: the generator that derives all of the above from art this repository already ships (the desktop fork's 1024px app icon and wordmark), at the same geometry and from the same source as the desktop fork's `_mf/make-sekai-icons.py`, so the two clients cannot drift |
 | `composeApp/src/commonMain/composeResources/values/manga.xml` | *new*: the manga tab's label, in a file of its own so it cannot collide with a key upstream adds to `strings.xml` later |
-| `composeApp/src/commonMain/kotlin/com/nuvio/app/features/manga/`, `composeApp/src/androidMain/kotlin/com/nuvio/app/features/manga/` | *new*: the manga tab — `MangaApi` (the loopback client and its rows), `MangaScreen` (shelf, title, reader), `MangaIcon` (the tab's mark, drawn as an `ImageVector` rather than added to an icon pack) and `MangaMal` with its Android `MangaMalStorage` (the MyAnimeList tracker, see below) |
+| `composeApp/src/commonMain/kotlin/com/nuvio/app/features/manga/`, `composeApp/src/androidMain/kotlin/com/nuvio/app/features/manga/` | *new*: the manga tab — `MangaApi` (the loopback client and its rows), `MangaScreen` (shelf, title, reader), `MangaIcon` (the tab's mark, drawn as an `ImageVector` rather than added to an icon pack) and `MangaMal` with its Android `MangaMalStorage` (the MyAnimeList tracker, see below). The reader's chrome is drawn in the floating navbar's shape: a glass pill holding `< Ch. n / total >` and a rail down the right with the way out, the title's page, its chapters, how the pages are drawn, how the reader works, and the flag that keeps the title on the shelf. It starts hidden and a tap on the page brings it back; the tab bar hides with it (`MangaReaderUi`, read by `MainTabsDestination`). The shelf's sort and filter are cached in a `derivedStateOf`, so a scroll no longer re-sorts the shelf on every recomposition |
+| `composeApp/src/commonMain/kotlin/com/nuvio/app/features/manga/MangaEta.kt`, `composeApp/src/androidHostTest/kotlin/com/nuvio/app/features/manga/MangaEtaTest.kt` | *new*: the title page's next-chapter tile — the desktop client's `manga-eta.js` ported, not reinvented, so both surfaces say the same thing about the same title. The median gap between the six newest dated chapters, applied to the newest one; three refusals (a title whose status says it has stopped, fewer than four dated chapters, a "cadence" under two hours or over a year) are the desk's three, and the words are the tile's own (`≈2h`, `≈3d`, `≈2mo`, `Any day`, `N/A`). No network, DOM or storage, and `now` is a parameter, so the arithmetic and the civil-date conversion are held by 7 JVM tests |
 | `composeApp/src/commonMain/kotlin/com/nuvio/app/AppScreenTab.kt`, `MainTabsDestination.kt`, `AppShellComponents.kt`, `MainAppContent.kt` | upstream's own files, each with the fifth tab added: the enum value and its native-bar mapping, the slot in both navigation bars, the branch in the tab host, and the re-tap case in the root-tab handler (which is an exhaustive `when` and so fails to compile without it) |
-| `androidApp/src/main/java/app/hanime/shell/Manga.java`, `MangaSigner.java` | *new*: the `/manga/…` routes — their API, signed and shaped for this app's reader, plus the page proxy and the position store — and the WebView that runs mangafire.to's signing bundle (see below) |
+| `androidApp/src/main/java/app/hanime/shell/Manga.java`, `MangaSigner.java` | *new*: the `/manga/…` routes — their API, signed and shaped for this app's reader, plus the page proxy and the position store — and the WebView that runs mangafire.to's signing bundle (see below). Its requests go through OkHttp for one reason: that client can be handed a resolver, so a name the system refuses (an IPv4-only host on an IPv6-only network, the failure MyAnimeList hit first) is retried through the relay's DoH answer — for a listing and for a page's images alike |
 | `androidApp/src/main/assets/mf-signer.html`, `mangafire-polyfill.js` | the host page for that bundle and the bundle itself, vendored from their build exactly as this repository's web client already vendors it (`server/client/src/mangafire-polyfill.js`) |
 | `androidApp/src/main/java/app/hanime/shell/Subtitles.java`, `OpenSubs.java` | *new*: the addon's `subtitles` resource — where each area's tracks come from, decided by what its player actually has. Anime reads the LunarX embed's own list through `FlixCloud.subtitles` (the same evidence the desktop's `anime.mjs` reads, so the two clients offer the same tracks in the same languages); films and series resolve their TMDB slug to an IMDb id and ask OpenSubtitles by IMDb, exactly as the desktop's films area does; the 18+ shelf answers an empty list, which is its answer and not an error. Every track travels as a relay link carrying the provider's referer rather than as a CDN URL |
 | `composeApp/src/commonMain/kotlin/com/nuvio/app/features/library/LibraryMangaRow.kt` | *new*: the Library tab's **Manga** shelf — the reader's own shelf, not a receipt of what was read lately. A title added from the manga tab's title page or by a MyAnimeList import sits here; a tap hands it to the manga tab, which owns the reader. The shelf has the series library's organizing controls: a **Sort** chip (recently added / title / progress) and a **Show** chip (all / reading / not started), with a `12 of 165` count line |
 | `composeApp/src/commonMain/kotlin/com/nuvio/app/features/library/LibraryScreen.kt` | upstream's own file: the shelf row and its `onMangaOpen` parameter, and `internal` rather than upstream's `public` because the row is fed by this fork's own types |
-| `composeApp/src/commonMain/kotlin/com/nuvio/app/features/manga/MangaNav.kt` | *new*: the one-slot hand-off between the Library tab and the manga tab — what was tapped, and the chapter to resume from when the shelf knows one |
+| `composeApp/src/commonMain/kotlin/com/nuvio/app/features/manga/MangaNav.kt` | *new*: the one-slot hand-off between the Library tab and the manga tab — what was tapped, and the chapter to resume from when the shelf knows one — plus the return counter that names the tab to go back to when a Library title is closed (`MainAppContent` reads it) |
 | `composeApp/src/commonMain/kotlin/com/nuvio/app/features/home/components/HomeHeroSection.kt` | upstream's own file with the hero's artwork chosen and sized for the band it fills: a real backdrop first, then a landscape poster, then the portrait one; TMDB URLs are asked for at `original` and AniList covers at `/cover/large/` (the `extraLarge` file). AniList's `bannerImage` is a 1900×400 strip — cropped to the hero's tall band it is 400px of height doing the work of a thousand — so anime uses its largest cover instead. A `w500` poster stretched across the screen is what looked pixelated as the carousel rotated |
 | `composeApp/src/commonMain/kotlin/com/nuvio/app/features/settings/MangaTrackingSection.kt`, `TrackingProviderCards.kt`, `features/settings/TrackingSettingsPage.kt` | *new* / upstream's own file overridden twice: MyAnimeList as a full `TrackingProviderCard` in Settings → Tracking → Services, beside Trakt, Simkl and MDBList — same gradient card, expander, connect/await/disconnect cycle, with *Import my reading list* and its progress in the connected body. `TrackingProviderCards.kt` gains the `MAL` brand (its own blue brush, a drawn `M` monogram and a text wordmark), the MAL card itself and an optional `connectedContent` slot; the section that used to hold the plain text row is gone |
 
@@ -243,11 +246,149 @@ re-resolves, and if no door can prove itself the first resolved one is still
 offered in-app — the player may succeed where the probe did not, and it is the
 reader's own player either way.
 
+### A chapter list that says what was read
+
+The title page listed 33 identical rows under a *Continue Ch. 1* button: the
+chapter left open was coloured, and nothing else said whether a chapter had been
+read. On a series read to chapter 30 the list looked exactly like one never
+opened.
+
+There is no per-chapter read flag to read — mangafire does not have one and this
+app stores one position per title — so the list draws the inference the shelf
+already makes: the chapter the position names is the boundary, it and every
+chapter older than it are read, and everything above it is not. The linked
+account can push the boundary further when it knows more, because a chapter read
+on the website or on another phone is read; whichever of the two says further
+wins, capped at the list, since a mismatched account entry can claim more
+chapters than the catalogue has.
+
+The drawing is two pieces of the same fact: a muted row with a thin grey bar
+down its left edge and the word *read* where an unread row has its date, and a
+three-pixel bar under the *Chapters* heading that fills to the fraction read
+with the count beside it (*12 of 33 read*). The chapter left open keeps the
+accent colour and its page, so *where I am* and *how far I have got* are the
+same glance.
+
+Writing the boundary down exposed a bug beside it. *Start reading* opened
+`chapters[0]`, and the catalogue sends newest first — so a title nobody had
+opened started on chapter 33, and the position written on the first page turn
+then said the whole series was read. It opens the first chapter now (the last
+row), and the secondary *Ch. n* button only appears when the resume is not
+already that chapter — compared by chapter number rather than by row, because
+the catalogue carries duplicate numbers (a re-upload, a second scanlation) and
+*Continue Ch. 1* above *Ch. 1* reads as a bug whether or not the rows are
+different chapters.
+
+The MyAnimeList picker had the same kind of gap: hits were names and numbers
+only, which is thin evidence for choosing between two entries with one name.
+MAL's search now asks for `main_picture` in the same call, the row draws a 56dp
+cover (the large size, the medium when that is all there is, a book mark when
+there is no art so the list does not go ragged), and it is still one request per
+search rather than one per row.
+
+### The same chapter, twice
+
+mangafire lists a chapter twice when an upload is repeated or a second
+scanlation carries the same number. Nothing in the app questioned it: a
+33-chapter title drew **65 rows** — *Chapter 32* twice in a row, *Chapter 1*
+twice at the bottom — and the duplicated row was counted everywhere a count is
+shown. The title header said 65 chapters, the progress bar divided by 65, so a
+reader on chapter 1 saw *2 of 65 read* for a series with 33; the tracker sync
+looked for a chapter by number in the same inflated list; and the reader's strip
+carried on from a chapter into its own duplicate, so the same pages came round
+again.
+
+The fix is one function, [uniqueChapters], applied in `MangaApi.chapters` so that
+every caller — the title page, the progress fraction, the MAL and AniList syncs,
+the reader's route and its seam — reads the same list. The first row of a number
+wins: the catalogue is newest first, so that is the newest upload of it. A
+duplicate that carries a chapter name gives that name to the row that stays, so
+the surviving row is the one that knows the most. A chapter with **no number** is
+kept as it is, because there is nothing to compare it by and a hidden chapter
+cannot be read at all — the rule errs towards showing a chapter, never towards
+hiding one that has no twin.
+
+The case worth naming is the small title: a manga with a *single* chapter listed
+twice. A dedupe written as "keep the newest of many" gets that one wrong by
+keeping both or by assuming a list with one distinct number is broken; the rule
+here is per number, so one chapter stays one chapter.
+
+A stored position can point at the row that was dropped — the reader was on the
+second *Chapter 32* when the list changed. The title page looks the position up
+by id and then, if that id is not in the list, by chapter number, and marks the
+row it found with the same accent and page as before. Without that second look a
+reader's place would have vanished from the screen that offers to resume it.
+
+### The shelf says how long
+
+A shelf row used to say *Ch. 12* and nothing else — not how long the series is,
+and so not how far into it chapter 12 is. The title page knows both numbers; the
+Library could not get the second without a chapter list per row, and a shelf of
+four hundred titles cannot pay for four hundred catalogue calls whenever the tab
+opens.
+
+The length is stamped on the row instead, by the screen that reads the chapter
+list anyway: `MangaApi.chapters` posts it to `/manga/size.json`, which
+`Manga.setLibrarySize` writes onto the stored row — and only onto a row the
+reader kept, so no title joins the shelf through it. From then on the row says
+**Ch. 12 of 33**, or **33 chapters** for a title nobody has opened yet; a row with
+no length says **Ch. 12**, because a denominator that was guessed is worse than
+none. The count is the app's deduped one, so the shelf and the title page never
+disagree about how long a series is.
+
+An imported shelf arrives with positions and no lengths — eighty rows, none of
+them opened here. So a visit to the Manga shelf measures fifteen of them, one at
+a time a quarter-second apart, and writes each into the grid where it is
+already drawn; the next visit measures the next fifteen. Which fifteen is the
+shelf's own order, not its storage order: the first version walked the stored
+list, so on a 123-title shelf the counts it fetched landed on rows nobody was
+looking at while the top of the grid stayed blank — the reader's order is the
+order to fill. The cap is deliberate:
+the catalogue signs every call, and a phone firing a hundred while a finger
+scrolls a shelf is how a host starts refusing the app.
+
 ### What the tests hold
 
 `MangaRouteTest` (10 tests), `PlaybackRouteTest` (12 tests), `SubtitleRouteTest`
-(6 tests), `MalRetryTest` (9 tests) and `LegacyShellImportTest` (6 tests) run on a
-plain JVM with `:androidApp:testFullDebugUnitTest` — 43 in total, all passing.
+(6 tests), `MalRetryTest` (9 tests), `LegacyShellImportTest` (6 tests) and
+`MangaRetryTest` (3 tests) run on a plain JVM with
+`:androidApp:testFullDebugUnitTest` — 46 in total, all passing. `MangaRetryTest`
+is the newest: it asks a catalogue call to reach 127.0.0.1:1, where nothing
+listens and OkHttp declines at once, so the time it measures is the backoff —
+it fails if the call is not attempted three times — and it holds the sentence a
+refused name is turned into, along with the rule that every other upstream
+message keeps its own words.
+
+`composeApp`'s host suite (`:composeApp:testAndroidHostTest`) now also holds the
+manga shelf's ordering rule and the MyAnimeList timestamp parser in
+`MangaShelfTest` — 6 tests, all passing: what "last read" does with a title
+nobody has read, what breaks a tie, that "recently added" still means added, and
+that `2024-05-06T07:08:09+02:00` is the moment it names and `yesterday` is no
+stamp at all — the next-chapter estimate in `MangaEtaTest`, 7 more, all
+passing: a weekly title is projected a week out, a finished one is not, three
+chapters are not a rhythm where four are, two hours and a year are asserted at
+both edges, undated chapters carry nothing, the chip's rounding (`≈1h`, `≈5h`,
+`≈3d`, `≈2mo`, `Any day`) is exact, and the civil date is the UTC day of the
+instant — and the read boundary in `MangaReadTest`, 5 more, all passing: a
+position on the newest chapter reads the whole list, one in the middle reads that
+chapter and everything below it, the first chapter read is one chapter read, and
+a title nobody has opened, or a position naming a chapter the list no longer has,
+reads nothing — and the duplicate rule in `MangaChaptersTest`, 6 more, all
+passing: a repeated number is one row and the first wins, a title with one
+chapter listed twice is a title with one chapter, an untwinned list is handed
+back untouched, unnamed chapters are kept, a name is borrowed from the duplicate
+the kept row replaced, and 33 chapters listed twice read as 1 of 33 rather than
+1 of 66 — plus the shelf row's line in `MangaShelfLineTest`, 5 more, all
+passing: *Ch. 12 of 33*, *33 chapters* for an unopened title, the singular of a
+one-chapter title, *Ch. 12* when the length is unknown, and *Not started* when
+there is neither. That suite as a whole is **not** green on this machine and was not
+before this change: `AndroidDownloadLifecycleTest` needs Java 21 for its
+Robolectric sandbox (this shell has 17), and `RootTabHostTest`,
+`RatingsVisibilityTest`, `DownloadSubtitlesTest` and `WatchProgressIdentityTest`
+assert against upstream's tabs and details screen, which the fork has changed
+(`RootTabHostTest` expects four tabs; the fork's Manga pill makes five). They are
+left as they are — they are upstream's to update, and a passing verdict for them
+is not something this change can give.
 The second one pins the pieces that a
 phone would otherwise be the only way to check: cinehd's six doors and the walk's
 order, that a door URL is cinehd's template with the TMDB id filled in, the
@@ -259,6 +400,120 @@ dialling. The relays' link signing is not in there — it goes through
 `android.util.Base64`, which a unit test's `android.jar` stubs — so that half is
 checked on a device (`adb logcat -s ShellRelay ShellDoors` and a `curl` of the
 link it hands out).
+
+### The port is the device's, and it was answering for the wrong build
+
+A bug the phone showed only as "the app needs a restart": `127.0.0.1:8787`
+belongs to the device rather than to a package, and the debug build
+(`com.nuviodebug.com`) and the published one (`app.hanime.shell`) both carry this
+server. Whichever started first owned the port and answered every request for
+both, so the debug app's manga screen was being served by the published build's
+process — its code, its shelf, its positions — while the debug build's own bind
+failed with nothing but an `EADDRINUSE` stack trace in logcat.
+
+That is also the explanation for a report of *unable to resolve host
+"mangafire.to": no address associated with hostname* on a title screen: the
+process answering was the old build, which predates the DoH fallback, on a
+network that was refusing the name at that moment. Seen on the phone: the
+published build refused `mangafire.to` at 15:16:17 and again at 15:16:27, while
+the debug build had resolved it at 15:16:06 and did again once it owned the port.
+
+The server now retries the bind (2 s, growing to 30 s) and takes the port over
+the moment the other build stops — verified on the device: `EADDRINUSE` logged
+once at 15:16:05 while the published build ran, then a `200` with real catalogue
+data from the debug build's own process after that build was stopped. It cannot
+pre-empt a live listener, so the guidance is one installed build at a time.
+
+Two smaller things came out of the same report. An upstream call is attempted
+three times over ~2.4 s (a refused lookup falls back to DoH inside those
+attempts), and the resolver's own words are no longer what a reader is shown.
+And the signer: the *first* chapters call after a cold start could be sent
+unsigned if the WebView was still booting — the title screen then said *upstream
+HTTP 403* over a chapter list one second away. A token refusal on an unsigned
+request now waits for the signer and asks once more, signed; a refused *signed*
+request is passed straight through, because that one is upstream's own answer.
+
+### The startup cost, measured and then moved off the first frame
+
+The hand-installed build is now the **fast** variant, because the numbers are not
+close: on the same tree, same phone, same 103-title shelf, `am start -W` reports
+**3053–3379 ms** to first frame for the debug build and **421–450 ms** for the
+fast one (five to seven cold starts each), and the APK drops from 166.8 MB to
+124.6 MB. Nothing visual changes; it is the same code through R8.
+
+One thing inside the fast build's own startup was worth moving. The manga
+signer's WebView was built from the boot provider, i.e. before the first frame:
+process start → `WebViewFactory: Loading com.google.android.webview` +135 ms →
+`manga signer booting` +343 ms → **Displayed +685 ms** — and the page it loads
+finished at +830 ms, *after* the frame it had delayed. Creating a WebView costs
+the main thread about a fifth of a second, and there is no reason for that to
+land in front of the shell.
+
+The warm-up is now put one second out (`SekaiServer.WARM_UP_MS`), so it lands
+after the shell is drawn and long before a thumb can reach the manga tab. First
+frame after the change: **Displayed +400 ms**, server listening +134 ms, signer
+booting +1.5 s, signer ready +1.7 s. The JVM suite is unchanged and green (46
+tests, 0 failures), the shelf and reader positions came through the switch
+byte-identical (`library.json` md5 unchanged over 103 titles and 60 positions),
+and the Home, Library manga shelf and a title screen are pixel-for-pixel the
+screens they were.
+
+**A one-row shelf, seen once and not again.** While measuring, the Library's
+manga shelf painted a single row of three titles and would not scroll — three
+swipes moved nothing but the tab bar's ripple — over a shelf holding 103 titles.
+It has not been reproduced since: on the same build, later in the same session,
+the same shelf laid out every row and scrolled normally, and it still does (a
+UI dump shows nine cards in three columns, and the list scrolls). It is written
+down as an observation, not a diagnosis: nothing was changed to explain it, and
+the honesty is worth more than a fix that guesses.
+
+### "Last read", and the order the shelf was actually in
+
+The shelf's orders were *Recently added*, *Title A–Z* and *Progress* — none of
+which is "what was I reading", which is the question a shelf is usually opened
+with. Worse, on a shelf imported from MyAnimeList both of its dates were the
+import's: the import writes a position for every row that has progress (to make
+*Ch. 41* appear), and a position was stamped `now` — so every imported title
+looked read at import time — while a row already on the shelf kept the moment it
+was first added, so re-importing could not reorder anything. The result was a
+shelf in the order titles were added to the app, which is what it was reported
+as.
+
+There are now two dates and they mean different things: `at` is when a title
+joined the shelf, `read` is when it was last read. `read` comes from a page
+turn (stamped as the position is saved) or from the account (MyAnimeList's
+`updated_at`, sent by the import — which also refreshes it on rows already on
+the shelf). **Last read** is the default sort, never-read titles sort last, and
+ties fall back to added-then-title, so the order is total and stable.
+
+There is a second half to this, because a shelf can be right about *when* a title
+was read and still wrong about *how far*: the app only learned a chapter was
+read elsewhere when that title was opened once (the title page asks, the shelf
+follows). `Refresh progress for every title`, on the MyAnimeList card, is that
+same walk over the whole shelf — MAL first by the account's own id when the
+import stored one, by name only when it did not, AniList where MAL does not know
+the title, nothing ever moving backwards. Two things about it are deliberate:
+it writes positions **quietly** (`quiet=1`), because a sync that stamped the
+shelf's last-read "now" would order a refreshed shelf by the refresh — the very
+bug this section is about, reintroduced by its own repair button — and the
+import now stores the account's id per row (`mal`) so that a title whose
+catalogue name differs from MAL's is not lost to a name search every time.
+
+Verified on the dev phone: the import reported *18 titles added · 85 already on
+it · 17 not matched*, the shelf went from 103 to 121 rows, 103 of them carrying a
+real last-read stamp, and the top of the list read *Skeleton Soldier* (read
+today), *Copying Skills* (17 Oct), *Liar Liar* (16 Oct), *I Get Stronger the
+More I Eat* (15 Oct) — the account's own order, not the import's. The sort sheet
+shows all four orders, switching to *Title A–Z* re-sorts in place, and
+`MangaShelfTest` holds the ordering rule and the timestamp parser on the JVM
+(6 tests; the rest of that module's host suite has pre-existing failures and a
+Robolectric sandbox that needs Java 21 — see below).
+
+The next-chapter tile was read on the same phone, against the live catalogue: a
+65-chapter weekly title (*The Legend of AAAA*, newest chapter 33) shows `≈2h`
+where there was no tile before. The refusals are the one thing a phone cannot
+be walked to quickly — a finished title takes a finished title to find — so they
+rest on `MangaEtaTest` rather than on a screenshot.
 
 ## What is not finished
 

@@ -406,6 +406,13 @@ internal fun MainAppContent(
         }
     }
 
+    // A title the Library handed to the manga tab is closed: the tab goes back
+    // to where it came from, so "return" lands on the shelf that was open
+    // rather than on a manga tab nobody asked for.
+    LaunchedEffect(MangaNav.returnToLibraryRequests) {
+        if (MangaNav.returnToLibraryRequests > 0) activateTab(AppScreenTab.Library)
+    }
+
     fun handleRootTabClick(tab: AppScreenTab) {
         if (selectedTab != tab) {
             activateTab(tab)

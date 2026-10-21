@@ -37,10 +37,10 @@ import java.nio.charset.StandardCharsets;
  * it is LevelDB inside the profile, and no Android API opens it.
  *
  * One attempt is made on the first launched activity after the update (see
- * [watch]). A failure is retried on the next launch, twice at most, because
- * the only realistic failure is the network; a profile with no record at all
- * is marked done immediately. The marker lives in this app's own preferences,
- * never the shell's.
+ * [watch]). A failure is retried on the next two launches, because the
+ * realistic failures are a cold network and a token minted a moment ago; a
+ * profile with no record at all is marked done immediately. The marker lives
+ * in this app's own preferences, never the shell's.
  */
 final class LegacyShellImport {
 
@@ -50,7 +50,7 @@ final class LegacyShellImport {
     private static final String KEY_STATE = "account_import";
     private static final String KEY_ATTEMPTS = "account_import_attempts";
     private static final String DONE = "done";
-    private static final int MAX_ATTEMPTS = 2;
+    private static final int MAX_ATTEMPTS = 3;
 
     /** The origin the old shell served its bundled client from. */
     private static final String ORIGIN = "https://hanime.tv";

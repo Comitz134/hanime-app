@@ -131,6 +131,7 @@ internal enum class TrackingBrand(val displayName: String) {
     SIMKL("Simkl"),
     MDBLIST("MDBList"),
     MAL("MyAnimeList"),
+    ANILIST("AniList"),
     TMDB("TMDB"),
 }
 
@@ -153,8 +154,11 @@ internal fun isTrackingBrandAvailable(
     TrackingBrand.SIMKL -> simklConnected
     TrackingBrand.MDBLIST -> mdblistConnected
     // The manga tracker needs no enabled switch: the account is either linked
-    // or it is not, and both states are handled by its own card.
-    TrackingBrand.MAL -> true
+    // or it is not, and both states are handled by its own card. AniList is the
+    // same — one link, one card, no source to pick.
+    TrackingBrand.MAL,
+    TrackingBrand.ANILIST,
+    -> true
 }
 
 internal fun TraktConnectionMode.toTrackingConnectionCardMode(): TrackingConnectionCardMode = when (this) {
@@ -211,6 +215,7 @@ internal fun TrackingProviderCards(
         )
         MdbListProviderCard(Modifier.fillMaxWidth())
         MalProviderCard(Modifier.fillMaxWidth())
+        AniListProviderCard(Modifier.fillMaxWidth())
     }
 
     if (showSyncInfo) {
@@ -613,7 +618,7 @@ internal fun TrackingProviderCard(
 }
 
 @Composable
-private fun TrackingBrandPrimaryButton(
+internal fun TrackingBrandPrimaryButton(
     label: String,
     loading: Boolean,
     enabled: Boolean,
@@ -691,6 +696,7 @@ private fun TrackingDisconnectDialog(
                 TrackingBrand.MDBLIST -> stringResource(Res.string.settings_mdblist_disconnect_description)
                 TrackingBrand.NUVIO,
                 TrackingBrand.MAL,
+                TrackingBrand.ANILIST,
                 TrackingBrand.TMDB,
                 -> stringResource(
                     Res.string.settings_tracking_disconnect_description,
@@ -743,6 +749,10 @@ internal fun TrackingBrandGlyph(
             contentDescription = contentDescription,
             modifier = modifier,
         )
+        TrackingBrand.ANILIST -> AniListGlyph(
+            contentDescription = contentDescription,
+            modifier = modifier,
+        )
         TrackingBrand.TMDB -> Image(
             painter = integrationLogoPainter(IntegrationLogo.Tmdb),
             contentDescription = contentDescription,
@@ -779,6 +789,18 @@ private fun TrackingBrandWordmark(
             }
             return
         }
+        TrackingBrand.ANILIST -> {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                AniListGlyph(contentDescription = null, modifier = Modifier.size(32.dp))
+                Text(
+                    contentDescription,
+                    style = MaterialTheme.typography.titleLarge,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+            return
+        }
         TrackingBrand.NUVIO,
         TrackingBrand.TMDB,
         -> return
@@ -803,6 +825,7 @@ private fun TrackingBrandWordmark(
             TrackingBrand.MDBLIST -> Modifier.width(130.dp).height(32.dp)
             TrackingBrand.NUVIO,
             TrackingBrand.MAL,
+            TrackingBrand.ANILIST,
             TrackingBrand.TMDB,
             -> Modifier
         },
@@ -825,6 +848,11 @@ private fun TrackingBrand.cardBrush(): Brush = when (this) {
     // wordmark keeps its contrast on a phone at half brightness.
     TrackingBrand.MAL -> Brush.linearGradient(
         colors = listOf(Color(0xFF14264A), Color(0xFF2E51A2), Color(0xFF1B2F5C)),
+    )
+    // AniList's own blue (#02A9FF), deepened at both ends so the white
+    // wordmark keeps its contrast, exactly as MyAnimeList's card is made.
+    TrackingBrand.ANILIST -> Brush.linearGradient(
+        colors = listOf(Color(0xFF063A5C), Color(0xFF0285C7), Color(0xFF0B3150)),
     )
     TrackingBrand.NUVIO,
     TrackingBrand.TMDB,
@@ -850,6 +878,33 @@ private fun MalGlyph(
     ) {
         Text(
             text = "M",
+            color = Color.White,
+            fontSize = (maxWidth.value * 0.52f).sp,
+            fontWeight = FontWeight.Black,
+            maxLines = 1,
+        )
+    }
+}
+
+/**
+ * AniList's mark, drawn rather than shipped: a rounded blue tile with the
+ * name's initial. AniList distributes no vector this app may bundle, so the
+ * mark is drawn from the brand colour — the same choice MyAnimeList's card
+ * makes, and a monogram is more honest than a mismatched stand-in.
+ */
+@Composable
+private fun AniListGlyph(
+    contentDescription: String?,
+    modifier: Modifier = Modifier,
+) {
+    BoxWithConstraints(
+        modifier = modifier
+            .clip(RoundedCornerShape(28))
+            .background(Color(0xFF02A9FF)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = "A",
             color = Color.White,
             fontSize = (maxWidth.value * 0.52f).sp,
             fontWeight = FontWeight.Black,

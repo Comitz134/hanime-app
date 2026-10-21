@@ -1,6 +1,7 @@
 package com.nuvio.app.features.manga
 
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 
@@ -42,5 +43,21 @@ internal object MangaNav {
         val pending = request ?: return null
         request = null
         return pending
+    }
+
+    /**
+     * A title opened from the Library, closed again.
+     *
+     * The manga tab cannot select another tab — the tab is the destination — so
+     * the title that was handed over here names the tab it came from on the way
+     * back: "return" out of a Library title lands in the Library, at the shelf
+     * the reader was on, rather than in a manga tab they never chose. A counter
+     * rather than a flag, so two returns in a row are two events.
+     */
+    var returnToLibraryRequests by mutableIntStateOf(0)
+        private set
+
+    fun requestReturnToLibrary() {
+        returnToLibraryRequests++
     }
 }
