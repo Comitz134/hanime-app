@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [manga, shelf, tracking, reader]
 created: "2026-10-21T03:26:52"
-updated: "2026-10-21T03:26:52"
+updated: "2026-10-21T04:00:14"
 ---
 
 <!-- compiled_truth -->
@@ -73,4 +73,10 @@ title page re-read the record on return.
   kind: decision
   summary: "the record replaces the boundary inference, and the trackers keep their position semantics"
   source: "Manga.java, /manga/read.json, MangaApi.readChapterNumbers, MangaScreen"
+  affects: [manga-read-record]
+
+- time: 2026-10-21T04:00:14
+  kind: note
+  summary: "shipped as 2.0.3 (203): GitHub release v2.0.3 at commit 9fe24ea, APK sha256 389b2a40, verified by downloading the asset and re-checking package id, version and release-key signer"
+  source: "publish-apk.mjs + publish-github.mjs, verified against releases/latest/download/version.json"
   affects: [manga-read-record]

@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [release, phone, github]
 created: "2026-10-21T02:06:28"
-updated: "2026-10-21T02:06:46"
+updated: "2026-10-21T04:00:14"
 ---
 
 <!-- compiled_truth -->
@@ -62,4 +62,10 @@ is why `AGENTS.md` states the rule twice.
   kind: decision
   summary: index summary now reads as a sentence
   source: reworded the opening so the index summary reads as a sentence
+  affects: [phone-release-is-two-publishes]
+
+- time: 2026-10-21T04:00:14
+  kind: note
+  summary: "2.0.3 (203) published through both scripts; the tag v2.0.3 points at the released commit 9fe24ea, and the notes now name that commit as the source (README requires it for GPL)"
+  source: "publish-apk.mjs, publish-github.mjs, release notes PATCH"
   affects: [phone-release-is-two-publishes]
