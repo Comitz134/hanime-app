@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [manga, downloads, offline, reader]
 created: "2026-10-23T00:03:56"
-updated: "2026-10-23T00:27:34"
+updated: "2026-10-23T00:54:27"
 ---
 
 <!-- compiled_truth -->
@@ -65,3 +65,9 @@ Ids arrive in a query string and become path segments, so `MangaOffline.safe` ac
   summary: "shipped as 2.0.4 (204): GitHub release v2.0.4, APK sha256 45126bc0, version.json at /releases/latest names 204; debug build read a downloaded chapter in airplane mode on the phone, and the published APK's DEX still carries the download strings after R8"
   source: "publish-apk.mjs + publish-github.mjs, version.json, adb on 52070e9f"
   affects: [manga-downloads-are-files, manga-read-record]
+
+- time: 2026-10-23T00:54:27
+  kind: note
+  summary: "installed the published 2.0.4 APK on the phone and re-ran the test on the release build: downloaded chapter 167 from the title page, turned wifi off (ping unreachable), and the chapter opened from the Downloads screen with the pages drawn. The earlier install refusal was the MIUI Install-via-USB gate clearing up; a chapter list that timed out on the release build was port contention with the debug build's server on 8787, not R8"
+  source: "adb on 52070e9f, app.hanime.shell 2.0.4"
+  affects: [manga-downloads-are-files]
