@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [manga, downloads, offline, reader]
 created: "2026-10-23T00:03:56"
-updated: "2026-10-23T00:04:39"
+updated: "2026-10-23T00:27:34"
 ---
 
 <!-- compiled_truth -->
@@ -59,3 +59,9 @@ Ids arrive in a query string and become path segments, so `MangaOffline.safe` ac
   summary: "corrected the store path and the page URL the reader is handed (file://, not /manga/offline)"
   source: "MangaOffline.java, SekaiServer.java"
   affects: [manga-downloads-are-files]
+
+- time: 2026-10-23T00:27:34
+  kind: note
+  summary: "shipped as 2.0.4 (204): GitHub release v2.0.4, APK sha256 45126bc0, version.json at /releases/latest names 204; debug build read a downloaded chapter in airplane mode on the phone, and the published APK's DEX still carries the download strings after R8"
+  source: "publish-apk.mjs + publish-github.mjs, version.json, adb on 52070e9f"
+  affects: [manga-downloads-are-files, manga-read-record]
