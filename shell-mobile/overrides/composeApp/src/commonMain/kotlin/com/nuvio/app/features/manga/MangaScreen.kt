@@ -38,6 +38,10 @@ import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ChevronLeft
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.DownloadDone
+import androidx.compose.material.icons.rounded.DownloadForOffline
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.Flag
@@ -45,11 +49,13 @@ import androidx.compose.material.icons.rounded.HelpOutline
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.MenuBook
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Subject
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -184,6 +190,16 @@ private sealed interface MangaRoute {
         val poster: String,
         val fromLibrary: Boolean = false,
     ) : MangaRoute
+
+    /**
+     * The chapters kept on this phone.
+     *
+     * A destination of its own, not a filter on the catalogue: with no
+     * connection the catalogue is exactly what this screen cannot draw, and the
+     * saved chapters are exactly what it can. Everything here comes from the
+     * app's own files through loopback, so the screen opens in airplane mode.
+     */
+    data object Downloads : MangaRoute
 }
 
 @Composable
@@ -206,6 +222,11 @@ internal fun MangaScreen(modifier: Modifier = Modifier) {
         // so the ids are derived once here — one list read, matched locally —
         // rather than leaving every title to a name search that can lose it.
         runCatching { MangaMal.matchShelf() }
+        // What is kept on this phone, once the tab is drawn: the chapter rows
+        // and the Downloads screen both read this, and the queue may still be
+        // running from a title opened before the tab was last left.
+        MangaDownloads.refresh()
+        MangaDownloads.watch()
     }
 
     // Typing, or any filter, is a new catalogue — always from its first page.
@@ -320,6 +341,7 @@ internal fun MangaScreen(modifier: Modifier = Modifier) {
                 fromLibrary = current.fromLibrary,
             )
             is MangaRoute.Title -> closeTitle(current)
+            MangaRoute.Downloads -> route = MangaRoute.Browse
             else -> route = MangaRoute.Browse
         }
     }
@@ -346,6 +368,20 @@ internal fun MangaScreen(modifier: Modifier = Modifier) {
                         title = position.title,
                         poster = position.poster,
                         resume = position,
+                    )
+                },
+                onDownloads = { route = MangaRoute.Downloads },
+            )
+
+            MangaRoute.Downloads -> MangaDownloadsScreen(
+                onBack = { route = MangaRoute.Browse },
+                onRead = { hid, title, poster, chapters, index ->
+                    route = MangaRoute.Reader(
+                        id = hid,
+                        title = title,
+                        poster = poster,
+                        chapters = chapters,
+                        index = index,
                     )
                 },
             )
@@ -531,6 +567,7 @@ private fun MangaBrowseScreen(
     listState: LazyListState,
     onOpen: (MangaCard) -> Unit,
     onResume: (MangaPosition) -> Unit,
+    onDownloads: () -> Unit,
 ) {
     val tokens = MaterialTheme.nuvio
 
@@ -565,6 +602,35 @@ private fun MangaBrowseScreen(
                         NuvioScreenHeader(
                             title = "Manga",
                             modifier = Modifier.padding(horizontal = 16.dp),
+                            // The way into the saved chapters is on the shelf's
+                            // own header, because it is the one destination that
+                            // works when the catalogue does not: a reader with no
+                            // connection still gets a screen with a door on it.
+                            actions = {
+                                // Read here rather than at the top of the screen:
+                                // a download finishing should redraw this button,
+                                // not the whole catalogue grid with it.
+                                val saved = MangaDownloads.index
+                                TextButton(onClick = onDownloads) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.DownloadForOffline,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                        tint = if (saved.titles.isEmpty()) {
+                                            tokens.colors.textMuted
+                                        } else {
+                                            tokens.colors.accent
+                                        },
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(
+                                        text = if (saved.titles.isEmpty()) "Offline"
+                                        else "Offline · ${saved.titles.sumOf { it.chapters }}",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = tokens.colors.textSecondary,
+                                    )
+                                }
+                            },
                         )
                         Spacer(Modifier.height(6.dp))
                         Box(modifier = Modifier.padding(horizontal = 16.dp)) {
@@ -815,6 +881,13 @@ private fun MangaTitleScreen(
     // import), and that answer falls back to the boundary rule below.
     var recorded by remember(id) { mutableStateOf<Set<String>>(emptySet()) }
 
+    // Whether the list on screen is the whole catalogue or only the chapters
+    // saved on this phone — the server says which, because with no connection
+    // the second is all it can answer, and a short list with no explanation
+    // reads as a series the catalogue cut down.
+    var offlineList by remember(id) { mutableStateOf(false) }
+    var downloading by remember(id) { mutableStateOf(false) }
+
     // Keyed on the record's revision as well as the title: coming back from the
     // reader re-reads it, which is what puts the chapter just finished into the
     // fraction and under a *read* mark without either screen telling the other.
@@ -825,21 +898,27 @@ private fun MangaTitleScreen(
     LaunchedEffect(id) {
         loading = true
         error = null
+        // What is saved for this title, so the buttons are right before the
+        // catalogue answers — and so the page can draw at all with no network.
+        MangaDownloads.refresh()
+        MangaDownloads.watch()
         // The title page used to ask for the account's whole position list and
         // then the title, then the chapters: three round trips in a row on the
         // screen that gates everything else. The position arrives from the
         // shelf now, and the two catalogue calls run together.
         coroutineScope {
             val detail = async { runCatching { MangaApi.title(id) }.getOrNull() }
-            val list = async { runCatching { MangaApi.chapters(id) } }
+            val list = async { runCatching { MangaApi.chapterList(id) } }
 
             detail.await()?.let { fetched -> card = fetched }
             try {
                 // The title's own page is the one call that can fail without
                 // the chapter list being wrong too, so the list is drawn even
                 // when the synopsis is not there to go with it.
+                val answer = list.await().getOrThrow()
                 chapters.clear()
-                chapters.addAll(list.await().getOrThrow())
+                chapters.addAll(answer.chapters)
+                offlineList = answer.offline
             } catch (e: CancellationException) {
                 // Leaving the title cancels this load; that is not a failure.
                 throw e
@@ -1121,6 +1200,49 @@ private fun MangaTitleScreen(
                         )
                     }
                 }
+                if (chapters.isNotEmpty()) {
+                    // Read inside the heading, so a poll redraws the summary and
+                    // the rows whose buttons changed rather than the whole list.
+                    val savedHere = MangaDownloads.index.savedOf(id)
+                    Spacer(Modifier.height(2.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        // Downloading is per chapter on the rows, and in bulk
+                        // here: a reader who wants the next few taps six rows,
+                        // and one who wants the series should not have to.
+                        TextButton(
+                            onClick = { downloading = true },
+                            contentPadding = PaddingValues(horizontal = 0.dp, vertical = 4.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.DownloadForOffline,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = "Download chapters",
+                                style = MaterialTheme.typography.labelLarge,
+                            )
+                        }
+                        Spacer(Modifier.weight(1f))
+                        if (savedHere.isNotEmpty()) {
+                            Text(
+                                text = "${savedHere.size} saved · " +
+                                    savedSize(savedHere.sumOf { it.bytes }),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = tokens.colors.textMuted,
+                            )
+                        }
+                    }
+                }
+                if (offlineList) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = "No connection — showing the chapters saved on this phone.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = tokens.colors.textMuted,
+                    )
+                }
                 if (error != null) {
                     Spacer(Modifier.height(4.dp))
                     Text(
@@ -1204,6 +1326,24 @@ private fun MangaTitleScreen(
                         color = tokens.colors.textMuted,
                     )
                 }
+                // The row is also the chapter's download button: saving one
+                // chapter is the common case, and making it a trip to a sheet
+                // would be a trip for every chapter.
+                ChapterDownloadAction(
+                    state = MangaDownloads.index.stateOf(chapter.id),
+                    progress = MangaDownloads.index.progressOf(chapter.id),
+                    onSave = {
+                        scope.launch {
+                            MangaDownloads.download(
+                                id,
+                                card.title.ifBlank { title },
+                                card.poster.ifBlank { poster },
+                                listOf(chapter),
+                            )
+                        }
+                    },
+                    onRemove = { scope.launch { MangaDownloads.remove(id, chapter.id) } },
+                )
             }
         }
 
@@ -1242,6 +1382,21 @@ private fun MangaTitleScreen(
             },
             onRetry = { attempt++ },
             onDismiss = { tracking = false },
+        )
+    }
+
+    if (downloading) {
+        MangaDownloadSheet(
+            title = card.title.ifBlank { title },
+            chapters = chapters.toList(),
+            saved = MangaDownloads.index.savedOf(id),
+            onDownload = { picked ->
+                val name = card.title.ifBlank { title }
+                val art = card.poster.ifBlank { poster }
+                scope.launch { MangaDownloads.download(id, name, art, picked) }
+            },
+            onRemoveAll = { scope.launch { MangaDownloads.removeTitle(id) } },
+            onDismiss = { downloading = false },
         )
     }
 }
@@ -2577,5 +2732,409 @@ private fun ReaderHelpSheet(onDismiss: () -> Unit) {
             }
             Spacer(Modifier.height(10.dp))
         }
+    }
+}
+
+// ------------------------------------------------------------------ offline
+
+/**
+ * The download state of one chapter, as a button.
+ *
+ * Four answers to one question, each a tap away: a chapter nobody saved is a
+ * download arrow, one on its way is the percentage, one saved is a tick that is
+ * also how it is deleted, and one that failed is a retry.
+ *
+ * Removing is deliberately one tap and no dialog: what it deletes is a copy,
+ * the chapter is still in the catalogue, and a confirmation over a list of
+ * thirty rows is a dialog the reader has to dismiss thirty times.
+ */
+@Composable
+private fun ChapterDownloadAction(
+    state: String,
+    progress: Float,
+    onSave: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    val tokens = MaterialTheme.nuvio
+    when (state) {
+        MangaSavedIndex.QUEUED, MangaSavedIndex.DOWNLOADING -> Box(
+            modifier = Modifier.size(36.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = if (state == MangaSavedIndex.QUEUED) "…"
+                else "${(progress * 100).toInt()}%",
+                style = MaterialTheme.typography.labelSmall,
+                color = tokens.colors.accent,
+            )
+        }
+
+        MangaSavedIndex.FAILED -> IconButton(onClick = onSave, modifier = Modifier.size(36.dp)) {
+            Icon(
+                imageVector = Icons.Rounded.Refresh,
+                contentDescription = "Try saving this chapter again",
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+
+        MangaSavedIndex.DOWNLOADED -> IconButton(
+            onClick = onRemove,
+            modifier = Modifier.size(36.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.DownloadDone,
+                contentDescription = "Saved on this phone - tap to remove it",
+                tint = tokens.colors.accent,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+
+        else -> IconButton(onClick = onSave, modifier = Modifier.size(36.dp)) {
+            Icon(
+                imageVector = Icons.Rounded.Download,
+                contentDescription = "Save this chapter to read offline",
+                tint = tokens.colors.textMuted,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+    }
+}
+
+/**
+ * Picking chapters to save.
+ *
+ * A list rather than a range picker: a chapter number is not a position you can
+ * count on (extras, gaps, a second scanlation), so "the next ten" is not a thing
+ * this screen can promise. What it can do is show every chapter the phone does
+ * not have yet and let the reader tick the ones they want - with `All` for the
+ * reader who wants the series, which is the same decision at a larger size.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MangaDownloadSheet(
+    title: String,
+    chapters: List<MangaChapter>,
+    saved: List<MangaSavedChapter>,
+    onDownload: (List<MangaChapter>) -> Unit,
+    onRemoveAll: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val tokens = MaterialTheme.nuvio
+    val scope = rememberCoroutineScope()
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    val savedIds = remember(saved) { saved.map { it.chapter }.toSet() }
+    val available = remember(chapters, savedIds) {
+        chapters.filter { it.id.isNotBlank() && it.id !in savedIds }
+    }
+    val picked = remember { mutableStateListOf<String>() }
+
+    NuvioModalBottomSheet(
+        onDismissRequest = {
+            scope.launch { dismissNuvioBottomSheet(sheetState = sheetState, onDismiss = onDismiss) }
+        },
+        sheetState = sheetState,
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.86f)) {
+            Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+                Text(
+                    text = "Download",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = tokens.colors.textPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "The pages of the chapters you pick are kept on this phone, " +
+                        "so they read with no connection. \"$title\" has " +
+                        "${saved.size} saved already.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = tokens.colors.textMuted,
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(onClick = {
+                    picked.clear()
+                    picked.addAll(available.map { it.id })
+                }) {
+                    Text("All", style = MaterialTheme.typography.labelMedium)
+                }
+                TextButton(onClick = { picked.clear() }) {
+                    Text("None", style = MaterialTheme.typography.labelMedium)
+                }
+                Spacer(Modifier.weight(1f))
+                Text(
+                    text = "${picked.size} picked",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = tokens.colors.textMuted,
+                )
+            }
+
+            LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                items(available, key = { it.id }) { chapter ->
+                    val on = chapter.id in picked
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                if (on) picked.remove(chapter.id) else picked.add(chapter.id)
+                            }
+                            .padding(horizontal = 20.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(checked = on, onCheckedChange = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = "Chapter ${chapter.number}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = tokens.colors.textPrimary,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (chapter.name.isNotBlank()) {
+                            Text(
+                                text = chapter.name,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = tokens.colors.textMuted,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+                if (available.isEmpty()) {
+                    item(key = "all-saved") {
+                        Text(
+                            text = "Every chapter of this title is saved on this phone.",
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = tokens.colors.textMuted,
+                        )
+                    }
+                }
+                item(key = "sheet-tail") { Spacer(Modifier.height(12.dp)) }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Button(
+                    onClick = {
+                        onDownload(available.filter { it.id in picked })
+                        onDismiss()
+                    },
+                    enabled = picked.isNotEmpty(),
+                ) {
+                    Text(
+                        if (picked.isEmpty()) {
+                            "Pick chapters"
+                        } else {
+                            "Download ${picked.size}"
+                        },
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+                if (saved.isNotEmpty()) {
+                    TextButton(onClick = {
+                        onRemoveAll()
+                        onDismiss()
+                    }) {
+                        Text("Remove saved", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The chapters kept on this phone.
+ *
+ * This is the door that works with the radio off: the catalogue screen needs
+ * mangafire, and this one needs only the app's own files. Each title is a
+ * header (what it is, how much it costs in storage, how to remove it) over its
+ * chapters, newest first, and a tap on one opens the reader at it with the rest
+ * of the saved chapters behind it.
+ */
+@Composable
+private fun MangaDownloadsScreen(
+    onBack: () -> Unit,
+    onRead: (
+        hid: String,
+        title: String,
+        poster: String,
+        chapters: List<MangaChapter>,
+        index: Int,
+    ) -> Unit,
+) {
+    val tokens = MaterialTheme.nuvio
+    val scope = rememberCoroutineScope()
+    val index = MangaDownloads.index
+    val failure = MangaDownloads.error
+
+    LaunchedEffect(Unit) {
+        MangaDownloads.refresh()
+        MangaDownloads.watch()
+    }
+
+    NuvioScreen(horizontalPadding = 0.dp, modifier = Modifier.fillMaxSize()) {
+        item(key = "header") {
+            NuvioScreenHeader(title = "Downloads", onBack = onBack)
+        }
+
+        item(key = "summary") {
+            Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+                Text(
+                    text = if (index.titles.isEmpty()) {
+                        "Nothing saved yet"
+                    } else {
+                        savedCount(index.titles.size, "title", "titles") + " · " +
+                            savedCount(
+                                index.titles.sumOf { it.chapters },
+                                "chapter",
+                                "chapters",
+                            ) + " · " + savedSize(index.bytes)
+                    },
+                    style = MaterialTheme.typography.titleMedium,
+                    color = tokens.colors.textPrimary,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "Saved pages live on this phone and read with no connection. " +
+                        "Tap a chapter to open it; the bin removes its pages.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = tokens.colors.textMuted,
+                )
+                if (index.active > 0) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = "${index.active} chapters still downloading - they finish " +
+                            "in the background.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = tokens.colors.accent,
+                    )
+                }
+                if (failure != null) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = failure,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+            }
+        }
+
+        if (index.titles.isEmpty()) {
+            item(key = "empty") {
+                Box(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 40.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "Open a title and use Download chapters - or the arrow on " +
+                            "any chapter row - to keep it here.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = tokens.colors.textMuted,
+                    )
+                }
+            }
+        }
+
+        items(index.titles, key = { it.id }) { title ->
+            val saved = index.savedOf(title.id)
+            val reader = savedAsChapters(saved)
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Poster(
+                        url = title.poster,
+                        modifier = Modifier.width(52.dp).aspectRatio(0.68f),
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = title.title.ifBlank { "Untitled" },
+                            style = MaterialTheme.typography.titleMedium,
+                            color = tokens.colors.textPrimary,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = savedCount(title.chapters, "chapter", "chapters") +
+                                " · " + savedSize(title.bytes),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = tokens.colors.textMuted,
+                        )
+                    }
+                    IconButton(onClick = {
+                        scope.launch { MangaDownloads.removeTitle(title.id) }
+                    }) {
+                        Icon(
+                            imageVector = Icons.Rounded.DeleteOutline,
+                            contentDescription = "Remove every saved chapter of this title",
+                            tint = tokens.colors.textMuted,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                reader.forEachIndexed { at, chapter ->
+                    val row = saved.firstOrNull { it.chapter == chapter.id }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(NuvioTokens.Radius.sm))
+                            .clickable {
+                                onRead(title.id, title.title, title.poster, reader, at)
+                            }
+                            .padding(horizontal = 4.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.DownloadDone,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = tokens.colors.accent,
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            text = "Chapter ${chapter.number}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = tokens.colors.textPrimary,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            text = savedSize(row?.bytes ?: 0L),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = tokens.colors.textMuted,
+                        )
+                        IconButton(
+                            onClick = {
+                                scope.launch { MangaDownloads.remove(title.id, chapter.id) }
+                            },
+                            modifier = Modifier.size(36.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.DeleteOutline,
+                                contentDescription = "Remove this chapter's pages",
+                                tint = tokens.colors.textMuted,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+                HorizontalDivider(color = tokens.colors.borderDefault)
+            }
+        }
+
+        item(key = "tail") { Spacer(Modifier.height(24.dp)) }
     }
 }

@@ -7,6 +7,7 @@ import org.json.JSONObject;
 
 import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
@@ -476,6 +477,9 @@ final class SekaiServer {
      */
     private static Resp manga(Request request, String path) {
         Manga.ensure(application);
+        // The chapters saved on this phone: needed before anything upstream is
+        // asked, because they are what a reader opens with no connection.
+        MangaOffline.ensure(application);
         Map<String, String> q = request.query;
         try {
             switch (path) {
@@ -501,13 +505,33 @@ final class SekaiServer {
                 case "/manga/chapters.json": {
                     String hid = text(q, "hid");
                     if (hid.isEmpty()) return Resp.json(400, "{\"error\":\"missing_hid\"}");
-                    return Resp.json(200, new JSONObject()
-                            .put("chapters", Manga.chapters(hid)).toString());
+                    try {
+                        return Resp.json(200, new JSONObject()
+                                .put("chapters", Manga.chapters(hid)).toString());
+                    } catch (Exception offline) {
+                        // With no connection the catalogue has nothing to say,
+                        // but a title that has chapters saved here still has a
+                        // chapter list — its own. The answer says so, so the
+                        // screen can say "downloaded chapters" rather than
+                        // pretending the catalogue answered.
+                        JSONArray saved = MangaOffline.chapters(hid);
+                        if (saved.length() > 0) {
+                            return Resp.json(200, new JSONObject()
+                                    .put("chapters", saved)
+                                    .put("offline", true).toString());
+                        }
+                        throw offline;
+                    }
                 }
 
                 case "/manga/pages.json": {
                     String chapter = text(q, "chapter");
                     if (chapter.isEmpty()) return Resp.json(400, "{\"error\":\"missing_chapter\"}");
+                    // A saved chapter is read from this phone, not from their CDN:
+                    // the page list names the saved files themselves, which is
+                    // why a downloaded chapter opens with the radio off.
+                    JSONObject saved = MangaOffline.pages(chapter);
+                    if (saved != null) return Resp.json(200, saved.toString());
                     return Resp.json(200, Manga.pages(chapter).toString());
                 }
 
@@ -617,6 +641,54 @@ final class SekaiServer {
                     for (String number : sorted) numbers.put(number);
                     return Resp.json(200, new JSONObject()
                             .put("chapters", numbers).toString());
+                }
+
+                case "/manga/downloads.json":
+                    // Everything kept on this phone, and every chapter on its
+                    // way: the Downloads screen and the reader's per-chapter
+                    // buttons both draw from this one answer.
+                    return Resp.json(200, MangaOffline.index().toString());
+
+                case "/manga/download.json": {
+                    // `chapter` alone asks for one chapter to be kept; with
+                    // `remove=1` it forgets one, and `remove=1` without a
+                    // chapter forgets the whole title.
+                    String hid = text(q, "hid");
+                    String chapter = text(q, "chapter");
+                    if (hid.isEmpty()) return Resp.json(400, "{\"error\":\"missing_hid\"}");
+                    boolean forget = !text(q, "remove").isEmpty();
+                    if (forget) {
+                        if (!chapter.isEmpty()) {
+                            return Resp.json(200, new JSONObject()
+                                    .put("ok", true)
+                                    .put("removed", MangaOffline.remove(hid, chapter) ? 1 : 0)
+                                    .toString());
+                        }
+                        return Resp.json(200, new JSONObject()
+                                .put("ok", true)
+                                .put("removed", MangaOffline.removeTitle(hid))
+                                .toString());
+                    }
+                    if (chapter.isEmpty()) {
+                        return Resp.json(400, "{\"error\":\"missing_chapter\"}");
+                    }
+                    String state = MangaOffline.queue(hid, chapter,
+                            text(q, "number"), text(q, "name"), text(q, "at"),
+                            text(q, "title"), text(q, "poster"));
+                    return Resp.json(200, new JSONObject()
+                            .put("ok", true).put("state", state).toString());
+                }
+
+                case "/manga/offline": {
+                    // One saved page, straight off the phone's disk. The reader
+                    // does not come through here — its page list names the files
+                    // directly — but this is the same byte, for a caller that
+                    // speaks http (a test, or a curl from a laptop on the link).
+                    File file = MangaOffline.pageFile(text(q, "chapter"), number(q, "page"));
+                    if (file == null) return Resp.json(404, "{\"error\":\"not_downloaded\"}");
+                    byte[] body = MangaOffline.bytes(file);
+                    if (body == null) return Resp.json(404, "{\"error\":\"not_downloaded\"}");
+                    return new Resp(200, MangaOffline.contentType(file.getName()), body);
                 }
 
                 case "/manga/page":

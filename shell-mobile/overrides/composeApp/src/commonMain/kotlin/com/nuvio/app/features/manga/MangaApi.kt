@@ -229,7 +229,26 @@ private data class CardsResponse(val items: List<MangaCard> = emptyList())
 private data class TitleResponse(val title: MangaCard = MangaCard())
 
 @Serializable
-private data class ChaptersResponse(val chapters: List<MangaChapter> = emptyList())
+private data class ChaptersResponse(
+    val chapters: List<MangaChapter> = emptyList(),
+    /**
+     * The server could not ask the catalogue and answered with the chapters
+     * saved on this phone instead. Absent (false) for a normal answer.
+     */
+    val offline: Boolean = false,
+)
+
+/**
+ * A chapter list, and whether it is the phone's own.
+ *
+ * The two travel together because the screen has to say which one it is
+ * showing: an "offline" list is short by nature, and a reader who is not told
+ * why would think the series ended.
+ */
+internal data class MangaChapterList(
+    val chapters: List<MangaChapter>,
+    val offline: Boolean = false,
+)
 
 @Serializable
 internal data class MangaPage(val u: String = "")
@@ -447,24 +466,37 @@ internal object MangaApi {
         return mangaJson.decodeFromString<TitleResponse>(json).title
     }
 
-    suspend fun chapters(id: String): List<MangaChapter> {
+    suspend fun chapters(id: String): List<MangaChapter> = chapterList(id).chapters
+
+    /**
+     * The chapter list, and whether it came from this phone rather than the
+     * catalogue — see [MangaChapterList].
+     */
+    suspend fun chapterList(id: String): MangaChapterList {
         val json = body("/manga/chapters.json") {
             parameter("hid", id)
         }
-        val list = uniqueChapters(mangaJson.decodeFromString<ChaptersResponse>(json).chapters)
+        val answer = mangaJson.decodeFromString<ChaptersResponse>(json)
+        val list = uniqueChapters(answer.chapters)
         // Whoever read this list now knows how long the title is, and the shelf
         // does not: it draws a hundred rows and cannot fetch a chapter list for
         // each. Telling the row costs one loopback request and no upstream call,
         // and failing to tell it must never fail the read — a chapter list that
         // arrived is a chapter list, count or no count.
-        try {
-            recordChapterCount(id, list.size)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            // The shelf will catch up the next time this title is opened.
+        //
+        // Not for an offline answer: that list is only the chapters saved here,
+        // and stamping its length on the shelf row would shrink a 200-chapter
+        // title to "3 chapters" for as long as it stayed there.
+        if (!answer.offline) {
+            try {
+                recordChapterCount(id, list.size)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // The shelf will catch up the next time this title is opened.
+            }
         }
-        return list
+        return MangaChapterList(list, answer.offline)
     }
 
     /**
@@ -570,6 +602,77 @@ internal object MangaApi {
     suspend fun prefetch(chapterId: String) {
         if (chapterId.isBlank() || pagesCache.containsKey(chapterId)) return
         runCatching { pages(chapterId) }
+    }
+
+    // ---------------------------------------------------------------- offline
+
+    /**
+     * Everything kept on this phone, with what is still arriving.
+     *
+     * Answered from the app's own files — no connection is used — so this is
+     * also what the Downloads screen draws when there is no network at all.
+     */
+    suspend fun savedChapters(): MangaSavedIndex {
+        val json = body("/manga/downloads.json")
+        val index = mangaJson.decodeFromString<MangaSavedIndex>(json)
+        // A chapter saved while its page list is still in memory has a cached
+        // answer that names the proxy, and the proxy needs a connection. Dropping
+        // it here is what makes the chapter that was being read when it finished
+        // downloading open from the phone on the next visit rather than the
+        // process after next.
+        pagesLock.withLock {
+            for (row in index.chapters) {
+                if (row.state == MangaSavedIndex.DOWNLOADED) pagesCache.remove(row.chapter)
+            }
+        }
+        return index
+    }
+
+    /**
+     * Ask the phone to keep one chapter. Answers at once with the state it is
+     * in (`queued`, `downloading` or `downloaded`); the pages are fetched by the
+     * server's own queue in the background.
+     */
+    suspend fun saveChapter(
+        hid: String,
+        title: String,
+        poster: String,
+        chapter: MangaChapter,
+    ): String {
+        if (hid.isBlank() || chapter.id.isBlank()) return MangaSavedIndex.NONE
+        val json = body("/manga/download.json") {
+            parameter("hid", hid)
+            parameter("chapter", chapter.id)
+            parameter("number", chapter.number)
+            parameter("name", chapter.name)
+            parameter("at", chapter.at)
+            parameter("title", title)
+            parameter("poster", poster)
+        }
+        return runCatching {
+            (mangaJson.parseToJsonElement(json) as? JsonObject)
+                ?.get("state")
+                ?.let { (it as? JsonPrimitive)?.contentOrNull }
+        }.getOrNull()?.takeIf { it.isNotBlank() } ?: MangaSavedIndex.QUEUED
+    }
+
+    /** Forget one saved chapter, and its pages with it. */
+    suspend fun removeDownload(hid: String, chapterId: String) {
+        if (hid.isBlank() || chapterId.isBlank()) return
+        body("/manga/download.json") {
+            parameter("hid", hid)
+            parameter("chapter", chapterId)
+            parameter("remove", 1)
+        }
+    }
+
+    /** Forget every saved chapter of one title. */
+    suspend fun removeDownloads(hid: String) {
+        if (hid.isBlank()) return
+        body("/manga/download.json") {
+            parameter("hid", hid)
+            parameter("remove", 1)
+        }
     }
 
     /** Every title that has been read, newest first. */

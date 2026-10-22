@@ -431,8 +431,15 @@ final class Manga {
         return shapeChapters(items);
     }
 
-    /** A chapter's pages, as absolute loopback URLs the reader can load. */
-    static JSONObject pages(String chapterId) throws Exception {
+    /**
+     * A chapter's page addresses, as upstream lists them — the reading order.
+     *
+     * Separate from [pages] because downloading wants the addresses themselves:
+     * the reader is handed loopback URLs it can load, while the downloader has
+     * to fetch each page from upstream, where the referer can be set. Both walk
+     * the same answer, in the same order.
+     */
+    static JSONArray pageUrls(String chapterId) throws Exception {
         JSONObject body = get("/chapters/" + urlPart(chapterId), new JSONObject());
         JSONObject data = body.optJSONObject("data");
         JSONArray raw = data == null ? null : data.optJSONArray("pages");
@@ -442,8 +449,20 @@ final class Manga {
                 JSONObject page = raw.optJSONObject(i);
                 String url = page == null ? "" : page.optString("url", "");
                 if (url.isEmpty()) continue;
-                out.put(new JSONObject().put("u", proxied(url)));
+                out.put(url);
             }
+        }
+        return out;
+    }
+
+    /** A chapter's pages, as absolute loopback URLs the reader can load. */
+    static JSONObject pages(String chapterId) throws Exception {
+        JSONArray urls = pageUrls(chapterId);
+        JSONArray out = new JSONArray();
+        for (int i = 0; i < urls.length(); i++) {
+            String url = urls.optString(i, "");
+            if (url.isEmpty()) continue;
+            out.put(new JSONObject().put("u", proxied(url)));
         }
         return new JSONObject().put("pages", out);
     }
@@ -611,17 +630,28 @@ final class Manga {
         }
     }
 
-    /**
-     * One page's bytes, with the referer their CDN insists on. Cached by URL: a
-     * chapter is re-read more often than it is read, and a strip of images is
-     * the one thing here whose absence is visible on screen.
-     */
+    /** One page's bytes, with the referer their CDN insists on. */
     static Page image(String target) {
+        return fetch(target, true);
+    }
+
+    /**
+     * One page's bytes, with the referer their CDN insists on. Cached by URL when
+     * [keep] — a chapter is re-read more often than it is read, and a strip of
+     * images is the one thing here whose absence is visible on screen.
+     *
+     * A download passes false: its pages are about to live on disk, and holding
+     * every one of them in memory as well would evict the pages actually being
+     * read on a long series.
+     */
+    static Page fetch(String target, boolean keep) {
         Page hit;
-        synchronized (PAGES) {
-            hit = PAGES.get(target);
+        if (keep) {
+            synchronized (PAGES) {
+                hit = PAGES.get(target);
+            }
+            if (hit != null) return hit;
         }
-        if (hit != null) return hit;
 
         byte[] body;
         String type;
@@ -670,10 +700,12 @@ final class Manga {
         }
 
         Page page = new Page(body, type == null || type.isEmpty() ? "image/jpeg" : type);
-        synchronized (PAGES) {
-            if (pageBytes + body.length <= PAGE_CACHE_BYTES) {
-                PAGES.put(target, page);
-                pageBytes += body.length;
+        if (keep) {
+            synchronized (PAGES) {
+                if (pageBytes + body.length <= PAGE_CACHE_BYTES) {
+                    PAGES.put(target, page);
+                    pageBytes += body.length;
+                }
             }
         }
         return page;

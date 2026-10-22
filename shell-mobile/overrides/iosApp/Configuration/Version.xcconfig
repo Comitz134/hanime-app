@@ -5,5 +5,5 @@
 // installed shell updates into it in place — which means the number has to be
 // above 43, and the name has to read as newer than 1.0.42 to anyone looking.
 // 2.0.0 says "this is the rewrite", not "0.6.1 plus patches".
-CURRENT_PROJECT_VERSION=203
-MARKETING_VERSION=2.0.3
+CURRENT_PROJECT_VERSION=204
+MARKETING_VERSION=2.0.4

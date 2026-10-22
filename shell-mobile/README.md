@@ -153,8 +153,9 @@ Everything below was checked on the device, not inferred from a build:
     protocol can describe a video and nothing about a page of panels. Trending
     and search with their covers, a title's chapters, a reader that runs on into
     the next chapter seamlessly — and positions, so a title reopens where it was
-    left. Kept titles live in the Library tab's Manga row. See *The manga tab*
-    below.
+    left. Kept titles live in the Library tab's Manga row. Chapters can also be
+    **downloaded and read with no connection** — see *Reading with no
+    connection* below.
 
 ### The upgrade keeps you signed in
 
@@ -431,6 +432,46 @@ title — is a coroutine *cancellation*, and Compose's cancellation says "the
 coroutine scope left the composition". The first version's `catch (Exception)`
 showed that as the search's error. A cancellation is rethrown now and the error
 line is only for a real refusal, which is why search survives fast typing.
+
+### Reading with no connection
+
+Manga chapters can be kept on the phone. The download arrow on a chapter row
+saves that one chapter; *Download chapters*, under the title's **Chapters**
+heading, opens a picker of every chapter the phone does not have yet, with *All*
+for a whole series at once. Either way the pages end up in the app's own files
+directory (`filesDir/manga-offline/<hid>/<chapterId>/`), one directory per
+chapter, with the pages in reading order and a `chapter.json` beside them that
+names them and the chapter's number, name and date.
+
+Three things make it a reader rather than a cache:
+
+*   The bytes are fetched by the app's own server (`MangaOffline`), not by the
+    image loader, because mangafire's CDN refuses a request without their
+    referer and an image loader cannot be told to send one. The queue is the
+    server's, one chapter at a time: leaving the title, the tab, or the app's
+    manga area does not stop it, and the next queued chapter starts by itself.
+*   `/manga/pages.json` checks the store before it asks upstream, and a saved
+    chapter's page list is the files themselves (`file:///data/...`), not
+    loopback URLs: the image loader treats loopback as a network address and
+    will not open one with the radio off - which showed, on the phone, as a
+    strip of grey boxes until the list named the files. The reader itself is
+    unchanged: a downloaded chapter opens with no connection, pages and all, at
+    the position it was left. `/manga/offline?chapter=&page=` still answers the
+    same byte over http, for a test or a curl from a laptop on the link.
+*   `/manga/chapters.json` answers with the saved chapters when the catalogue
+    cannot be reached, so a title opened from the Library still has a chapter
+    list - and the title page says *No connection - showing the chapters saved
+    on this phone*, so a short list is not mistaken for a series that ended.
+
+The **Offline** button in the Manga tab's header is the screen that works when
+nothing else does: saved titles with their chapter count and size on disk, and
+a way to remove one chapter, one title or all of it. It is drawn from the
+phone's own files through loopback, so it opens in airplane mode.
+
+A chapter counts as downloaded only once every page it names is on disk; one
+that fails halfway is deleted rather than left as a strip that stops. The ids
+arrive in a query string and become path segments, so they are refused unless
+they are exactly one safe name - nothing can write outside that folder.
 
 ### The manga routes have a test harness
 
