@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [release, phone, github]
 created: "2026-10-21T02:06:28"
-updated: "2026-10-21T04:00:14"
+updated: "2026-10-25T00:44:27"
 ---
 
 <!-- compiled_truth -->
@@ -68,4 +68,10 @@ is why `AGENTS.md` states the rule twice.
   kind: note
   summary: "2.0.3 (203) published through both scripts; the tag v2.0.3 points at the released commit 9fe24ea, and the notes now name that commit as the source (README requires it for GPL)"
   source: "publish-apk.mjs, publish-github.mjs, release notes PATCH"
+  affects: [phone-release-is-two-publishes]
+
+- time: 2026-10-25T00:44:27
+  kind: note
+  summary: "2.0.5 (205) published through both scripts from 6c00944; /releases/latest/download/version.json names 205, release is not a prerelease, and the release APK installed over adb this time (the 2.0.4 install gate did not recur)"
+  source: "publish-apk.mjs, publish-github.mjs, adb install on 52070e9f"
   affects: [phone-release-is-two-publishes]

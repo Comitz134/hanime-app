@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [manga, sources, mihon, extensions, settings]
 created: "2026-10-23T22:32:36"
-updated: "2026-10-24T03:16:22"
+updated: "2026-10-25T00:44:27"
 ---
 
 <!-- compiled_truth -->
@@ -69,3 +69,9 @@ After the Injekt fix, same phone and the same enabled sources (ComicK, MangaDex,
   summary: "Omega Scans crashed every search: its class initialiser asked Injekt for Json, which was not registered, and the resulting Error escaped the per-source catch; install now registers Application/Context/Json and every extension route is wrapped in guarded()"
   source: "MihonExtensions.kt, adb crash buffer on 52070e9f"
   affects: [manga-extension-repositories]
+
+- time: 2026-10-25T00:44:27
+  kind: note
+  summary: "2.0.5 ships repositories and extensions to phones; the minified release needed three R8 keeps, recorded in [[manga-extensions-survive-r8]]"
+  source: "release session, proguard-rules.pro"
+  affects: [manga-extension-repositories, manga-extensions-survive-r8]
