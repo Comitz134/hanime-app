@@ -80,6 +80,10 @@ final class Manga {
     static synchronized void ensure(Context context) {
         if (application == null) application = context.getApplicationContext();
         if (signer == null) signer = MangaSigner.ensure(context);
+        // Sources are part of the manga area's state, not a separate service:
+        // the built-in repository has to be installed before a search asks it
+        // what it holds, and the signer only has to be up for Mangafire.
+        MangaSources.ensure(context);
     }
 
     // ------------------------------------------------------------ their API
@@ -283,8 +287,29 @@ final class Manga {
 
     // --------------------------------------------------------------- shelves
 
-    /** The homepage shelf: trending titles. No paging — one shelf, one answer. */
+    /**
+     * The homepage shelf: trending titles, from the first source the reader
+     * left on. No paging — one shelf, one answer.
+     *
+     * Not every source at once: a shelf is a mood, and interleaving five
+     * catalogues into it is a list rather than a shelf. Search is where sources
+     * mix, because there the reader named what they are looking for.
+     */
     static JSONArray trending(int limit) throws Exception {
+        MangaSources.Source primary = MangaSources.primary();
+        if (primary == null) return new JSONArray();
+        if (primary.isNative()) return trendingMangafire(limit);
+        JSONObject answer = MangaSources.browse(primary, "", 1, limit, "", "", "");
+        JSONArray items = answer.optJSONArray("items");
+        JSONArray out = new JSONArray();
+        if (items != null) {
+            for (int i = 0; i < items.length() && i < limit; i++) out.put(items.get(i));
+        }
+        return out;
+    }
+
+    /** The built-in shelf, for as long as Mangafire is one of the sources. */
+    private static JSONArray trendingMangafire(int limit) throws Exception {
         JSONObject body = get("/top-titles", new JSONObject()
                 .put("type", "trending").put("days", 1).put("limit", limit));
         return shape(body.optJSONArray("items"));
@@ -337,9 +362,18 @@ final class Manga {
                 trim(query.get("genre")));
     }
 
-    /** The same call, from the resolved parameters — what the route uses. */
+    /**
+     * The same call, from the resolved parameters — what the route uses.
+     *
+     * A keyword asks every source the reader enabled and returns one
+     * interleaved list, each card tagged with the catalogue it came from (see
+     * [MangaSources.search]). A browse, with no keyword, stays with the first
+     * source: "latest chapters" is one catalogue's ordering, and mixing several
+     * makes it no catalogue's.
+     */
     static JSONObject search(SearchQuery search) throws Exception {
-        return search(search.q, search.page, search.limit, search.type, search.status, search.genre);
+        return MangaSources.search(search.q, search.page, search.limit,
+                search.type, search.status, search.genre);
     }
 
     private static String trim(String value) {
@@ -375,7 +409,7 @@ final class Manga {
      * call without one is the catalogue ordered by the latest chapter update,
      * which is what their own browse page shows.
      */
-    static JSONObject search(String q, int page, int limit, String type, String status, String genre)
+    static JSONObject searchMangafire(String q, int page, int limit, String type, String status, String genre)
             throws Exception {
         JSONObject params = new JSONObject().put("page", page).put("limit", limit);
         if (q != null && !q.isEmpty()) {
@@ -398,6 +432,11 @@ final class Manga {
 
     /** One title: synopsis, genres, ratings — everything but the chapters. */
     static JSONObject detail(String hid) throws Exception {
+        MangaSources.Route route = MangaSources.route(hid);
+        if (!route.source.isNative()) {
+            return MangaSources.jsTitle(route.source, route.raw);
+        }
+        hid = route.raw;
         JSONObject body = get("/titles/" + urlPart(hid), new JSONObject());
         JSONObject data = body.optJSONObject("data");
         return shapeTitle(data == null ? new JSONObject() : data, hid);
@@ -409,6 +448,11 @@ final class Manga {
      * `language=en`, and the same list unfiltered is still worth showing.
      */
     static JSONArray chapters(String hid) throws Exception {
+        MangaSources.Route route = MangaSources.route(hid);
+        if (!route.source.isNative()) {
+            return MangaSources.jsChapters(route.source, route.raw);
+        }
+        hid = route.raw;
         String base = "/titles/" + urlPart(hid) + "/chapters";
         JSONArray items = new JSONArray();
         int page = 1;
@@ -440,6 +484,11 @@ final class Manga {
      * the same answer, in the same order.
      */
     static JSONArray pageUrls(String chapterId) throws Exception {
+        MangaSources.Route route = MangaSources.route(chapterId);
+        if (!route.source.isNative()) {
+            return MangaSources.jsPageUrls(route.source, route.raw);
+        }
+        chapterId = route.raw;
         JSONObject body = get("/chapters/" + urlPart(chapterId), new JSONObject());
         JSONObject data = body.optJSONObject("data");
         JSONArray raw = data == null ? null : data.optJSONArray("pages");
@@ -659,7 +708,7 @@ final class Manga {
             HttpURLConnection conn = (HttpURLConnection) new URL(target).openConnection();
             conn.setConnectTimeout(TIMEOUT_MS);
             conn.setReadTimeout(30_000);
-            conn.setRequestProperty("Referer", SITE);
+            if (mangafireHost(target)) conn.setRequestProperty("Referer", SITE);
             conn.setRequestProperty("Accept", "image/avif,image/webp,image/*,*/*;q=0.8");
             conn.setRequestProperty("User-Agent", Streams.USER_AGENT);
             try {
@@ -676,13 +725,12 @@ final class Manga {
             // A name the system resolver would not answer: the same fallback
             // the API uses, for the same reason (see [lookup]).
             try {
-                okhttp3.Request request = new okhttp3.Request.Builder()
+                okhttp3.Request.Builder request = new okhttp3.Request.Builder()
                         .url(target)
-                        .header("Referer", SITE)
                         .header("Accept", "image/avif,image/webp,image/*,*/*;q=0.8")
-                        .header("User-Agent", Streams.USER_AGENT)
-                        .build();
-                try (okhttp3.Response response = CLIENT.newCall(request).execute()) {
+                        .header("User-Agent", Streams.USER_AGENT);
+                if (mangafireHost(target)) request.header("Referer", SITE);
+                try (okhttp3.Response response = CLIENT.newCall(request.build()).execute()) {
                     if (!response.isSuccessful() || response.body() == null) {
                         Log.w(TAG, "page failed: " + target + " HTTP " + response.code());
                         return null;
@@ -709,6 +757,17 @@ final class Manga {
             }
         }
         return page;
+    }
+
+    /**
+     * Their CDN wants their referer; nobody else's does.
+     *
+     * A page from a script source is fetched with the app's own user agent and
+     * no referer at all, because the script cannot say which site it is reading
+     * and inventing one (mangafire's) would be a lie another host might act on.
+     */
+    private static boolean mangafireHost(String url) {
+        return url != null && (url.contains("mangafire.") || url.contains("mfcdn."));
     }
 
     // ------------------------------------------------------------- positions

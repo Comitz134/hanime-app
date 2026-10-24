@@ -289,6 +289,10 @@ dependencies {
     // one client here that can be handed a resolver. It is already in the APK
     // through composeApp; this only makes it compile-visible to the relay.
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    // A source repository ships JavaScript, not another APK. Rhino is the
+    // engine because it is pure Java: the parser, the sandbox and the routing
+    // are all testable on the JVM, where the phone is not.
+    implementation("org.mozilla:rhino:1.7.15")
     coreLibraryDesugaring(libs.desugar.jdk.libs)
     debugImplementation(libs.compose.uiTooling)
     androidTestImplementation("androidx.test:runner:1.7.0")

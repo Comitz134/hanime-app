@@ -325,7 +325,9 @@ internal fun MangaScreen(modifier: Modifier = Modifier) {
         route = MangaRoute.Browse
     }
 
-    PlatformBackHandler(enabled = route != MangaRoute.Browse) {
+    // A source's own results are one step in from the mixed list, so back is
+    // that step - not leaving the app from a view the reader just opened.
+    PlatformBackHandler(enabled = route != MangaRoute.Browse || feed.focusSource != null) {
         when (val current = route) {
             is MangaRoute.Reader ->
                 route = MangaRoute.Title(
@@ -342,7 +344,12 @@ internal fun MangaScreen(modifier: Modifier = Modifier) {
             )
             is MangaRoute.Title -> closeTitle(current)
             MangaRoute.Downloads -> route = MangaRoute.Browse
-            else -> route = MangaRoute.Browse
+            else -> if (feed.focusSource != null) {
+                feed.focusSource = null
+                scope.launch { listState.scrollToItem(0) }
+            } else {
+                route = MangaRoute.Browse
+            }
         }
     }
 
@@ -473,6 +480,13 @@ private class MangaFeed {
     var genre by mutableStateOf("")
 
     var options by mutableStateOf(MangaFilters())
+
+    /**
+     * The one catalogue whose results are being read, when the reader tapped a
+     * source heading's arrow. Null is the mixed list: every source at once.
+     */
+    var focusSource by mutableStateOf<String?>(null)
+
     var page by mutableIntStateOf(1)
     var hasNext by mutableStateOf(false)
     var loading by mutableStateOf(false)
@@ -506,6 +520,9 @@ private class MangaFeed {
      * expected to reach.
      */
     suspend fun load(next: Int) {
+        // A new catalogue is a new search: whatever source was being read
+        // alone was a view of the old answer, not a place to stay.
+        if (next == 1) focusSource = null
         loading = true
         error = null
         try {
@@ -570,16 +587,48 @@ private fun MangaBrowseScreen(
     onDownloads: () -> Unit,
 ) {
     val tokens = MaterialTheme.nuvio
+    val scope = rememberCoroutineScope()
+
+    // Opening or closing one source's results swaps the whole list under the
+    // scroll position, so both land at the top: an offset earned reading the
+    // third section would otherwise drop the reader into the middle of a grid
+    // whose heading - the way back - is somewhere above them.
+    fun showSource(key: String?) {
+        feed.focusSource = key
+        scope.launch { listState.scrollToItem(0) }
+    }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val columns = remember(maxWidth) { posterGridColumnCountForWidth(maxWidth) }
-        // Derived, not rebuilt: a keystroke in the search field recomposes this
-        // screen, and mapping and chunking a few hundred cards on every one of
-        // those recompositions is work whose answer did not change. `derivedStateOf`
-        // keeps the last answer until the card list itself changes.
+        // A keyword search asks every source the reader left on, and the answer
+        // is one interleaved list. Split back into catalogues it reads the way
+        // a search should: one heading per source, its own row of posters, and
+        // its arrow leading to all of them. Two sources is the threshold - a
+        // search answered by one catalogue is that catalogue's grid, and a
+        // heading over a single section says nothing the search field does not.
+        // Derived, not rebuilt: a keystroke recomposes this screen, and grouping
+        // a few hundred cards on every one of those recompositions is work whose
+        // answer did not change.
+        val groups by remember {
+            derivedStateOf { mangaSearchGroups(feed.cards) }
+        }
+        val sectioned = groups.size > 1
+        val focused = feed.focusSource?.let { key -> groups.firstOrNull { it.key == key } }
+
+        // Derived, not rebuilt: mapping and chunking a few hundred cards on every
+        // recomposition is work whose answer did not change. `derivedStateOf`
+        // keeps the last answer until the card list, the chosen source or the
+        // column count itself changes.
+        //
+        // Read through the `groups` delegate, not through `focused`: a local
+        // computed in composition is the copy this lambda was born with, so a
+        // tap on a heading would leave the grid showing every source's cards
+        // under one source's name. `groups` is state, and reading it here is
+        // what makes the grid follow the choice.
         val rows by remember(columns) {
             derivedStateOf {
-                feed.cards
+                val focusedCards = groups.firstOrNull { it.key == feed.focusSource }?.cards
+                (focusedCards ?: feed.cards)
                     .map { it.asPreview() }
                     .chunked(columns)
             }
@@ -682,48 +731,99 @@ private fun MangaBrowseScreen(
             }
 
             item(key = "heading") {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                ) {
-                    Text(
-                        text = when {
-                            feed.query.isNotBlank() -> "Results"
-                            feed.filtered -> "Browse"
-                            else -> "Trending"
-                        },
-                        style = MaterialTheme.typography.titleLarge,
-                        color = tokens.colors.textPrimary,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    if (feed.error != null) {
-                        Spacer(Modifier.height(4.dp))
+                if (focused != null) {
+                    // One source's results: the heading is the way back to the
+                    // mixed list, and it says how many titles are behind it.
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        IconButton(onClick = { showSource(null) }) {
+                            Icon(
+                                imageVector = Icons.Rounded.ArrowBack,
+                                contentDescription = "All sources",
+                                tint = tokens.colors.textPrimary,
+                            )
+                        }
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(end = 8.dp),
+                        ) {
+                            Text(
+                                text = focused.name,
+                                style = MaterialTheme.typography.titleLarge,
+                                color = tokens.colors.textPrimary,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                text = listOfNotNull(
+                                    mangaSourceLanguageName(focused.lang).ifBlank { null },
+                                    "${focused.cards.size} titles",
+                                ).joinToString(" · "),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = tokens.colors.textMuted,
+                            )
+                        }
+                    }
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                    ) {
                         Text(
-                            text = feed.error.orEmpty(),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
+                            text = when {
+                                feed.query.isNotBlank() -> "Results"
+                                feed.filtered -> "Browse"
+                                else -> "Trending"
+                            },
+                            style = MaterialTheme.typography.titleLarge,
+                            color = tokens.colors.textPrimary,
+                            fontWeight = FontWeight.SemiBold,
                         )
-                    } else if (!feed.browsing && !feed.loading) {
-                        Spacer(Modifier.height(2.dp))
-                        Text(
-                            text = "${feed.cards.size} titles",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = tokens.colors.textMuted,
-                        )
+                        if (feed.error != null) {
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = feed.error.orEmpty(),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        } else if (!feed.browsing && !feed.loading) {
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                text = "${feed.cards.size} titles",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = tokens.colors.textMuted,
+                            )
+                        }
                     }
                 }
             }
 
-            itemsIndexed(rows, key = { index, _ -> "row-$index" }) { _, row ->
-                PosterGridRow(
-                    items = row,
-                    columns = columns,
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                    onPosterClick = { preview ->
-                        feed.cards.firstOrNull { it.id == preview.id }?.let(onOpen)
-                    },
-                )
+            if (sectioned && focused == null) {
+                items(groups, key = { group -> "source-${group.key}" }) { group ->
+                    MangaSourceShelf(
+                        group = group,
+                        onOpenSource = { showSource(group.key) },
+                        onOpenCard = onOpen,
+                    )
+                }
+            } else {
+                itemsIndexed(rows, key = { index, _ -> "row-$index" }) { _, row ->
+                    PosterGridRow(
+                        items = row,
+                        columns = columns,
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                        onPosterClick = { preview ->
+                            feed.cards.firstOrNull { it.id == preview.id }?.let(onOpen)
+                        },
+                    )
+                }
             }
 
             if (feed.loading) {
@@ -760,6 +860,84 @@ private fun MangaBrowseScreen(
                 }
             }
         }
+    }
+}
+
+/**
+ * One catalogue's section of a mixed search: the source's name, its language,
+ * a row of its results, and an arrow to all of them.
+ *
+ * The heading is the arrow's target as well as its label - the name and the
+ * language are what a reader aims at, and a 32dp chevron is a small thing to
+ * hit. The row scrolls sideways so four sources do not turn one search into a
+ * screen of endless vertical grid; the arrow is how a reader goes deeper in one
+ * catalogue without losing the other answers.
+ */
+@Composable
+private fun MangaSourceShelf(
+    group: MangaSearchGroup,
+    onOpenSource: () -> Unit,
+    onOpenCard: (MangaCard) -> Unit,
+) {
+    val tokens = MaterialTheme.nuvio
+    val language = mangaSourceLanguageName(group.lang)
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onOpenSource)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = group.name,
+                    style = MaterialTheme.typography.titleLarge,
+                    color = tokens.colors.textPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (language.isNotBlank()) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = language,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = tokens.colors.textMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            Spacer(Modifier.width(8.dp))
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .background(tokens.colors.surface, RoundedCornerShape(12.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.ChevronRight,
+                    contentDescription = "All ${group.cards.size} results from ${group.name}",
+                    tint = tokens.colors.textMuted,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+        }
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            items(group.cards, key = { card -> card.id }) { card ->
+                NuvioPosterCard(
+                    title = card.title,
+                    imageUrl = card.poster.ifBlank { null },
+                    onClick = { onOpenCard(card) },
+                )
+            }
+        }
+        Spacer(Modifier.height(16.dp))
     }
 }
 
@@ -1118,6 +1296,11 @@ private fun MangaTitleScreen(
                 eta = eta,
                 onLibrary = onToggleLibrary,
                 onTracking = { tracking = true },
+                // Mangafire is the only catalogue this app can open in its own
+                // WebView. A title from a script source has an id namespaced
+                // with that source's id, and pretending it has a mangafire page
+                // would open the wrong site with the wrong id in it.
+                showWeb = !id.contains(':'),
                 onWeb = onWeb,
             )
             Spacer(Modifier.height(14.dp))
@@ -1515,6 +1698,7 @@ private fun MangaActionRow(
     eta: MangaEta?,
     onLibrary: () -> Unit,
     onTracking: () -> Unit,
+    showWeb: Boolean,
     onWeb: () -> Unit,
 ) {
     val tokens = MaterialTheme.nuvio
@@ -1550,14 +1734,16 @@ private fun MangaActionRow(
             onClick = onTracking,
             modifier = Modifier.weight(1f),
         )
-        MangaActionTile(
-            icon = Icons.Rounded.Language,
-            label = "WebView",
-            description = "Open this title on mangafire.to, in the app",
-            tint = tokens.colors.textPrimary,
-            onClick = onWeb,
-            modifier = Modifier.weight(1f),
-        )
+        if (showWeb) {
+            MangaActionTile(
+                icon = Icons.Rounded.Language,
+                label = "WebView",
+                description = "Open this title on mangafire.to, in the app",
+                tint = tokens.colors.textPrimary,
+                onClick = onWeb,
+                modifier = Modifier.weight(1f),
+            )
+        }
     }
 }
 

@@ -538,6 +538,87 @@ final class SekaiServer {
                 case "/manga/filters.json":
                     return Resp.json(200, Manga.filters().toString());
 
+                case "/manga/sources.json":
+                    // Repositories and the sources they installed, as one list:
+                    // the settings section draws both from this answer, and a
+                    // repository's count is its own sources rather than a
+                    // number the screen has to add up.
+                    MangaSources.ensure(application);
+                    return Resp.json(200, MangaSources.state().toString());
+
+                case "/manga/sources/add.json": {
+                    String url = text(q, "url");
+                    if (url.isEmpty()) return repoError("Enter a repository URL.");
+                    try {
+                        return Resp.json(200, MangaSources.addRepo(url).toString());
+                    } catch (MangaSources.BadRepoException refused) {
+                        return repoError(refused.getMessage());
+                    }
+                }
+
+                case "/manga/sources/remove.json": {
+                    String url = text(q, "url");
+                    if (url.isEmpty()) return repoError("A repository URL is needed.");
+                    try {
+                        return Resp.json(200, MangaSources.removeRepo(url).toString());
+                    } catch (MangaSources.BadRepoException refused) {
+                        return repoError(refused.getMessage());
+                    }
+                }
+
+                case "/manga/sources/refresh.json": {
+                    String url = text(q, "url");
+                    if (url.isEmpty()) return repoError("A repository URL is needed.");
+                    try {
+                        return Resp.json(200, MangaSources.refreshRepo(url).toString());
+                    } catch (MangaSources.BadRepoException refused) {
+                        return repoError(refused.getMessage());
+                    } catch (Exception failed) {
+                        return repoError("That repository could not be refreshed: " + mangaMessage(failed));
+                    }
+                }
+
+                case "/manga/sources/repo.json": {
+                    // One repository's whole index, for the sheet that picks
+                    // extensions and sources: 1,400 rows do not belong in the
+                    // settings answer.
+                    String url = text(q, "url");
+                    if (url.isEmpty()) return repoError("A repository URL is needed.");
+                    try {
+                        return Resp.json(200, MangaSources.repoDetail(url).toString());
+                    } catch (MangaSources.BadRepoException refused) {
+                        return repoError(refused.getMessage());
+                    } catch (Exception failed) {
+                        return repoError("That repository could not be read: " + mangaMessage(failed));
+                    }
+                }
+
+                case "/manga/sources/toggleExtension.json": {
+                    String url = text(q, "url");
+                    String pkg = text(q, "pkg");
+                    if (url.isEmpty() || pkg.isEmpty()) return repoError("An extension is needed.");
+                    try {
+                        return Resp.json(200, MangaSources.toggleExtension(url, pkg, number(q, "on") != 0).toString());
+                    } catch (MangaSources.BadRepoException refused) {
+                        return repoError(refused.getMessage());
+                    } catch (Exception failed) {
+                        return repoError("That extension could not be switched: " + mangaMessage(failed));
+                    }
+                }
+
+                case "/manga/sources/toggle.json": {
+                    String id = text(q, "id");
+                    if (id.isEmpty()) return repoError("A source id is needed.");
+                    try {
+                        return Resp.json(200,
+                                MangaSources.toggle(text(q, "url"), id, number(q, "on") != 0).toString());
+                    } catch (MangaSources.BadRepoException refused) {
+                        return repoError(refused.getMessage());
+                    } catch (Exception failed) {
+                        return repoError("That source could not be switched: " + mangaMessage(failed));
+                    }
+                }
+
                 case "/manga/pos.json":
                     // `hid` and `chapter` together mean "the reader is here": a
                     // write. Either alone is not a position, and neither is a read.
@@ -699,6 +780,18 @@ final class SekaiServer {
             Log.w(TAG, "manga " + path + " failed", e);
             return Resp.json(502, "{\"error\":\"upstream\",\"message\":"
                     + quote(mangaMessage(e)) + "}");
+        }
+    }
+
+    /** A repository the reader can fix, answered as a 400 the screen can show. */
+    private static Resp repoError(String message) {
+        try {
+            return Resp.json(400, new JSONObject()
+                    .put("error", "repository")
+                    .put("message", message == null ? "That repository was refused." : message)
+                    .toString());
+        } catch (Exception impossible) {
+            return Resp.json(400, "{\"error\":\"repository\"}");
         }
     }
 

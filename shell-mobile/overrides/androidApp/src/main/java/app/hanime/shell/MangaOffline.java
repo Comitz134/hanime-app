@@ -608,6 +608,10 @@ final class MangaOffline {
      * anything that could climb out of the app's own folder (`..`, a slash) is
      * refused rather than cleaned: an id that is not exactly one safe segment is
      * an id this store will not write.
+     *
+     * A colon is allowed because a source's ids are namespaced with one
+     * (`mangadex:<uuid>`) and Android's own filesystem has no problem with it;
+     * it is a separator, not a path character.
      */
     static String safe(String value) {
         String text = text(value);
@@ -615,7 +619,8 @@ final class MangaOffline {
         for (int i = 0; i < text.length(); i++) {
             char ch = text.charAt(i);
             boolean ok = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')
-                    || (ch >= '0' && ch <= '9') || ch == '-' || ch == '_' || ch == '.';
+                    || (ch >= '0' && ch <= '9') || ch == '-' || ch == '_' || ch == '.'
+                    || ch == ':';
             if (!ok) return "";
         }
         if (text.equals(".") || text.equals("..")) return "";

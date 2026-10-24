@@ -467,6 +467,19 @@ kotlin {
                 implementation(libs.coil.gif)
                 implementation("androidx.recyclerview:recyclerview:1.4.0")
                 implementation("com.squareup.okhttp3:okhttp:4.12.0")
+                // Mihon extensions are dexed against OkHttp 5.4 and link against these
+                // host classes: the compression interceptor KeiSource installs uses all
+                // three algorithms, and the client it copies must carry all of them.
+                implementation("com.squareup.okhttp3:okhttp:5.4.0")
+                implementation("com.squareup.okhttp3:okhttp-brotli:5.4.0")
+                implementation("com.squareup.okhttp3:okhttp-zstd:5.4.0")
+                implementation("com.squareup.zstd:zstd-kmp-okio:0.4.0")
+                implementation("org.jetbrains.kotlinx:kotlinx-serialization-json-okio:1.11.0")
+                implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
+                implementation("org.jsoup:jsoup:1.22.2")
+                implementation("androidx.preference:preference:1.2.1")
+                // KeiSource reads the Application out of Injekt before a source is usable.
+                implementation("com.github.null2264.injekt:injekt-core:4135455a2a")
                 implementation("com.google.code.gson:gson:2.11.0")
                 implementation("io.github.peerless2012:ass-media:0.5.1")
                 implementation(libs.ktor.client.okhttp)

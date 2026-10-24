@@ -1,0 +1,23 @@
+{
+  "format": "sekai-manga-sources",
+  "name": "SEKAI sources",
+  "version": "1",
+  "sources": [
+    {
+      "id": "mangafire",
+      "name": "Mangafire",
+      "lang": "en",
+      "version": "2.0.4",
+      "description": "The built-in catalogue: signed requests, MyAnimeList matching and offline chapters.",
+      "native": "mangafire"
+    },
+    {
+      "id": "mangadex",
+      "name": "MangaDex",
+      "lang": "en",
+      "version": "1.0.0",
+      "description": "The MangaDex catalogue: popular titles, search, chapter feeds and page images.",
+      "script": "mangadex.js"
+    }
+  ]
+}

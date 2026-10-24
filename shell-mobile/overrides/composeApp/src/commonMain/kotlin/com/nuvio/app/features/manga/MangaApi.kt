@@ -53,6 +53,15 @@ internal data class MangaCard(
     val latestChapter: String = "",
     val genres: List<String> = emptyList(),
     /**
+     * The catalogue this row came from, when a search asked more than one.
+     * Empty for a row that was stored before sources existed; the screen only
+     * draws it when it has something to say.
+     */
+    val source: String = "",
+    val sourceName: String = "",
+    /** The catalogue's language code (`en`, `all`, `pt-BR`), for its heading. */
+    val sourceLang: String = "",
+    /**
      * The catalogue's own MyAnimeList id for this title, when it carries one.
      *
      * mangafire knows which MAL entry a series is, so this is an answer rather
@@ -221,6 +230,115 @@ internal data class MangaBrowse(
     val page: Int = 1,
     val hasNext: Boolean = false,
 )
+
+/**
+ * One catalogue's slice of a keyword search: what the search screen draws as a
+ * heading, a language and a row of posters.
+ */
+internal data class MangaSearchGroup(
+    /** How a section is told apart from its neighbours, and what a tap holds. */
+    val key: String,
+    val name: String,
+    val lang: String,
+    val cards: List<MangaCard>,
+)
+
+/**
+ * A mixed search, split by the catalogue each card came from.
+ *
+ * The order is the order the sources first appear in the answer, which is the
+ * order the server interleaved them - that is, the order the reader switched
+ * the sources on. Sorting by name instead would regroup the screen on every
+ * search and make a source the reader uses daily sit wherever the alphabet
+ * puts it.
+ *
+ * A section is a *name and a language*, not a source id, because one catalogue
+ * can be switched on twice: this phone has both the MangaDex script and the
+ * MangaDex extension turned on, and keying by id drew two headings that read
+ * "MangaDex / English" one above the other. A reader looking for a title does
+ * not care which of the two answered - and the arrow opening both is more
+ * useful than two arrows over identical words. Different languages stay apart,
+ * since a heading that says "English" over a French result would be a lie.
+ *
+ * Rows with no source are left out rather than lumped together: the only way
+ * to have one is a list stored before sources existed, and a heading saying
+ * nothing is worse than the plain grid the caller falls back to when fewer
+ * than two groups come back.
+ */
+internal fun mangaSearchGroups(cards: List<MangaCard>): List<MangaSearchGroup> {
+    val groups = LinkedHashMap<String, MutableList<MangaCard>>()
+    for (card in cards) {
+        if (card.source.isBlank()) continue
+        val name = card.sourceName.ifBlank { card.source }
+        val key = "${name.lowercase()}\u0000${card.sourceLang.lowercase()}"
+        groups.getOrPut(key) { mutableListOf() }.add(card)
+    }
+    return groups.map { (key, rows) ->
+        MangaSearchGroup(
+            key = key,
+            name = rows.first().sourceName.ifBlank { rows.first().source },
+            lang = rows.first().sourceLang,
+            cards = rows,
+        )
+    }
+}
+
+/**
+ * What a source's language code is called on its search heading.
+ *
+ * The codes come from two places with different habits: extensions name an ISO
+ * 639-1 language (`en`, `pt-BR`), and an extension covering more than one says
+ * `all`. A code with no name here is shown upper-cased rather than dropped -
+ * `PL` still tells a reader something, and a blank line would make a heading
+ * look like it had no language at all.
+ *
+ * Empty stays empty: a source from before languages were recorded has nothing
+ * to say, and the heading omits the line instead of guessing English.
+ */
+internal fun mangaSourceLanguageName(code: String): String = when (code.trim().lowercase()) {
+    "" -> ""
+    "all", "multi" -> "All languages"
+    "ar" -> "Arabic"
+    "bg" -> "Bulgarian"
+    "ca" -> "Catalan"
+    "cs" -> "Czech"
+    "da" -> "Danish"
+    "de" -> "German"
+    "el" -> "Greek"
+    "en" -> "English"
+    "es" -> "Spanish"
+    "fa" -> "Persian"
+    "fi" -> "Finnish"
+    "fr" -> "French"
+    "he" -> "Hebrew"
+    "hi" -> "Hindi"
+    "hr" -> "Croatian"
+    "hu" -> "Hungarian"
+    "id" -> "Indonesian"
+    "it" -> "Italian"
+    "ja" -> "Japanese"
+    "ko" -> "Korean"
+    "ms" -> "Malay"
+    "nl" -> "Dutch"
+    "no" -> "Norwegian"
+    "pl" -> "Polish"
+    "pt" -> "Portuguese"
+    "pt-br" -> "Portuguese (Brazil)"
+    "ro" -> "Romanian"
+    "ru" -> "Russian"
+    "sk" -> "Slovak"
+    "sr" -> "Serbian"
+    "sv" -> "Swedish"
+    "th" -> "Thai"
+    "tl", "fil" -> "Filipino"
+    "tr" -> "Turkish"
+    "uk" -> "Ukrainian"
+    "vi" -> "Vietnamese"
+    "zh" -> "Chinese"
+    "zh-hans" -> "Chinese (Simplified)"
+    "zh-hant" -> "Chinese (Traditional)"
+    else -> code.trim().uppercase()
+}
 
 @Serializable
 private data class CardsResponse(val items: List<MangaCard> = emptyList())
