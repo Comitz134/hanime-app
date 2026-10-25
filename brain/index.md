@@ -1,6 +1,6 @@
 # Brain Index
 
-_Auto-generated. Last updated 2026-10-25T00:41:51.798Z._
+_Auto-generated. Last updated 2026-10-25T01:14:14.252Z._
 
 - [brain-installed-in-repo](pages/brain-installed-in-repo.md) — category: decision | tags: [process, agents, tooling] | The brain is committed to this repository - BRAIN.md, brain/, the skills bundle and the CLI - and the bundled installer must never be run in
 - [desktop-releases-tagged-namespaced](pages/desktop-releases-tagged-namespaced.md) — category: decision | tags: [release, desktop, github] | Desktop builds ship as GitHub prereleases tagged desktop-v<version>, so the phone's manifest URL keeps resolving to phone releases.

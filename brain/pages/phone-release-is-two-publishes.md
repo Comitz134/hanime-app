@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [release, phone, github]
 created: "2026-10-21T02:06:28"
-updated: "2026-10-25T00:44:27"
+updated: "2026-10-25T01:14:14"
 ---
 
 <!-- compiled_truth -->
@@ -74,4 +74,10 @@ is why `AGENTS.md` states the rule twice.
   kind: note
   summary: "2.0.5 (205) published through both scripts from 6c00944; /releases/latest/download/version.json names 205, release is not a prerelease, and the release APK installed over adb this time (the 2.0.4 install gate did not recur)"
   source: "publish-apk.mjs, publish-github.mjs, adb install on 52070e9f"
+  affects: [phone-release-is-two-publishes]
+
+- time: 2026-10-25T01:14:14
+  kind: note
+  summary: "2.0.6 (206) published through both scripts from cda9c19; publish-apk and publish-github agreed on sha256 faf58d91, and /releases/latest/download/version.json names 206. The release APK was uninstalled and installed clean on 52070e9f first: Home opened on 5 catalogues with the seeded addon, and a search still reached Mangafire, MangaDex and Omega Scans."
+  source: "publish-apk.mjs, publish-github.mjs, release URL, phone 52070e9f"
   affects: [phone-release-is-two-publishes]
