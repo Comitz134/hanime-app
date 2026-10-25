@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -25,6 +26,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -233,6 +235,31 @@ private fun extensionLine(extension: MangaRepoExtension, on: Int): String {
     return parts.joinToString(" · ")
 }
 
+/**
+ * "Only on": the repository's own answer to "what am I actually using?".
+ *
+ * Off, the picker lists everything the repository offers, which is what you
+ * want when installing. On, it lists what the switches have left on - the
+ * handful of catalogues behind a reader's searches - so turning one off does
+ * not mean finding it among fourteen hundred off rows later.
+ */
+@Composable
+private fun OnlyOnRow(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    val tokens = MaterialTheme.nuvio
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(start = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "Only on",
+            style = MaterialTheme.typography.labelLarge,
+            color = tokens.colors.textMuted,
+        )
+        Spacer(Modifier.weight(1f))
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
 private fun matches(extension: MangaRepoExtension, query: String): Boolean {
     val needle = query.trim().lowercase()
     if (needle.isEmpty()) return true
@@ -268,6 +295,11 @@ private fun RepoPickerDialog(
     var failure by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf<String?>(null) }
     var query by rememberSaveable(repo.url) { mutableStateOf("") }
+    // What the reader came for when they opened this: the sources they left on.
+    // A repository offers hundreds of extensions and a library holds a handful,
+    // so the list that matters is the short one. Filtering only hides rows; the
+    // switches still write through the server exactly as before.
+    var onlyOn by rememberSaveable(repo.url) { mutableStateOf(false) }
 
     suspend fun reload() {
         loading = true
@@ -311,7 +343,9 @@ private fun RepoPickerDialog(
                                 current == null -> repo.url
                                 current.extensions.isNotEmpty() ->
                                     "${current.total} sources in ${current.extensions.size} extensions · ${current.enabled} on"
-                                else -> "${current.sources.size} sources · ${current.sources.count { it.enabled }} on"
+                                else -> "${current.sources.size} " +
+                                    (if (current.sources.size == 1) "source" else "sources") +
+                                    " · ${current.sources.count { it.enabled }} on"
                             },
                             style = MaterialTheme.typography.bodySmall,
                             color = tokens.colors.textMuted,
@@ -360,12 +394,22 @@ private fun RepoPickerDialog(
                                 placeholder = "Filter extensions",
                             )
                         }
-                        val shown = current.extensions.filter { matches(it, query) }
+                        OnlyOnRow(
+                            checked = onlyOn,
+                            onCheckedChange = { onlyOn = it },
+                        )
+                        val shown = current.extensions.filter {
+                            matches(it, query) && (!onlyOn || it.enabled)
+                        }
                         LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp)) {
                             if (shown.isEmpty()) {
                                 item {
                                     Text(
-                                        text = "No extension matches that.",
+                                        text = if (onlyOn) {
+                                            "Nothing here is on yet."
+                                        } else {
+                                            "No extension matches that."
+                                        },
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = tokens.colors.textMuted,
                                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
@@ -399,7 +443,9 @@ private fun RepoPickerDialog(
                                 // site can be broken while its package is fine,
                                 // so one of them can be switched off on its own.
                                 if (extension.enabled) {
-                                    extension.sources.forEach { source ->
+                                    extension.sources
+                                        .filter { !onlyOn || it.enabled }
+                                        .forEach { source ->
                                         SettingsSwitchRow(
                                             title = source.name,
                                             description = source.lang.uppercase(),
@@ -423,17 +469,28 @@ private fun RepoPickerDialog(
                     }
 
                     else -> LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp)) {
-                        if (current.sources.isEmpty()) {
+                        item {
+                            OnlyOnRow(
+                                checked = onlyOn,
+                                onCheckedChange = { onlyOn = it },
+                            )
+                        }
+                        val listed = current.sources.filter { !onlyOn || it.enabled }
+                        if (listed.isEmpty()) {
                             item {
                                 Text(
-                                    text = "This repository installed no sources.",
+                                    text = if (onlyOn) {
+                                        "No source here is on."
+                                    } else {
+                                        "This repository installed no sources."
+                                    },
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = tokens.colors.textMuted,
                                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                                 )
                             }
                         }
-                        items(current.sources, key = { it.id }) { source ->
+                        items(listed, key = { it.id }) { source ->
                             SettingsSwitchRow(
                                 title = source.name,
                                 description = sourceLine(source),

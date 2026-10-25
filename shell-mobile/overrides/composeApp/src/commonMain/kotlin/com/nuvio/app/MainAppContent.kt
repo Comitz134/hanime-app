@@ -1631,6 +1631,16 @@ internal fun MainAppContent(
                         navController = navController,
                         useNativeNavigation = useNativeNavigation,
                         onOpenDownload = ::openDownloadedItem,
+                        // A manga title kept on the phone is handed to the
+                        // manga tab the same way the Library's shelf hands one
+                        // over: it waits in `MangaNav`, the tab opens its title
+                        // page, and this route is popped so back does not land
+                        // on a downloads list standing on top of the reader.
+                        onOpenMangaDownload = { hid, mangaTitle, poster ->
+                            MangaNav.open(id = hid, title = mangaTitle, poster = poster)
+                            navController.popBackStack()
+                            activateTab(AppScreenTab.Manga)
+                        },
                     )
                 }
                 entry<DownloadShowRoute> { route ->

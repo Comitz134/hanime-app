@@ -1130,6 +1130,35 @@ final class Manga {
         prefs.edit().putStringSet("libhids", hids).remove("lib:" + hid).apply();
     }
 
+    /**
+     * The reader's own panel, as one object.
+     *
+     * Stored as a single string rather than a preference per switch: the panel
+     * is the app's, its shape belongs to the reader screen instead of this
+     * file, and adding a control later must not need another key here. An empty
+     * object is a phone that has never opened the panel, which is what lets the
+     * Kotlin side keep its own defaults.
+     */
+    static JSONObject readerPrefs() {
+        SharedPreferences prefs = prefs();
+        String stored = prefs == null ? "" : prefs.getString("readerPrefs", "");
+        if (stored == null || stored.isEmpty()) return new JSONObject();
+        try {
+            return new JSONObject(stored);
+        } catch (Exception ignored) {
+            return new JSONObject();
+        }
+    }
+
+    /** Write the panel back, and answer with what the app now holds. */
+    static JSONObject saveReaderPrefs(JSONObject panel) {
+        SharedPreferences prefs = prefs();
+        if (prefs != null && panel != null) {
+            prefs.edit().putString("readerPrefs", panel.toString()).apply();
+        }
+        return readerPrefs();
+    }
+
     private static SharedPreferences prefs() {
         Context context = application;
         return context == null ? null : context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);

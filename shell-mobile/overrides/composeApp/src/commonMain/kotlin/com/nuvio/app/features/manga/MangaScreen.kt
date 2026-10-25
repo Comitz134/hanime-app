@@ -5,7 +5,9 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.ScrollableDefaults
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
@@ -21,10 +23,12 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -32,12 +36,17 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ChevronLeft
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Crop169
+import androidx.compose.material.icons.rounded.CropPortrait
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.DownloadDone
@@ -45,15 +54,21 @@ import androidx.compose.material.icons.rounded.DownloadForOffline
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.Flag
+import androidx.compose.material.icons.rounded.GridView
 import androidx.compose.material.icons.rounded.HelpOutline
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Language
+import androidx.compose.material.icons.rounded.LinearScale
 import androidx.compose.material.icons.rounded.MenuBook
+import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Subject
+import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.Sync
+import androidx.compose.material.icons.rounded.ViewAgenda
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -63,6 +78,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -85,11 +101,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
@@ -115,6 +134,10 @@ import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.home.components.PosterGridRow
 import com.nuvio.app.features.home.components.posterGridColumnCountForWidth
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.async
@@ -122,6 +145,16 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.put
 
 /**
  * The manga tab.
@@ -403,11 +436,15 @@ internal fun MangaScreen(modifier: Modifier = Modifier) {
                     toggleLibrary(current.id, current.title, current.poster)
                 },
                 onBack = { closeTitle(current) },
-                onWeb = {
-                    route = MangaRoute.Source(
-                        id = current.id,
-                        title = current.title,
-                        poster = current.poster,
+                // Moving the title to another catalogue is a new id, so the
+                // page is replaced rather than re-rendered: the route names the
+                // id, and every loader below it is keyed on that.
+                onMigrated = { newId, newTitle, newPoster, position ->
+                    route = MangaRoute.Title(
+                        id = newId,
+                        title = newTitle,
+                        poster = newPoster,
+                        resume = position,
                         fromLibrary = current.fromLibrary,
                     )
                 },
@@ -1031,7 +1068,7 @@ private fun MangaTitleScreen(
     inLibrary: Boolean,
     onToggleLibrary: () -> Unit,
     onBack: () -> Unit,
-    onWeb: () -> Unit,
+    onMigrated: (id: String, title: String, poster: String, resume: MangaPosition?) -> Unit,
     onRead: (chapters: List<MangaChapter>, index: Int, startPage: Int) -> Unit,
 ) {
     val tokens = MaterialTheme.nuvio
@@ -1065,6 +1102,7 @@ private fun MangaTitleScreen(
     // reads as a series the catalogue cut down.
     var offlineList by remember(id) { mutableStateOf(false) }
     var downloading by remember(id) { mutableStateOf(false) }
+    var migrating by remember(id) { mutableStateOf(false) }
 
     // Keyed on the record's revision as well as the title: coming back from the
     // reader re-reads it, which is what puts the chapter just finished into the
@@ -1248,16 +1286,19 @@ private fun MangaTitleScreen(
                         // whole unread series as read on the first tap.
                         val index = if (resumeIndex >= 0) resumeIndex else chapters.lastIndex
                         val page = if (resumeIndex >= 0) saved?.page ?: 0 else 0
+                        // A catalogue can carry chapters without numbers - a
+                        // oneshot, a special, or an extension that reads them
+                        // out of a label. "Start Ch. " is not a sentence, so a
+                        // blank number falls back to the act rather than the
+                        // number.
+                        val verb = if (resumeIndex >= 0) "Continue" else "Start"
+                        val number = chapters[index].number.trim()
                         Button(
                             onClick = { onRead(chapters.toList(), index, page) },
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             Text(
-                                text = if (resumeIndex >= 0) {
-                                    "Continue Ch. ${chapters[index].number}"
-                                } else {
-                                    "Start Ch. ${chapters[index].number}"
-                                },
+                                text = if (number.isEmpty()) "$verb reading" else "$verb Ch. $number",
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
@@ -1271,7 +1312,9 @@ private fun MangaTitleScreen(
                         // second scanlation), and "Continue Ch. 1" over a
                         // "Ch. 1" button reads as a bug whether or not the
                         // rows are different chapters.
-                        if (chapters.last().number != chapters[index].number) {
+                        if (chapters.last().number.isNotBlank() &&
+                            chapters.last().number != chapters[index].number
+                        ) {
                             Spacer(Modifier.height(8.dp))
                             OutlinedButton(
                                 onClick = { onRead(chapters.toList(), chapters.lastIndex, 0) },
@@ -1296,12 +1339,7 @@ private fun MangaTitleScreen(
                 eta = eta,
                 onLibrary = onToggleLibrary,
                 onTracking = { tracking = true },
-                // Mangafire is the only catalogue this app can open in its own
-                // WebView. A title from a script source has an id namespaced
-                // with that source's id, and pretending it has a mangafire page
-                // would open the wrong site with the wrong id in it.
-                showWeb = !id.contains(':'),
-                onWeb = onWeb,
+                onMigrate = { migrating = true },
             )
             Spacer(Modifier.height(14.dp))
         }
@@ -1568,6 +1606,22 @@ private fun MangaTitleScreen(
         )
     }
 
+    if (migrating) {
+        MangaMigrateSheet(
+            id = id,
+            title = card.title.ifBlank { title },
+            poster = card.poster.ifBlank { poster },
+            position = saved,
+            inLibrary = inLibrary,
+            malId = MangaMal.shelfId(id),
+            onMigrated = { newId, newTitle, newPoster, moved ->
+                migrating = false
+                onMigrated(newId, newTitle, newPoster, moved)
+            },
+            onDismiss = { migrating = false },
+        )
+    }
+
     if (downloading) {
         MangaDownloadSheet(
             title = card.title.ifBlank { title },
@@ -1686,11 +1740,16 @@ private fun MangaMalLine(
 /**
  * The title page's four actions, in one row under the header.
  *
- * This is the old client's row, kept as it was: keep the title, read when the
- * next chapter is due, say which MyAnimeList entry it is, or walk to the site it
- * came from. The estimate is a reading rather than a control — there is nothing
- * to press — so it is a tile with no handler and its own spoken label. The other
- * three are buttons, and each one does the thing its name says.
+ * Keep the title, read when the next chapter is due, say which MyAnimeList
+ * entry it is, or move it to another catalogue. The estimate is a reading
+ * rather than a control - there is nothing to press - so it is a tile with no
+ * handler and its own spoken label. The other three are buttons, and each one
+ * does the thing its name says.
+ *
+ * The fourth tile used to be a WebView onto mangafire, which was one site's
+ * idea of "see this elsewhere" and no use at all for a title that came from an
+ * extension. It is a migration instead: the same title on a source the reader
+ * already has on, with the chapter they are on carried across.
  */
 @Composable
 private fun MangaActionRow(
@@ -1698,8 +1757,7 @@ private fun MangaActionRow(
     eta: MangaEta?,
     onLibrary: () -> Unit,
     onTracking: () -> Unit,
-    showWeb: Boolean,
-    onWeb: () -> Unit,
+    onMigrate: () -> Unit,
 ) {
     val tokens = MaterialTheme.nuvio
     Row(
@@ -1734,16 +1792,14 @@ private fun MangaActionRow(
             onClick = onTracking,
             modifier = Modifier.weight(1f),
         )
-        if (showWeb) {
-            MangaActionTile(
-                icon = Icons.Rounded.Language,
-                label = "WebView",
-                description = "Open this title on mangafire.to, in the app",
-                tint = tokens.colors.textPrimary,
-                onClick = onWeb,
-                modifier = Modifier.weight(1f),
-            )
-        }
+        MangaActionTile(
+            icon = Icons.Rounded.SwapHoriz,
+            label = "Migrate",
+            description = "Move this title to another source, keeping your place",
+            tint = tokens.colors.textPrimary,
+            onClick = onMigrate,
+            modifier = Modifier.weight(1f),
+        )
     }
 }
 
@@ -1781,6 +1837,249 @@ private fun MangaActionTile(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+    }
+}
+
+/**
+ * Moving one title to another catalogue.
+ *
+ * A migration is not a second copy: it is the same series read from a source
+ * that still works, which is the one thing a phone reader needs when a site
+ * dies. So the shell - the title, the chapter, the place on the shelf - stays,
+ * and only the id underneath it changes.
+ *
+ * What travels and what does not:
+ *
+ * - The chapter position travels by *number*, because a chapter id belongs to
+ *   the catalogue that issued it. The new source's chapter list is read first
+ *   and the matching number becomes the new position, at the same page.
+ * - The read record travels the same way, as chapter numbers, and is seeded
+ *   into the new title's empty record.
+ * - A title on the shelf moves its row: the new id is added with the old row's
+ *   MyAnimeList id, then the old row is removed.
+ * - Saved chapters do not travel. They are files under the old id, and the new
+ *   source's pages are different files; the old title's Downloads entry stays
+ *   until the reader removes it there.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MangaMigrateSheet(
+    id: String,
+    title: String,
+    poster: String,
+    position: MangaPosition?,
+    inLibrary: Boolean,
+    malId: Long,
+    onMigrated: (id: String, title: String, poster: String, resume: MangaPosition?) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val tokens = MaterialTheme.nuvio
+    val scope = rememberCoroutineScope()
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val currentSource = mangaSourceId(id)
+    var query by rememberSaveable { mutableStateOf(title) }
+    var cards by remember { mutableStateOf<List<MangaCard>>(emptyList()) }
+    var searching by remember { mutableStateOf(false) }
+    var failure by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf<String?>(null) }
+
+    // The same debounce the search tab uses: a word typed at speed is one
+    // request, and an empty field is no request at all.
+    LaunchedEffect(query) {
+        val needle = query.trim()
+        if (needle.isEmpty()) {
+            cards = emptyList()
+            failure = null
+            searching = false
+            return@LaunchedEffect
+        }
+        delay(400)
+        searching = true
+        failure = null
+        try {
+            val answer = MangaApi.search(query = needle)
+            cards = answer.items.filter { card ->
+                card.source.isNotBlank() && card.source != currentSource && card.id != id
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            cards = emptyList()
+            failure = e.message ?: "The other sources did not answer."
+        } finally {
+            searching = false
+        }
+    }
+
+    suspend fun move(card: MangaCard) {
+        busy = card.id
+        try {
+            var moved: MangaPosition? = null
+            val number = position?.number?.trim().orEmpty()
+            if (number.isNotEmpty()) {
+                val chapters = runCatching {
+                    MangaApi.chapterList(card.id).chapters
+                }.getOrDefault(emptyList())
+                val match = chapters.firstOrNull { it.number.trim() == number }
+                if (match != null) {
+                    moved = MangaPosition(
+                        id = card.id,
+                        title = card.title,
+                        poster = card.poster,
+                        chapter = match.id,
+                        number = match.number,
+                        page = position?.page ?: 0,
+                        pages = position?.pages ?: 0,
+                    )
+                    runCatching { MangaApi.savePosition(moved) }
+                }
+            }
+            // Numbers, not ids: the record is keyed by title, so the new id
+            // starts empty and this is what fills it with what was read.
+            runCatching {
+                val marks = MangaApi.readChapters(id)
+                if (marks.isNotEmpty()) MangaApi.seedReadMarks(card.id, marks.toList())
+            }
+            if (inLibrary) {
+                runCatching {
+                    MangaApi.addToLibrary(card, mal = malId.takeIf { it > 0L })
+                    MangaApi.removeFromLibrary(id)
+                }
+            }
+            onMigrated(card.id, card.title, card.poster, moved)
+        } finally {
+            busy = null
+        }
+    }
+
+    NuvioModalBottomSheet(
+        onDismissRequest = {
+            if (busy == null) {
+                scope.launch { dismissNuvioBottomSheet(sheetState = sheetState, onDismiss = onDismiss) }
+            }
+        },
+        sheetState = sheetState,
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.88f)) {
+            Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+                Text(
+                    text = "Migrate",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = tokens.colors.textPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "Pick this title on another source you already have on. " +
+                        "The chapter you are on moves with it, and the shelf row follows.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = tokens.colors.textMuted,
+                )
+                Spacer(Modifier.height(10.dp))
+                NuvioInputField(
+                    value = query,
+                    onValueChange = { query = it },
+                    placeholder = "Search another source",
+                )
+                Spacer(Modifier.height(6.dp))
+            }
+
+            if (busy != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    NuvioLoadingIndicator(modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = "Moving the title and your place…",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = tokens.colors.textMuted,
+                    )
+                }
+            }
+
+            failure?.let { message ->
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                )
+            }
+
+            val groups = remember(cards) { mangaSearchGroups(cards) }
+            LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                if (searching && cards.isEmpty()) {
+                    item {
+                        Box(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 26.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            NuvioLoadingIndicator(modifier = Modifier.size(20.dp))
+                        }
+                    }
+                }
+                groups.forEach { group ->
+                    item(key = "head:${group.key}") {
+                        Text(
+                            text = group.name +
+                                if (group.lang.isBlank()) "" else " · ${mangaSourceLanguageName(group.lang)}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = tokens.colors.textMuted,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                        )
+                    }
+                    items(group.cards, key = { it.id }) { card ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(enabled = busy == null) {
+                                    scope.launch { move(card) }
+                                }
+                                .padding(horizontal = 20.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            AsyncImage(
+                                model = card.poster,
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .width(38.dp)
+                                    .height(52.dp)
+                                    .clip(RoundedCornerShape(6.dp)),
+                                contentScale = ContentScale.Crop,
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = card.title,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = tokens.colors.textPrimary,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    text = card.sourceName.ifBlank { card.source },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = tokens.colors.textMuted,
+                                )
+                            }
+                        }
+                    }
+                }
+                if (!searching && cards.isEmpty() && failure == null && query.isNotBlank()) {
+                    item {
+                        Text(
+                            text = "Nothing on your other sources matches that.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = tokens.colors.textMuted,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
+                        )
+                    }
+                }
+                item(key = "pad") { Spacer(Modifier.height(16.dp)) }
+            }
+        }
     }
 }
 
@@ -2168,6 +2467,110 @@ private const val SEAM_LEAD_PAGES = 3
 /** Which reader sheet is open; the chrome opens one at a time. */
 private enum class ReaderSheet { CHAPTERS, DISPLAY, HELP }
 
+/** How the reader draws a chapter: one page a screen, two, or a strip. */
+internal enum class ReaderLayout { SINGLE, DOUBLE, STRIP }
+
+/** Where the reading position is shown, along the bottom of the page. */
+internal enum class ReaderProgress { LINE, SEGMENTS, SHORT, BAR, NONE }
+
+/** Which gesture brings the chrome back. */
+internal enum class ReaderTap { SINGLE, DOUBLE }
+
+/**
+ * The reader's own panel, kept for the app run rather than for one chapter.
+ *
+ * The values live in one object rather than in `rememberSaveable` locals for a
+ * reason a reader would notice: leaving a chapter for the title page and coming
+ * back must not put the margin, the layout or the dim back where they were.
+ * They are also kept on the phone - one loopback object, read once per run and
+ * written when the panel closes - so a restart does not reset them either. They
+ * are not carried to another device: this is a reading aid, not a preference
+ * the shelf has to sync.
+ */
+internal object MangaReaderPrefs {
+    var layout by mutableStateOf(ReaderLayout.STRIP)
+    var margin by mutableIntStateOf(0)
+    var progress by mutableStateOf(ReaderProgress.LINE)
+    var tap by mutableStateOf(ReaderTap.SINGLE)
+    var fitWidth by mutableStateOf(true)
+    var fitHeight by mutableStateOf(false)
+    var stretch by mutableStateOf(false)
+    var maxWidth by mutableStateOf(false)
+    var maxHeight by mutableStateOf(false)
+    var grayscale by mutableStateOf(false)
+    var dim by mutableStateOf(0f)
+    var continuous by mutableStateOf(true)
+
+    /** Whether this run has already asked the phone what it stored. */
+    private var loaded = false
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var saveJob: Job? = null
+
+    /**
+     * What the phone stored, read once per run.
+     *
+     * Best effort: a panel that cannot be read leaves the defaults, because a
+     * chapter that will not open over a preference is worse than a margin the
+     * reader has to set again.
+     */
+    suspend fun load() {
+        if (loaded) return
+        loaded = true
+        val raw = runCatching { MangaApi.readerPrefs() }.getOrNull() ?: return
+        val json = runCatching { Json.parseToJsonElement(raw).jsonObject }.getOrNull() ?: return
+        layout = json.enumValue("layout", ReaderLayout.STRIP)
+        margin = (json["margin"] as? JsonPrimitive)?.intOrNull?.coerceIn(0, 48) ?: 0
+        progress = json.enumValue("progress", ReaderProgress.LINE)
+        tap = json.enumValue("tap", ReaderTap.SINGLE)
+        fitWidth = json["fitWidth"].asBoolean() ?: true
+        fitHeight = json["fitHeight"].asBoolean() ?: false
+        stretch = json["stretch"].asBoolean() ?: false
+        maxWidth = json["maxWidth"].asBoolean() ?: false
+        maxHeight = json["maxHeight"].asBoolean() ?: false
+        grayscale = json["grayscale"].asBoolean() ?: false
+        dim = ((json["dim"] as? JsonPrimitive)?.intOrNull ?: 0).coerceIn(0, 70) / 100f
+        continuous = json["continuous"].asBoolean() ?: true
+    }
+
+    /**
+     * Write the panel back.
+     *
+     * Debounced and off the main thread: the dim slider is dragged, not set, and
+     * one write per frame would be a preference file answered sixty times a
+     * second. The sheet saves on its way out, which is the moment the answer is
+     * settled.
+     */
+    fun save() {
+        saveJob?.cancel()
+        saveJob = scope.launch {
+            delay(300)
+            val panel = buildJsonObject {
+                put("layout", layout.name)
+                put("margin", margin)
+                put("progress", progress.name)
+                put("tap", tap.name)
+                put("fitWidth", fitWidth)
+                put("fitHeight", fitHeight)
+                put("stretch", stretch)
+                put("maxWidth", maxWidth)
+                put("maxHeight", maxHeight)
+                put("grayscale", grayscale)
+                put("dim", (dim * 100).toInt())
+                put("continuous", continuous)
+            }
+            runCatching { MangaApi.saveReaderPrefs(panel.toString()) }
+        }
+    }
+}
+
+private inline fun <reified T : Enum<T>> JsonObject.enumValue(key: String, fallback: T): T {
+    val name = (this[key] as? JsonPrimitive)?.contentOrNull ?: return fallback
+    return runCatching { enumValueOf<T>(name) }.getOrDefault(fallback)
+}
+
+private fun JsonElement?.asBoolean(): Boolean? =
+    (this as? JsonPrimitive)?.booleanOrNull
+
 /**
  * Whether the reader is showing its own chrome, for the rest of the app.
  *
@@ -2192,11 +2595,30 @@ private fun MangaReaderScreen(
     onChapter: (index: Int, startPage: Int) -> Unit,
 ) {
     val tokens = MaterialTheme.nuvio
-    // The chrome's own state: one sheet at a time, how far the pages are
-    // turned down, and whether the strip runs on into the next chapter.
+    // The panel's answers are on the phone, not in this composition: the first
+    // chapter of the run asks what was stored, once.
+    LaunchedEffect(Unit) { MangaReaderPrefs.load() }
+    // The chrome's own state: one sheet at a time.
     var sheet by remember { mutableStateOf<ReaderSheet?>(null) }
-    var dim by rememberSaveable { mutableStateOf(0f) }
-    var continuous by rememberSaveable { mutableStateOf(true) }
+    // The panel's answers, read here so a page redraws when one of them changes.
+    val layout = MangaReaderPrefs.layout
+    val margin = MangaReaderPrefs.margin
+    val progressStyle = MangaReaderPrefs.progress
+    val tapMode = MangaReaderPrefs.tap
+    val grayscale = MangaReaderPrefs.grayscale
+    val dim = MangaReaderPrefs.dim
+    val paged = layout != ReaderLayout.STRIP
+    val spread = layout == ReaderLayout.DOUBLE
+    // Pages per list item, which is what the position and the chapter label
+    // have to divide by once the reader is not reading a strip.
+    val pagesPerItem = if (spread) 2 else 1
+    val pageFilter = remember(grayscale) {
+        if (grayscale) {
+            ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) })
+        } else {
+            null
+        }
+    }
 
     // The chrome starts hidden: pages are the point, and a chapter number is not
     // worth a permanent band across a comic. A tap in the middle of the page
@@ -2215,14 +2637,32 @@ private fun MangaReaderScreen(
     var appending by remember { mutableStateOf(false) }
 
     val total = route.chapters.size
+    // Read on the strip either way; the display list only groups its pages for
+    // the paged layouts. The seam, the saved position and the chapter label
+    // still speak pages, so the grouping is a view of the strip rather than a
+    // second model that would have to be kept in step with it.
+    val displayPages = remember(strip.size, spread) {
+        if (spread) strip.chunked(2) else strip.map { listOf(it) }
+    }
+    // Changing the layout re-groups the same pages, and an index means a
+    // different page afterwards: re-aim the list at the page that was under the
+    // reader instead of leaving them twenty pages further on.
+    var pagesPerItemBefore by remember { mutableIntStateOf(pagesPerItem) }
+    LaunchedEffect(pagesPerItem) {
+        if (pagesPerItemBefore != pagesPerItem) {
+            val page = listState.firstVisibleItemIndex * pagesPerItemBefore
+            pagesPerItemBefore = pagesPerItem
+            listState.scrollToItem(page / pagesPerItem)
+        }
+    }
     // Reading runs *up* the chapter numbers, and the list is newest first, so
     // the chapter after this one is the row above it.
     val previousIndex = route.index + 1
 
-    // The chapter under the reader's eye: the one the top page belongs to. It
-    // is read from the strip rather than remembered, because a chapter that was
+    // The chapter under the reader's eye: the one the top image belongs to. It
+    // is read from the list rather than remembered, because a chapter that was
     // scrolled into must not be a different chapter from the one on screen.
-    val visible = strip.getOrNull(listState.firstVisibleItemIndex)
+    val visible = displayPages.getOrNull(listState.firstVisibleItemIndex)?.firstOrNull()
     val readingIndex = visible?.chapterIndex ?: route.index
     val nextIndex = readingIndex - 1
 
@@ -2250,7 +2690,10 @@ private fun MangaReaderScreen(
         } finally {
             loading = false
         }
-        listState.scrollToItem(route.startPage.coerceIn(0, maxOf(0, strip.lastIndex)))
+        listState.scrollToItem(
+            (route.startPage / pagesPerItem)
+                .coerceIn(0, maxOf(0, strip.lastIndex / pagesPerItem)),
+        )
 
         // The next chapter's pages are fetched now, so the seam is a scroll
         // rather than a wait when it comes.
@@ -2261,16 +2704,18 @@ private fun MangaReaderScreen(
     // continues it is fetched and appended to the same list. Appended, not
     // pushed — the reader never sees a boundary, because there is not one: as
     // far as this list is concerned the next chapter is more of the same strip.
-    LaunchedEffect(route.chapters) {
+    LaunchedEffect(route.chapters, spread) {
         snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
             .distinctUntilChanged()
             .collect { lastVisible ->
-                if (!continuous) return@collect
+                if (!MangaReaderPrefs.continuous) return@collect
                 if (appending || strip.isEmpty()) return@collect
                 val seam = loaded.lastOrNull() ?: return@collect
                 val next = seam - 1
                 if (next < 0) return@collect
-                if (lastVisible < strip.lastIndex - SEAM_LEAD_PAGES) return@collect
+                // Measured in items drawn, which in Double is two pages each.
+                val lastItem = (strip.size + pagesPerItem - 1) / pagesPerItem - 1
+                if (lastVisible < lastItem - SEAM_LEAD_PAGES) return@collect
                 val chapter = route.chapters.getOrNull(next) ?: return@collect
                 appending = true
                 try {
@@ -2322,8 +2767,8 @@ private fun MangaReaderScreen(
     // runs on, the chapter to tell it about is the one *under the reader* rather
     // than the one the strip started on: a chapter scrolled into is a chapter
     // being read. Its own effect, so a slow MyAnimeList call never delays a page.
-    LaunchedEffect(route.title, route.chapters) {
-        snapshotFlow { strip.getOrNull(listState.firstVisibleItemIndex)?.chapterIndex }
+    LaunchedEffect(route.title, route.chapters, spread) {
+        snapshotFlow { strip.getOrNull(listState.firstVisibleItemIndex * pagesPerItem)?.chapterIndex }
             .distinctUntilChanged()
             .collect { index ->
                 val chapter = index?.let(route.chapters::getOrNull) ?: return@collect
@@ -2351,12 +2796,12 @@ private fun MangaReaderScreen(
     // one to land was whatever the queue reached — not where the reader
     // actually stopped. Debouncing upstream collapses the fling into one write,
     // at the place it ended.
-    LaunchedEffect(route.id, route.chapters) {
+    LaunchedEffect(route.id, route.chapters, spread) {
         snapshotFlow { listState.firstVisibleItemIndex }
             .debounce(600)
             .distinctUntilChanged()
             .collect { index ->
-                val at = strip.getOrNull(index) ?: return@collect
+                val at = strip.getOrNull(index * pagesPerItem) ?: return@collect
                 MangaApi.savePosition(
                     MangaPosition(
                         id = route.id,
@@ -2371,33 +2816,108 @@ private fun MangaReaderScreen(
             }
     }
 
+    val maxWidthCap = if (MangaReaderPrefs.maxWidth) Modifier.widthIn(max = 760.dp) else Modifier
+    val maxHeightCap = if (MangaReaderPrefs.maxHeight) Modifier.heightIn(max = 1100.dp) else Modifier
+    // A page that is a screen should stay a screen: without the snap, Single
+    // and Double are a strip with taller images, which is not what the panel
+    // says they are.
+    val snapBehavior = rememberSnapFlingBehavior(lazyListState = listState)
+    val stripBehavior = ScrollableDefaults.flingBehavior()
+
     Box(modifier = Modifier.fillMaxSize().background(tokens.colors.background)) {
         LazyColumn(
             state = listState,
             modifier = Modifier
                 .fillMaxSize()
-                // A tap is the only gesture the strip has to share: scrolling
+                // A tap is the only gesture the pages have to share: scrolling
                 // is the reader's, so this listens for taps alone and leaves
-                // drags to the list.
-                .pointerInput(Unit) {
-                    detectTapGestures { chromeVisible = !chromeVisible }
+                // drags to the list. The panel chooses which tap counts.
+                .pointerInput(tapMode) {
+                    detectTapGestures(
+                        onTap = {
+                            if (MangaReaderPrefs.tap == ReaderTap.SINGLE) {
+                                chromeVisible = !chromeVisible
+                            }
+                        },
+                        onDoubleTap = if (MangaReaderPrefs.tap == ReaderTap.DOUBLE) {
+                            { _ -> chromeVisible = !chromeVisible }
+                        } else {
+                            null
+                        },
+                    )
                 },
             contentPadding = PaddingValues(bottom = 24.dp),
+            flingBehavior = if (paged) snapBehavior else stripBehavior,
         ) {
             itemsIndexed(
-                items = strip,
+                items = displayPages,
                 // A page's URL alone is not a key: two chapters can name the
                 // same file, and a duplicate key is a crash rather than a
                 // redraw. The chapter and the page inside it are unique.
-                key = { _, page -> "${page.chapterId}:${page.pageIndex}" },
+                key = { _, pages -> "${pages.first().chapterId}:${pages.first().pageIndex}" },
                 contentType = { _, _ -> "page" },
-            ) { _, page ->
-                AsyncImage(
-                    model = page.page.u,
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxWidth(),
-                    contentScale = ContentScale.FillWidth,
-                )
+            ) { _, pages ->
+                if (paged) {
+                    Row(
+                        modifier = Modifier
+                            .then(maxWidthCap)
+                            .fillMaxWidth()
+                            .fillParentMaxHeight()
+                            .padding(horizontal = margin.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        pages.forEach { page ->
+                            AsyncImage(
+                                model = page.page.u,
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .padding(horizontal = 2.dp),
+                                contentScale = if (MangaReaderPrefs.stretch) {
+                                    ContentScale.FillWidth
+                                } else {
+                                    ContentScale.Fit
+                                },
+                                colorFilter = pageFilter,
+                            )
+                        }
+                        // A last, odd page in Double sits where a left-hand
+                        // page would, not stretched across both halves.
+                        if (pages.size == 1 && spread) Spacer(Modifier.weight(1f))
+                    }
+                } else {
+                    val page = pages.first()
+                    Box(
+                        modifier = Modifier
+                            .then(maxWidthCap)
+                            .fillMaxWidth(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        AsyncImage(
+                            model = page.page.u,
+                            contentDescription = null,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = margin.dp)
+                                .then(
+                                    if (MangaReaderPrefs.fitHeight) {
+                                        Modifier.fillParentMaxHeight()
+                                    } else {
+                                        Modifier
+                                    },
+                                )
+                                .then(maxHeightCap),
+                            contentScale = if (MangaReaderPrefs.fitHeight) {
+                                ContentScale.Fit
+                            } else {
+                                ContentScale.FillWidth
+                            },
+                            colorFilter = pageFilter,
+                        )
+                    }
+                }
             }
 
             item {
@@ -2453,6 +2973,24 @@ private fun MangaReaderScreen(
                 Modifier
                     .fillMaxSize()
                     .background(Color.Black.copy(alpha = dim)),
+            )
+        }
+
+        // How far into what is loaded the reader is. Drawn over the dimmed
+        // pages so it stays readable at night, and outside the chrome so it is
+        // there whether the pills are or not - which is the point of choosing
+        // between five ways of saying it.
+        if (progressStyle != ReaderProgress.NONE && displayPages.isNotEmpty()) {
+            val fraction by remember(displayPages.size) {
+                derivedStateOf {
+                    ((listState.firstVisibleItemIndex + 1).toFloat() / displayPages.size)
+                        .coerceIn(0f, 1f)
+                }
+            }
+            ReaderProgressBar(
+                style = progressStyle,
+                fraction = fraction,
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 3.dp),
             )
         }
 
@@ -2524,13 +3062,7 @@ private fun MangaReaderScreen(
                 onDismiss = { sheet = null },
             )
 
-            ReaderSheet.DISPLAY -> ReaderDisplaySheet(
-                dim = dim,
-                onDim = { dim = it },
-                continuous = continuous,
-                onContinuous = { continuous = it },
-                onDismiss = { sheet = null },
-            )
+            ReaderSheet.DISPLAY -> ReaderDisplaySheet(onDismiss = { sheet = null })
 
             ReaderSheet.HELP -> ReaderHelpSheet(onDismiss = { sheet = null })
 
@@ -2802,20 +3334,25 @@ private fun ReaderChapterSheet(
     }
 }
 
-/** Dim the pages, and choose whether the strip runs on into the next chapter. */
+/**
+ * The reader's settings, in the two tabs the site's own reader uses.
+ *
+ * Layout is how a page is drawn and how the reader moves through it; Image is
+ * how much of the page is shown and how it is coloured. Everything writes to
+ * [MangaReaderPrefs], which is state the pages already watch - so a change is
+ * a redraw, not a callback this sheet has to thread back to the reader.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ReaderDisplaySheet(
-    dim: Float,
-    onDim: (Float) -> Unit,
-    continuous: Boolean,
-    onContinuous: (Boolean) -> Unit,
-    onDismiss: () -> Unit,
-) {
+private fun ReaderDisplaySheet(onDismiss: () -> Unit) {
     val tokens = MaterialTheme.nuvio
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
+    var tab by rememberSaveable { mutableStateOf(0) }
     val dismiss: () -> Unit = {
+        // Closing the panel is when its answers are settled; the reader writes
+        // them down here rather than on every drag of the dim slider.
+        MangaReaderPrefs.save()
         scope.launch { dismissNuvioBottomSheet(sheetState = sheetState, onDismiss = onDismiss) }
     }
 
@@ -2823,56 +3360,415 @@ private fun ReaderDisplaySheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 6.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+                .fillMaxHeight(0.88f)
+                .padding(horizontal = 18.dp),
         ) {
-            Text(
-                text = "Reading",
-                style = MaterialTheme.typography.titleMedium,
-                color = tokens.colors.textPrimary,
-                modifier = Modifier.padding(vertical = 10.dp),
-            )
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "Turn the pages down",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = tokens.colors.textPrimary,
-                    modifier = Modifier.weight(1f),
-                )
-                Text(
-                    text = "${(dim * 100).toInt()}%",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = tokens.colors.textMuted,
-                )
-            }
-            Slider(
-                value = dim,
-                onValueChange = onDim,
-                valueRange = 0f..0.7f,
-            )
-
             Row(
-                modifier = Modifier.padding(vertical = 6.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Run on into the next chapter",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = tokens.colors.textPrimary,
-                    )
-                    Text(
-                        text = "Scrolling past the last page loads what comes after it.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = tokens.colors.textMuted,
+                Chip(label = "Layout", selected = tab == 0, onClick = { tab = 0 })
+                Spacer(Modifier.width(8.dp))
+                Chip(label = "Image", selected = tab == 1, onClick = { tab = 1 })
+                Spacer(Modifier.weight(1f))
+                IconButton(onClick = dismiss) {
+                    Icon(
+                        imageVector = Icons.Rounded.Close,
+                        contentDescription = "Close reader settings",
+                        tint = tokens.colors.textMuted,
                     )
                 }
-                Switch(checked = continuous, onCheckedChange = onContinuous)
             }
-
-            Spacer(Modifier.height(10.dp))
+            HorizontalDivider(color = tokens.colors.borderDefault)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                if (tab == 0) ReaderLayoutSettings() else ReaderImageSettings()
+            }
         }
+    }
+}
+
+/** The left-hand tab: how a page is laid out, and how it is turned. */
+@Composable
+private fun ReaderLayoutSettings() {
+    val tokens = MaterialTheme.nuvio
+
+    ReaderSectionLabel("LAYOUT")
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        ReaderLayout.entries.forEach { option ->
+            ReaderLayoutTile(
+                option = option,
+                selected = MangaReaderPrefs.layout == option,
+                modifier = Modifier.weight(1f),
+                onClick = { MangaReaderPrefs.layout = option },
+            )
+        }
+    }
+
+    ReaderSectionLabel("MARGIN")
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Surface(
+            modifier = Modifier.weight(1f),
+            shape = RoundedCornerShape(10.dp),
+            color = tokens.colors.surfaceCard,
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(
+                    onClick = {
+                        MangaReaderPrefs.margin = (MangaReaderPrefs.margin - 4).coerceAtLeast(0)
+                    },
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Remove,
+                        contentDescription = "Less margin",
+                        tint = tokens.colors.textPrimary,
+                    )
+                }
+                Text(
+                    text = "${MangaReaderPrefs.margin}",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = tokens.colors.textPrimary,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(
+                    onClick = {
+                        MangaReaderPrefs.margin = (MangaReaderPrefs.margin + 4).coerceAtMost(48)
+                    },
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Add,
+                        contentDescription = "More margin",
+                        tint = tokens.colors.textPrimary,
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.width(6.dp))
+        TextButton(onClick = { MangaReaderPrefs.margin = 0 }) {
+            Text("Reset", style = MaterialTheme.typography.labelLarge)
+        }
+    }
+
+    ReaderSectionLabel("PROGRESS BAR")
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        ReaderProgress.entries.forEach { style ->
+            ReaderProgressChoice(
+                style = style,
+                selected = MangaReaderPrefs.progress == style,
+                modifier = Modifier.weight(1f),
+                onClick = { MangaReaderPrefs.progress = style },
+            )
+        }
+    }
+
+    ReaderSectionLabel("SHOW CONTROLS")
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        ReaderTap.entries.forEach { gesture ->
+            ReaderChoiceTile(
+                label = if (gesture == ReaderTap.SINGLE) "Single tap" else "Double tap",
+                selected = MangaReaderPrefs.tap == gesture,
+                modifier = Modifier.weight(1f),
+                onClick = { MangaReaderPrefs.tap = gesture },
+            )
+        }
+    }
+}
+
+/** The right-hand tab: how much of the page is drawn, and how it looks. */
+@Composable
+private fun ReaderImageSettings() {
+    val tokens = MaterialTheme.nuvio
+
+    ReaderSectionLabel("IMAGE SIZING")
+    ReaderCheckRow(
+        label = "Fit width",
+        checked = MangaReaderPrefs.fitWidth,
+        onChange = { on ->
+            MangaReaderPrefs.fitWidth = on
+            if (on) MangaReaderPrefs.fitHeight = false
+        },
+    )
+    ReaderCheckRow(
+        label = "Fit height",
+        checked = MangaReaderPrefs.fitHeight,
+        onChange = { on ->
+            MangaReaderPrefs.fitHeight = on
+            if (on) MangaReaderPrefs.fitWidth = false
+        },
+    )
+    ReaderCheckRow(
+        label = "Stretch small images",
+        checked = MangaReaderPrefs.stretch,
+        onChange = { MangaReaderPrefs.stretch = it },
+    )
+    ReaderCheckRow(
+        label = "Limit max width",
+        checked = MangaReaderPrefs.maxWidth,
+        onChange = { MangaReaderPrefs.maxWidth = it },
+    )
+    ReaderCheckRow(
+        label = "Limit max height",
+        checked = MangaReaderPrefs.maxHeight,
+        onChange = { MangaReaderPrefs.maxHeight = it },
+    )
+
+    ReaderSectionLabel("IMAGE COLORING")
+    ReaderCheckRow(
+        label = "Grayscale",
+        checked = MangaReaderPrefs.grayscale,
+        onChange = { MangaReaderPrefs.grayscale = it },
+    )
+
+    ReaderSectionLabel("DIM SCREEN")
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = "Dim",
+            style = MaterialTheme.typography.bodyLarge,
+            color = tokens.colors.textPrimary,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = "${(MangaReaderPrefs.dim * 100).toInt()}%",
+            style = MaterialTheme.typography.bodySmall,
+            color = tokens.colors.textMuted,
+        )
+    }
+    Slider(
+        value = MangaReaderPrefs.dim,
+        onValueChange = { MangaReaderPrefs.dim = it },
+        valueRange = 0f..0.7f,
+    )
+
+    ReaderSectionLabel("READING")
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "Run on into the next chapter",
+                style = MaterialTheme.typography.bodyLarge,
+                color = tokens.colors.textPrimary,
+            )
+            Text(
+                text = "Scrolling past the last page loads what comes after it.",
+                style = MaterialTheme.typography.bodySmall,
+                color = tokens.colors.textMuted,
+            )
+        }
+        Switch(
+            checked = MangaReaderPrefs.continuous,
+            onCheckedChange = { MangaReaderPrefs.continuous = it },
+        )
+    }
+}
+
+/** A section heading in the panel: small, spaced, and not a button. */
+@Composable
+private fun ReaderSectionLabel(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.nuvio.colors.textMuted,
+        modifier = Modifier.padding(top = 6.dp),
+    )
+}
+
+/** One of Single / Double / Long strip. */
+@Composable
+private fun ReaderLayoutTile(
+    option: ReaderLayout,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val tokens = MaterialTheme.nuvio
+    val (icon, label) = when (option) {
+        ReaderLayout.SINGLE -> Icons.Rounded.CropPortrait to "Single"
+        ReaderLayout.DOUBLE -> Icons.Rounded.GridView to "Double"
+        ReaderLayout.STRIP -> Icons.Rounded.ViewAgenda to "Long strip"
+    }
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (selected) tokens.colors.accent.copy(alpha = 0.16f) else tokens.colors.surfaceCard)
+            .clickable(onClick = onClick)
+            .padding(vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = if (selected) tokens.colors.accent else tokens.colors.textMuted,
+            modifier = Modifier.size(22.dp),
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = if (selected) tokens.colors.accent else tokens.colors.textPrimary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/** One of the five ways the position along the chapter can be drawn. */
+@Composable
+private fun ReaderProgressChoice(
+    style: ReaderProgress,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val tokens = MaterialTheme.nuvio
+    val icon = when (style) {
+        ReaderProgress.LINE -> Icons.Rounded.Remove
+        ReaderProgress.SEGMENTS -> Icons.Rounded.MoreHoriz
+        ReaderProgress.SHORT -> Icons.Rounded.LinearScale
+        ReaderProgress.BAR -> Icons.Rounded.Crop169
+        ReaderProgress.NONE -> Icons.Rounded.Close
+    }
+    Box(
+        modifier = modifier
+            .height(42.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (selected) tokens.colors.accent.copy(alpha = 0.16f) else tokens.colors.surfaceCard)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = when (style) {
+                ReaderProgress.LINE -> "A line along the bottom"
+                ReaderProgress.SEGMENTS -> "Segmented line"
+                ReaderProgress.SHORT -> "Short line"
+                ReaderProgress.BAR -> "A bar"
+                ReaderProgress.NONE -> "No progress bar"
+            },
+            tint = if (selected) tokens.colors.accent else tokens.colors.textMuted,
+            modifier = Modifier.size(19.dp),
+        )
+    }
+}
+
+/** A word-shaped choice: Single tap / Double tap. */
+@Composable
+private fun ReaderChoiceTile(
+    label: String,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val tokens = MaterialTheme.nuvio
+    Box(
+        modifier = modifier
+            .height(42.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (selected) tokens.colors.accent.copy(alpha = 0.16f) else tokens.colors.surfaceCard)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelLarge,
+            color = if (selected) tokens.colors.accent else tokens.colors.textPrimary,
+        )
+    }
+}
+
+/** One checkbox row, on the panel's own card. */
+@Composable
+private fun ReaderCheckRow(
+    label: String,
+    checked: Boolean,
+    onChange: (Boolean) -> Unit,
+) {
+    val tokens = MaterialTheme.nuvio
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(tokens.colors.surfaceCard)
+            .clickable { onChange(!checked) }
+            .padding(horizontal = 6.dp, vertical = 0.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Checkbox(checked = checked, onCheckedChange = onChange)
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyLarge,
+            color = tokens.colors.textPrimary,
+        )
+    }
+}
+
+/** The position along what is loaded, in the style the panel chose. */
+@Composable
+private fun ReaderProgressBar(
+    style: ReaderProgress,
+    fraction: Float,
+    modifier: Modifier = Modifier,
+) {
+    val tokens = MaterialTheme.nuvio
+    val accent = tokens.colors.accent
+    val track = tokens.colors.surfaceCard
+    when (style) {
+        ReaderProgress.LINE -> Box(
+            modifier.fillMaxWidth().height(2.dp).background(track),
+        ) {
+            Box(Modifier.fillMaxWidth(fraction).fillMaxHeight().background(accent))
+        }
+
+        ReaderProgress.SEGMENTS -> Row(
+            modifier.fillMaxWidth().padding(horizontal = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            val segments = 12
+            repeat(segments) { index ->
+                val filled = (index + 1).toFloat() / segments <= fraction
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .height(3.dp)
+                        .clip(CircleShape)
+                        .background(if (filled) accent else track),
+                )
+            }
+        }
+
+        ReaderProgress.SHORT -> Box(
+            modifier = modifier.fillMaxWidth(),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(Modifier.width(150.dp).height(3.dp).clip(CircleShape).background(track)) {
+                Box(
+                    Modifier
+                        .fillMaxWidth(fraction)
+                        .fillMaxHeight()
+                        .clip(CircleShape)
+                        .background(accent),
+                )
+            }
+        }
+
+        ReaderProgress.BAR -> Box(
+            modifier.fillMaxWidth().height(6.dp).background(track),
+        ) {
+            Box(Modifier.fillMaxWidth(fraction).fillMaxHeight().background(accent))
+        }
+
+        ReaderProgress.NONE -> Unit
     }
 }
 
@@ -2904,6 +3800,9 @@ private fun ReaderHelpSheet(onDismiss: () -> Unit) {
             listOf(
                 "The chapters are one strip. Scrolling past the last page of one brings the " +
                     "next one in underneath it, and the chapter pill follows you across the seam.",
+                "The display button opens the reading panel: a page a screen, a double-page " +
+                    "spread, or the long strip; the margin, the progress bar and which tap " +
+                    "brings the controls back; how the page is scaled and coloured.",
                 "Where you stop is written down, so opening the title again lands in that " +
                     "chapter and on that page.",
                 "On the pill, < is the chapter before this one and > is the one after it.",

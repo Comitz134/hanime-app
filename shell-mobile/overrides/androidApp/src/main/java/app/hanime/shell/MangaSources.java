@@ -638,6 +638,11 @@ final class MangaSources {
      * the search reaches into the session's index for it; turning it off takes
      * it out again, which is what keeps the stored list to the sources the
      * reader actually picked.
+     *
+     * A script source is different: it arrives with its repository, so its row
+     * stays and only its switch changes. Dropping it would make the switch a
+     * one-way door - the row is how it is turned back on - and would leave a
+     * built-in repository listing nothing at all.
      */
     static synchronized JSONObject toggle(String repoUrl, String id, boolean on) throws Exception {
         ensure(application);
@@ -646,7 +651,7 @@ final class MangaSources {
             for (Source source : repo.sources) {
                 if (!source.id.equals(id)) continue;
                 source.enabled = on;
-                if (!on) disable(repo, id);
+                if (!on && "mihon".equals(repo.format)) disable(repo, id);
                 persist();
                 return state();
             }

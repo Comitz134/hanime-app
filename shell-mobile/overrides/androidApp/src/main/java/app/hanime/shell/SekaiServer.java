@@ -619,6 +619,21 @@ final class SekaiServer {
                     }
                 }
 
+                case "/manga/reader.json": {
+                    // The reader panel is one object the client owns: it asks for
+                    // it when a chapter opens, and writes it back when the panel
+                    // closes. Parsed here rather than trusted, because the route
+                    // is on loopback and a malformed string must be a refusal
+                    // rather than a preference file the app can no longer read.
+                    String save = text(q, "save");
+                    if (save.isEmpty()) return Resp.json(200, Manga.readerPrefs().toString());
+                    try {
+                        return Resp.json(200, Manga.saveReaderPrefs(new JSONObject(save)).toString());
+                    } catch (Exception failed) {
+                        return repoError("Those reading settings could not be saved.");
+                    }
+                }
+
                 case "/manga/pos.json":
                     // `hid` and `chapter` together mean "the reader is here": a
                     // write. Either alone is not a position, and neither is a read.

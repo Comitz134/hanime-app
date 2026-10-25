@@ -284,6 +284,18 @@ internal fun mangaSearchGroups(cards: List<MangaCard>): List<MangaSearchGroup> {
 }
 
 /**
+ * The catalogue a title id belongs to.
+ *
+ * A script or extension source namespaces its ids with its own id and a colon;
+ * a mangafire id has no prefix at all, because it was the only catalogue this
+ * app had when those ids were first written down. Migration is the one place
+ * that has to answer "which source is this title on" from the id alone, and the
+ * answer is also what keeps the current source out of its own candidate list.
+ */
+internal fun mangaSourceId(id: String): String =
+    if (id.contains(':')) id.substringBefore(':') else "mangafire"
+
+/**
  * What a source's language code is called on its search heading.
  *
  * The codes come from two places with different habits: extensions name an ISO
@@ -849,6 +861,22 @@ internal object MangaApi {
             parameter("remove", 1)
         }
         libraryRevision++
+    }
+
+    /**
+     * The reader's own panel, as this phone stored it.
+     *
+     * One object rather than a route per knob: the panel's shape belongs to the
+     * reader screen, and this side only has to carry it. An empty object is a
+     * phone that has never opened the panel.
+     */
+    suspend fun readerPrefs(): String = body("/manga/reader.json")
+
+    /** Write the panel back, whole. */
+    suspend fun saveReaderPrefs(panel: String) {
+        body("/manga/reader.json") {
+            parameter("save", panel)
+        }
     }
 
     /**
