@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [release, phone, github]
 created: "2026-10-21T02:06:28"
-updated: "2026-10-25T01:14:14"
+updated: "2026-10-25T05:20:00"
 ---
 
 <!-- compiled_truth -->
@@ -81,3 +81,9 @@ is why `AGENTS.md` states the rule twice.
   summary: "2.0.6 (206) published through both scripts from cda9c19; publish-apk and publish-github agreed on sha256 faf58d91, and /releases/latest/download/version.json names 206. The release APK was uninstalled and installed clean on 52070e9f first: Home opened on 5 catalogues with the seeded addon, and a search still reached Mangafire, MangaDex and Omega Scans."
   source: "publish-apk.mjs, publish-github.mjs, release URL, phone 52070e9f"
   affects: [phone-release-is-two-publishes]
+
+- time: 2026-10-25T05:20:00
+  kind: note
+  summary: "2.0.7 (207) published through both scripts from 83fe322; both agreed on sha256 992c4491, /releases/latest/download/version.json names 207, the release is not a prerelease (APK 128,028,111 bytes + version.json), and the APK was clean-installed on 52070e9f first. HyperOS refused the fresh package with INSTALL_FAILED_USER_RESTRICTED until Developer options -> Install via USB was switched on and the adb server was restarted; upgrades of the already-installed debug package had worked all along, which is what made the gate look install-specific."
+  source: "publish-apk.mjs, publish-github.mjs, GitHub API, phone 52070e9f"
+  affects: [phone-release-is-two-publishes, manga-reader-panel-and-migration]
