@@ -1,6 +1,6 @@
 # Brain Index
 
-_Auto-generated. Last updated 2026-10-26T21:20:19.759Z._
+_Auto-generated. Last updated 2026-10-26T23:51:49.054Z._
 
 - [account-carries-manga-shelf-and-mal](pages/account-carries-manga-shelf-and-mal.md) — category: decision | tags: [account, sync, manga, mal] | The account's per-profile settings blob (v5) carries two fork fields: `manga_library`, the JSON that `MangaApi.library()` returns, and `mal_
 - [account-settings-push-is-three-args](pages/account-settings-push-is-three-args.md) — category: decision | tags: [account, sync, supabase, gotcha] | This app uses a Nuvio Supabase project whose `sync_push_profile_settings_blob` has exactly three parameters: `p_platform`, `p_profile_id`, `

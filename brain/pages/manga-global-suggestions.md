@@ -5,11 +5,11 @@ category: decision
 status: active
 tags: [manga, suggestions, account, supabase, ui, feed]
 created: "2026-10-26T20:57:48"
-updated: "2026-10-26T21:20:19"
+updated: "2026-10-26T23:51:49"
 ---
 
 <!-- compiled_truth -->
-The Manga tab has a global suggestion list: any signed-in reader can put a title in front of everybody, and every client - signed in or not - reads the same list. It lives in the `sekai-accounts` Supabase project (`hijiurhppikjgammgdmg`) as `public.manga_suggestions`, with `public.manga_suggestion_feed` as the read shape. The migration is `accounts/sql/0008_manga_suggestions.sql`; the live project has it as migrations `20261026203454 manga_suggestions` and `20261026203556 manga_suggestions_grants`.
+The Manga tab has a global suggestion list: any signed-in reader can put a title in front of everybody, and every client - signed in or not - reads the same list. It lives in the `sekai-accounts` Supabase project (`hijiurhppikjgammgdmg`) as `public.manga_suggestions`, with `public.manga_suggestion_feed` as the read shape. The migration is `accounts/sql/0008_manga_suggestions.sql`; the live project has it as migrations `20261026203454 manga_suggestions` and `20261026203556 manga_suggestions_grants`. The first release to carry it is 2.0.8 (208), published from 3bb6e44 through both scripts ([[phone-release-is-two-publishes]]).
 
 ## Why it is not another shelf row
 
@@ -35,12 +35,11 @@ The private shelf already exists twice: `MangaApi.library()` on the phone and `m
 ## Evidence
 
 - The migration was applied through the Supabase MCP. A transaction as `authenticated` with a real user id inserted a row without `user_id`, read the feed as `readers: 1, mine: true`, and rolled back. An anonymous REST read of `/rest/v1/manga_suggestion_feed?order=readers.desc` answered `200 []`; an anonymous REST insert answered `401 permission denied`, and `has_table_privilege('anon', ..., 'INSERT')` is false after the grants migration.
-- `MangaSuggestionsTest` passed with `:composeApp:testAndroidHostTest --tests "com.nuvio.app.features.manga.MangaSuggestionsTest"` (`BUILD SUCCESSFUL in 7m 22s`, 5 tests, 0 failures). It holds the snake_case feed mapping, the singular/plural count wording and the "You and N others" sentence.
-- The final debug APK was built with `:androidApp:assembleFullDebug` after the route change (`BUILD SUCCESSFUL in 6m 40s`): `androidApp-full-debug.apk`, 169,683,866 bytes, sha256 `c55052253051ed2040016d1e9b2c5e0e079921ce735fcafb4b80d04ed29d3c3f`. The synced build copy matches the override sources. The phone was not attached to adb at build time, so the APK was not installed and no on-phone claim is made here.
+- `MangaSuggestionsTest` passed with `:composeApp:testAndroidHostTest --tests "com.nuvio.app.features.manga.MangaSuggestionsTest"` (5 tests, 0 failures), and passed again in the 2.0.8 session beside `MangaChaptersTest` (11 tests, 0 failures).
+- The feature ships in the 2.0.8 universal release APK (128,045,483 bytes, sha256 `92c81e68dbcb8d4aabcd3ea86c82c9ab410144505bc653d6ace51ba3bae0d4d9`), signed with the release key and published through both scripts. No phone was attached to adb at publish time, so the shelf, the star and the Recommend row have not been seen on a device.
 
 ## Not done
 
-- No version bump and no release. 2.0.7 remains the installed release; this work is on disk only.
 - No moderation beyond "own rows only". A signed-in reader can recommend anything they can open, and there is no report or hide action yet.
 - The feed groups by `(manga_id, source)`, so the same series recommended from two catalogues is two rows. That is deliberate: each row opens the catalogue it names, and merging by title would have to choose one catalogue's id.
 
@@ -99,4 +98,10 @@ The private shelf already exists twice: `MangaApi.library()` on the phone and `m
   kind: note
   summary: "Final artifact after the Suggestions back-navigation fix: APK sha256 c55052253051ed2040016d1e9b2c5e0e079921ce735fcafb4b80d04ed29d3c3f, 169,683,866 bytes, assembleFullDebug BUILD SUCCESSFUL in 6m 40s"
   source: "assembleFullDebug log, synced source diff"
+  affects: [manga-global-suggestions]
+
+- time: 2026-10-26T23:51:49
+  kind: decision
+  summary: "the suggestion list shipped in 2.0.8 (208), so the page no longer claims the work is on disk only, and the artifact evidence names the release APK"
+  source: "2.0.8 release session: publish-apk.mjs, publish-github.mjs, testAndroidHostTest log"
   affects: [manga-global-suggestions]
