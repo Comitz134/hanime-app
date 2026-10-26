@@ -97,4 +97,59 @@ class MangaChaptersTest {
         assertEquals(1, readChapterCount(unique, "n1"))
         assertEquals(33, readChapterCount(unique, "n33"))
     }
+
+    @Test
+    fun `a title is as long as its last chapter number, not its row count`() {
+        // The failing case a reader saw: a 167-chapter series whose catalogue
+        // lists a bonus 167.1 and 167.2 said "169 chapters" on the title page
+        // and "Ch. 12 of 169" on the shelf.
+        val chapters = listOf(
+            chapter("167.2"),
+            chapter("167.1"),
+            chapter("167"),
+            chapter("166"),
+            chapter("165"),
+        )
+
+        assertEquals(167, mangaChapterTotal(chapters))
+    }
+
+    @Test
+    fun `a list that is only extras still names the chapter they belong to`() {
+        // A catalogue whose newest uploads are both extras: 167.1 and 167.2 are
+        // chapter 167's, so the series has not grown past it.
+        assertEquals(
+            167,
+            mangaChapterTotal(listOf(chapter("167.2"), chapter("167.1"))),
+        )
+    }
+
+    @Test
+    fun `a title with no numbered chapters is as long as its list`() {
+        // A oneshot, or an extension that reads its numbers out of a label.
+        val chapters = listOf(chapter(""), chapter("Extra"), chapter("Special"))
+
+        assertEquals(3, mangaChapterTotal(chapters))
+        assertEquals(0, mangaChapterTotal(emptyList()))
+    }
+
+    @Test
+    fun `a prefixed number is still a number`() {
+        assertEquals(12.0, chapterNumberValue("Ch. 12") ?: -1.0, 0.0)
+        assertEquals(12.5, chapterNumberValue("#12.5") ?: -1.0, 0.0)
+        assertEquals(3.0, chapterNumberValue(" Chapter 3 ") ?: -1.0, 0.0)
+        assertEquals(null, chapterNumberValue("Extra"))
+        assertEquals(null, chapterNumberValue(""))
+    }
+
+    @Test
+    fun `a read record counts whole chapters, so extras are not extra`() {
+        // Opening 167 and both of its extras is one chapter of the series read,
+        // and never more than the series has.
+        assertEquals(1, readChapterWholeCount(setOf("167", "167.1", "167.2")))
+        assertEquals(2, readChapterWholeCount(setOf("167", "166")))
+        assertEquals(0, readChapterWholeCount(emptySet()))
+        // A label belongs to no numbered chapter and is counted as itself.
+        assertEquals(2, readChapterWholeCount(setOf("Extra", "Special")))
+    }
 }

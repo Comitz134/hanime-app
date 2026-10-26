@@ -9,6 +9,7 @@ import io.ktor.client.request.get
 import io.ktor.client.request.parameter
 import io.ktor.client.statement.bodyAsText
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
@@ -101,6 +102,81 @@ internal fun readChapterCount(chapters: List<MangaChapter>, resumeChapter: Strin
     val index = chapters.indexOfFirst { it.id == resumeChapter }
     if (index < 0) return 0
     return chapters.size - index
+}
+
+/**
+ * How long a series is, counted by chapter number rather than by rows.
+ *
+ * A catalogue lists *167*, *167.1*, *167.2*: an extra, a bonus, a second
+ * scanlation's half chapter. Counting rows made a 167-chapter series announce
+ * "169 chapters" on its title page and "Ch. 12 of 169" on the shelf, which is
+ * not a length anybody recognises. The length is the highest **whole** chapter
+ * number - the extras belong to the chapter before them and do not lengthen the
+ * series.
+ *
+ * Falls back to the number of rows when no row carries a number at all (a
+ * oneshot, a special, an extension that reads its labels out of a name): there
+ * the count is the only answer there is. A list whose numbers begin above 1
+ * (`50`, `51`, ... scanned mid-series) is reported by its last number too, which
+ * is what "where does this end" means to a reader.
+ *
+ * The same rule answers the shelf, the title page and the fraction, so two
+ * screens of one app cannot disagree about a length.
+ */
+internal fun mangaChapterTotal(chapters: List<MangaChapter>): Int {
+    if (chapters.isEmpty()) return 0
+    var highest = 0.0
+    var numbered = false
+    for (chapter in chapters) {
+        val value = chapterNumberValue(chapter.number) ?: continue
+        numbered = true
+        if (value > highest) highest = value
+    }
+    if (!numbered) return chapters.size
+    // `toInt` truncates, which is what "169.2 is still chapter 169" means, and
+    // the coerce keeps a stray `0.5` from announcing a zero-length series.
+    return highest.toInt().coerceAtLeast(1)
+}
+
+/**
+ * The number a chapter row is called by, as a number; null when it is a label.
+ *
+ * `Ch. 12`, `#12` and `12.5` are numbers. `Extra 1` is not: it is a name that
+ * happens to contain a digit, and treating it as chapter 1 would make two
+ * different rows answer to one key. That distinction is what lets the record
+ * count (`167.1` and `167` are one chapter) without merging an extra into a
+ * numbered chapter it has nothing to do with.
+ */
+internal fun chapterNumberValue(number: String): Double? {
+    val text = number.trim()
+        .removePrefix("#")
+        .removePrefix("Ch.")
+        .removePrefix("ch.")
+        .removePrefix("Chapter ")
+        .removePrefix("chapter ")
+        .trim()
+    if (text.isEmpty()) return null
+    return text.replace(',', '.').toDoubleOrNull()?.takeIf { it.isFinite() }
+}
+
+/**
+ * How many chapters a record of read marks claims, in whole chapters.
+ *
+ * The record holds numbers, and reading `167` and then `167.1` is one chapter
+ * of a series, not two. Counting distinct whole numbers is also what keeps the
+ * fraction over a length that ignores the same extras - otherwise a reader who
+ * opened two bonus chapters would be told they read more than the series has.
+ * A mark that is a label (`Extra`) is counted as itself: it belongs to no
+ * numbered chapter and must not disappear from the total.
+ */
+internal fun readChapterWholeCount(readNumbers: Set<String>): Int {
+    if (readNumbers.isEmpty()) return 0
+    val keys = HashSet<String>(readNumbers.size)
+    for (number in readNumbers) {
+        val value = chapterNumberValue(number)
+        keys += if (value == null) "label:${number.trim()}" else "chapter:${value.toInt()}"
+    }
+    return keys.size
 }
 
 /**
@@ -412,13 +488,15 @@ internal data class MangaLibraryItem(
     /** The account's id for this title, when an import matched it. */
     val mal: Long = 0L,
     /**
-     * How many chapters the title has, as the app counted them once the list
-     * was deduped; 0 until a chapter list has been read for this title.
+     * How long the series is, by chapter number (see [mangaChapterTotal]); 0
+     * until a chapter list has been read for this title.
      *
-     * The shelf carries it so a row can say "Ch. 12 of 33" without fetching a
+     * The shelf carries it so a row can say "Ch. 12 of 167" without fetching a
      * chapter list for every title in the Library. It is written by whichever
      * screen reads chapters (see [MangaApi.chapters]) and lives on the row, so
-     * it survives the app being closed.
+     * it survives the app being closed. It is a length, not a row count: the
+     * extras a catalogue lists as `167.1` and `167.2` do not make the series
+     * longer.
      */
     val chapters: Int = 0,
     /**
@@ -511,6 +589,16 @@ internal object MangaApi {
      */
     internal var libraryRevision by mutableStateOf(0)
         private set
+
+    /**
+     * The same shelf change as [libraryRevision], as a stream.
+     *
+     * The counter is what a composable keys a reload on; this is what something
+     * outside the UI can collect — the account sync, which has to know a title
+     * was added before it can push the shelf anywhere. Extra capacity so a write
+     * made while nothing is listening is not lost.
+     */
+    internal val libraryChanges = MutableSharedFlow<Unit>(extraBufferCapacity = 8)
 
     /**
      * Bumped whenever a chapter is written down as read. The title page keys
@@ -619,7 +707,7 @@ internal object MangaApi {
         // title to "3 chapters" for as long as it stayed there.
         if (!answer.offline) {
             try {
-                recordChapterCount(id, list.size)
+                recordChapterCount(id, mangaChapterTotal(list))
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -851,6 +939,7 @@ internal object MangaApi {
             if (mal != null && mal > 0L) parameter("mal", mal)
         }
         libraryRevision++
+        libraryChanges.tryEmit(Unit)
     }
 
     /** Take one title off the shelf. Its reading position, if any, stays. */
@@ -861,6 +950,7 @@ internal object MangaApi {
             parameter("remove", 1)
         }
         libraryRevision++
+        libraryChanges.tryEmit(Unit)
     }
 
     /**
@@ -904,5 +994,6 @@ internal object MangaApi {
             }
         }
         libraryRevision++
+        libraryChanges.tryEmit(Unit)
     }
 }

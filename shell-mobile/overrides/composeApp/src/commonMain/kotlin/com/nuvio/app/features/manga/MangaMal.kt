@@ -374,6 +374,32 @@ internal object MangaMal {
         entries.clear()
         runCatching { MangaMalStorage.clear() }
         authState = MangaMalAuthState()
+        // A disconnect is a setting too: the account must stop offering the
+        // session to the next device.
+        com.nuvio.app.core.sync.MangaAccountSync.onMalChanged()
+    }
+
+    /**
+     * Take the session the account already holds on another device.
+     *
+     * Called by the settings sync when this phone has no session of its own and
+     * the account's blob has one. It is the same record a completed sign-in
+     * writes — token, refresh token, the ids already matched — so the title
+     * pages, the import and the progress write all work without asking the
+     * reader to authorize again. Nothing is adopted when the payload does not
+     * carry an access token: a half-written blob must not become a session.
+     */
+    internal fun adoptSession(payload: String) {
+        val parsed = runCatching {
+            malJson.decodeFromString<MalSession>(payload)
+        }.getOrNull() ?: return
+        if (parsed.accessToken.isBlank()) return
+        session = parsed
+        loaded = true
+        pendingVerifier = null
+        entries.clear()
+        runCatching { MangaMalStorage.save(payload) }
+        authState = MangaMalAuthState(connected = true, username = parsed.username)
     }
 
     /**
@@ -1000,6 +1026,10 @@ internal object MangaMal {
 
     private fun persist(value: MalSession) {
         runCatching { MangaMalStorage.save(malJson.encodeToString(MalSession.serializer(), value)) }
+        // The session — its tokens and the ids it has already matched — is one
+        // of the settings the account carries now, so a fresh install does not
+        // ask the reader to connect MyAnimeList a second time.
+        com.nuvio.app.core.sync.MangaAccountSync.onMalChanged()
     }
 
     /** A live access token, refreshed under the lock when it is about to expire. */

@@ -37,6 +37,7 @@ sync write land.
 | [`sql/0005_catalog_device.sql`](sql/0005_catalog_device.sql) | the two views the client reads directly (`addons`, `plugins`), the supporter-programme answers this backend does not have, and the device link |
 | [`sql/0006_hardening.sql`](sql/0006_hardening.sql) | exactly who may call what (PostgreSQL grants `EXECUTE` to `PUBLIC` by default) |
 | [`sql/0007_history.sql`](sql/0007_history.sql) | what was opened, and when — the phone's history, which used to be tied to one device. Adds its own tables, policies and functions, so this one file *is* the migration |
+| [`sql/0008_manga_suggestions.sql`](sql/0008_manga_suggestions.sql) | the mobile Manga tab's global list: a title any reader recommends to everyone. Public to read, own rows to write, grouped by a feed view that hides user ids |
 | [`probe.mjs`](probe.mjs) | the live check: drives the whole contract over the public API, the way the clients do |
 
 ### Applying the migrations
@@ -45,12 +46,12 @@ In order, once each, against the project's own database — the SQL editor in th
 dashboard is enough (paste a file, run it), or `psql`:
 
 ```bash
-psql "$DATABASE_URL" -f accounts/sql/0001_schema.sql   # then 0002 … 0007
+psql "$DATABASE_URL" -f accounts/sql/0001_schema.sql   # then 0002 ... 0008
 ```
 
 They are written to be re-runnable (`create table if not exists`,
 `create or replace function`), so re-applying one after an edit is safe, and a
-fresh project is brought up by running all seven in order and nothing else.
+fresh project is brought up by running all eight in order and nothing else.
 
 A client can be newer than the project it talks to — the phone in your pocket
 is not redeployed when someone pastes a file — so the client is built to notice:

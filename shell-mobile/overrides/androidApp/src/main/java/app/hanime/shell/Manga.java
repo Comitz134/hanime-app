@@ -988,6 +988,7 @@ final class Manga {
         JSONArray out = new JSONArray();
         SharedPreferences prefs = prefs();
         if (prefs == null) return out;
+        migrateChapterCounts(prefs);
 
         Map<String, JSONObject> where = new HashMap<>();
         JSONArray read = positions();
@@ -1095,15 +1096,49 @@ final class Manga {
     }
 
     /**
-     * How many chapters a title has, as the app counted them.
+     * Drop lengths written under the old rule, once per install.
      *
-     * The count belongs to the row rather than being fetched with the shelf: it
-     * is the number of rows the *app* draws, which is what the dedupe makes it,
-     * and the shelf has no business calling upstream for a hundred titles every
-     * time the Library tab opens. The app sends it once it has read the chapter
-     * list — which it already does to open a title — and this remembers it only
-     * for a title that is on the shelf: stamping a count onto a title nobody
-     * kept would be the shelf growing behind the reader's back.
+     * A row's `chapters` used to be the number of rows in the chapter list. It
+     * is now the highest whole chapter number, because a catalogue that lists
+     * `167.1` and `167.2` did not turn chapter 167 into three chapters — and
+     * both are an int, so a stored number cannot say which rule wrote it. Rather
+     * than let every existing shelf read "of 169" until each title is opened
+     * again, the stored lengths are forgotten here and refilled by the shelf's
+     * own pass, fifteen rows at a time. A title nobody opens for a while shows
+     * "Ch. 12" without a denominator, which is honest; the old number was not.
+     */
+    private static void migrateChapterCounts(SharedPreferences prefs) {
+        if (prefs.getInt("countsVersion", 0) >= 2) return;
+        SharedPreferences.Editor edit = prefs.edit();
+        java.util.Set<String> hids = new java.util.HashSet<>(
+                prefs.getStringSet("libhids", new java.util.HashSet<>()));
+        for (String hid : hids) {
+            String raw = prefs.getString("lib:" + hid, null);
+            if (raw == null) continue;
+            try {
+                JSONObject row = new JSONObject(raw);
+                if (!row.has("chapters")) continue;
+                row.remove("chapters");
+                edit.putString("lib:" + hid, row.toString());
+            } catch (Exception ignored) {
+                // A row that will not parse has no length worth keeping anyway.
+            }
+        }
+        edit.putInt("countsVersion", 2).apply();
+    }
+
+    /**
+     * How long a title's series is, as the app worked it out from its chapters.
+     *
+     * The length belongs to the row rather than being fetched with the shelf:
+     * the shelf has no business calling upstream for a hundred titles every time
+     * the Library tab opens. The app sends it once it has read the chapter list —
+     * which it already does to open a title — and this remembers it only for a
+     * title that is on the shelf: stamping a length onto a title nobody kept
+     * would be the shelf growing behind the reader's back.
+     *
+     * The number is the highest whole chapter number, not the number of rows:
+     * see `mangaChapterTotal` on the Kotlin side.
      */
     static void setLibrarySize(String hid, int chapters) {
         SharedPreferences prefs = prefs();

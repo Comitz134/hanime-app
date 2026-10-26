@@ -46,6 +46,7 @@ import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.features.manga.MangaApi
 import com.nuvio.app.features.manga.MangaLibraryItem
+import com.nuvio.app.features.manga.mangaChapterTotal
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 
@@ -97,11 +98,12 @@ internal fun sortShelf(
 /**
  * The line under a shelf poster: where the reader is, and how long the title is.
  *
- * The title page says *12 of 33 read*; a row on a shelf has one line and has to
- * carry the place as well, so it says *Ch. 12 of 33* — the same count, with the
- * chapter it belongs to. The length is the app's own count of the rows it draws
- * (the deduped one, not the catalogue's), because two different answers to "how
- * long is this" on two screens of the same app would be worse than no answer.
+ * The title page says *12 of 167 read*; a row on a shelf has one line and has to
+ * carry the place as well, so it says *Ch. 12 of 167* - the same length, with
+ * the chapter it belongs to. The length is the highest whole chapter number
+ * (see `mangaChapterTotal`), not the number of rows the list draws: a catalogue
+ * that lists `167.1` and `167.2` has not made the series 169 chapters long, and
+ * two screens of one app must not disagree about it.
  *
  * A title whose chapter list has not been read yet has no length to give, and
  * says only where the reader is rather than inventing a denominator.
@@ -225,16 +227,19 @@ internal class MangaShelf {
             .take(COUNTED_PER_PASS)
             .toList()
         for (id in pending) {
-            val size = try {
-                MangaApi.chapters(id).size
+            // The length of the series, not the length of the list: a catalogue
+            // that lists `167.1` and `167.2` has not made chapter 167 into three
+            // chapters. See `mangaChapterTotal`.
+            val total = try {
+                mangaChapterTotal(MangaApi.chapters(id))
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
                 0
             }
-            if (size > 0) {
+            if (total > 0) {
                 val at = items.indexOfFirst { it.id == id }
-                if (at >= 0) items[at] = items[at].copy(chapters = size)
+                if (at >= 0) items[at] = items[at].copy(chapters = total)
             }
             // One at a time with a gap: the catalogue signs every call, and a
             // phone that fires a hundred of them while a finger is scrolling a

@@ -65,6 +65,7 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.Subject
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.Sync
@@ -111,8 +112,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
+import com.nuvio.app.core.auth.AuthRepository
+import com.nuvio.app.core.auth.AuthState
 import com.nuvio.app.core.ui.Chip
 import com.nuvio.app.core.ui.NuvioBottomSheetActionRow
 import com.nuvio.app.core.ui.NuvioBottomSheetDivider
@@ -196,6 +200,8 @@ private sealed interface MangaRoute {
          * title opened here stays here.
          */
         val fromLibrary: Boolean = false,
+        /** Opened from the shared list; back returns there, not to home. */
+        val fromSuggestions: Boolean = false,
     ) : MangaRoute
     data class Reader(
         val id: String,
@@ -206,6 +212,8 @@ private sealed interface MangaRoute {
         val startPage: Int = 0,
         /** Carried through from the title page, so "back" still knows. */
         val fromLibrary: Boolean = false,
+        /** Opened from the shared list; back returns there, not to home. */
+        val fromSuggestions: Boolean = false,
     ) : MangaRoute
 
     /**
@@ -233,12 +241,26 @@ private sealed interface MangaRoute {
      * app's own files through loopback, so the screen opens in airplane mode.
      */
     data object Downloads : MangaRoute
+
+    /**
+     * The titles readers recommend to everyone.
+     *
+     * Unlike the shelf, this list is not this phone's: it is read from the
+     * account's shared feed. It therefore needs a screen of its own rather than
+     * a filter on the home shelf, because home is drawn from catalogues and
+     * this list works even when no catalogue answers.
+     */
+    data object Suggestions : MangaRoute
 }
 
 @Composable
 internal fun MangaScreen(modifier: Modifier = Modifier) {
     var route by remember { mutableStateOf<MangaRoute>(MangaRoute.Browse) }
     val scope = rememberCoroutineScope()
+    // The suggestion feed marks this reader's own rows, and only a real
+    // account can write there. Read as state so signing in turns the title
+    // page's recommendation action from a hint into a button.
+    val auth by AuthRepository.state.collectAsStateWithLifecycle()
 
     // The shelf outlives its own screen. Walking into a title unmounts the
     // browse composable, and with it every `remember` inside it — a reader who
@@ -260,6 +282,10 @@ internal fun MangaScreen(modifier: Modifier = Modifier) {
         // running from a title opened before the tab was last left.
         MangaDownloads.refresh()
         MangaDownloads.watch()
+        // The shared list is not part of the shelf and has no local copy to
+        // draw first: read it once when the tab opens, then let the 45 second
+        // cache keep the walk between a title and back from asking again.
+        MangaSuggestions.load()
     }
 
     // Typing, or any filter, is a new catalogue — always from its first page.
@@ -277,6 +303,20 @@ internal fun MangaScreen(modifier: Modifier = Modifier) {
         if (route !is MangaRoute.Browse) return@LaunchedEffect
         positions.clear()
         positions.addAll(runCatching { MangaApi.positions() }.getOrDefault(emptyList()))
+        // Coming back from Settings after signing in should re-read the feed:
+        // the rows this reader wrote elsewhere, or the "mine" marker on the
+        // ones they wrote here, only exist for an authenticated request.
+        MangaSuggestions.load()
+    }
+
+    // A real account changes what the feed can say: `mine` is computed from the
+    // caller's token. The first read can race the session restore at launch, so
+    // the moment the account lands, ask again.
+    LaunchedEffect(auth) {
+        val account = auth as? AuthState.Authenticated
+        if (account != null && !account.isAnonymous) {
+            MangaSuggestions.load(force = true)
+        }
     }
 
     // A position handed over by another tab — the Library's manga row — is
@@ -354,8 +394,14 @@ internal fun MangaScreen(modifier: Modifier = Modifier) {
     // tab is asked to show it again, and the manga tab is left on its shelf for
     // the next time it is chosen.
     fun closeTitle(title: MangaRoute.Title) {
-        if (title.fromLibrary) MangaNav.requestReturnToLibrary()
-        route = MangaRoute.Browse
+        when {
+            title.fromLibrary -> {
+                MangaNav.requestReturnToLibrary()
+                route = MangaRoute.Browse
+            }
+            title.fromSuggestions -> route = MangaRoute.Suggestions
+            else -> route = MangaRoute.Browse
+        }
     }
 
     // A source's own results are one step in from the mixed list, so back is
@@ -368,6 +414,7 @@ internal fun MangaScreen(modifier: Modifier = Modifier) {
                     current.title,
                     current.poster,
                     fromLibrary = current.fromLibrary,
+                    fromSuggestions = current.fromSuggestions,
                 )
             is MangaRoute.Source -> route = MangaRoute.Title(
                 current.id,
@@ -377,6 +424,7 @@ internal fun MangaScreen(modifier: Modifier = Modifier) {
             )
             is MangaRoute.Title -> closeTitle(current)
             MangaRoute.Downloads -> route = MangaRoute.Browse
+            MangaRoute.Suggestions -> route = MangaRoute.Browse
             else -> if (feed.focusSource != null) {
                 feed.focusSource = null
                 scope.launch { listState.scrollToItem(0) }
@@ -411,6 +459,19 @@ internal fun MangaScreen(modifier: Modifier = Modifier) {
                     )
                 },
                 onDownloads = { route = MangaRoute.Downloads },
+                onSuggestions = { route = MangaRoute.Suggestions },
+            )
+
+            MangaRoute.Suggestions -> MangaSuggestionsScreen(
+                onBack = { route = MangaRoute.Browse },
+                onOpen = { suggestion ->
+                    route = MangaRoute.Title(
+                        id = suggestion.id,
+                        title = suggestion.title,
+                        poster = suggestion.poster,
+                        fromSuggestions = true,
+                    )
+                },
             )
 
             MangaRoute.Downloads -> MangaDownloadsScreen(
@@ -446,6 +507,7 @@ internal fun MangaScreen(modifier: Modifier = Modifier) {
                         poster = newPoster,
                         resume = position,
                         fromLibrary = current.fromLibrary,
+                        fromSuggestions = current.fromSuggestions,
                     )
                 },
                 onRead = { chapters, index, page ->
@@ -457,6 +519,7 @@ internal fun MangaScreen(modifier: Modifier = Modifier) {
                         index = index,
                         startPage = page,
                         fromLibrary = current.fromLibrary,
+                        fromSuggestions = current.fromSuggestions,
                     )
                 },
             )
@@ -483,6 +546,7 @@ internal fun MangaScreen(modifier: Modifier = Modifier) {
                         current.title,
                         current.poster,
                         fromLibrary = current.fromLibrary,
+                        fromSuggestions = current.fromSuggestions,
                     )
                 },
                 onHome = { route = MangaRoute.Browse },
@@ -622,6 +686,7 @@ private fun MangaBrowseScreen(
     onOpen: (MangaCard) -> Unit,
     onResume: (MangaPosition) -> Unit,
     onDownloads: () -> Unit,
+    onSuggestions: () -> Unit,
 ) {
     val tokens = MaterialTheme.nuvio
     val scope = rememberCoroutineScope()
@@ -693,6 +758,22 @@ private fun MangaBrowseScreen(
                             // works when the catalogue does not: a reader with no
                             // connection still gets a screen with a door on it.
                             actions = {
+                                // The shared list is one tap from the header so
+                                // it stays reachable when no reader has put a
+                                // title on it yet, and when the catalogue does
+                                // not answer.
+                                IconButton(onClick = onSuggestions) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Star,
+                                        contentDescription = "Reader suggestions",
+                                        modifier = Modifier.size(20.dp),
+                                        tint = if (MangaSuggestions.items.isEmpty()) {
+                                            tokens.colors.textMuted
+                                        } else {
+                                            tokens.colors.accent
+                                        },
+                                    )
+                                }
                                 // Read here rather than at the top of the screen:
                                 // a download finishing should redraw this button,
                                 // not the whole catalogue grid with it.
@@ -762,6 +843,43 @@ private fun MangaBrowseScreen(
                             imageUrl = position.poster.ifBlank { null },
                             detailLine = "Ch. ${position.number}",
                             onClick = { onResume(position) },
+                        )
+                    }
+                }
+            }
+
+            // What other readers recommend, above the catalogue because it is
+            // the one section that came from people rather than from a source.
+            // The arrow opens the whole list; a reader who has not recommended
+            // anything still sees everybody else's titles here.
+            if (feed.browsing && MangaSuggestions.items.isNotEmpty()) {
+                item(key = "suggestions") {
+                    NuvioShelfSection(
+                        title = "Reader suggestions",
+                        entries = MangaSuggestions.items.take(20),
+                        modifier = Modifier.fillMaxWidth(),
+                        headerHorizontalPadding = 16.dp,
+                        rowContentPadding = PaddingValues(horizontal = 16.dp),
+                        itemSpacing = 12.dp,
+                        onViewAllClick = onSuggestions,
+                        key = { suggestion -> "${suggestion.source}|${suggestion.id}" },
+                    ) { suggestion ->
+                        NuvioPosterCard(
+                            title = suggestion.title,
+                            imageUrl = suggestion.poster.ifBlank { null },
+                            detailLine = suggestionDetail(suggestion),
+                            onClick = {
+                                onOpen(
+                                    MangaCard(
+                                        id = suggestion.id,
+                                        title = suggestion.title,
+                                        poster = suggestion.poster,
+                                        source = suggestion.source,
+                                        sourceName = suggestion.sourceName,
+                                        sourceLang = suggestion.language,
+                                    ),
+                                )
+                            },
                         )
                     }
                 }
@@ -897,6 +1015,229 @@ private fun MangaBrowseScreen(
                 }
             }
         }
+    }
+}
+
+/**
+ * The whole shared list, not just the home shelf's first twenty.
+ *
+ * It is a destination of its own because the list has to work when nothing
+ * else does: the feed is read from the account, not from a catalogue, so it
+ * can answer on a phone whose sources are all switched off. Every row opens the
+ * title page; the rows this reader wrote carry a way to take them back.
+ */
+@Composable
+private fun MangaSuggestionsScreen(
+    onBack: () -> Unit,
+    onOpen: (MangaSuggestion) -> Unit,
+) {
+    val tokens = MaterialTheme.nuvio
+    val scope = rememberCoroutineScope()
+    val auth by AuthRepository.state.collectAsStateWithLifecycle()
+    val account = auth as? AuthState.Authenticated
+    val signedIn = account != null && !account.isAnonymous
+    val feed = MangaSuggestions.items
+    var withdrawing by remember { mutableStateOf<String?>(null) }
+    var message by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(Unit) { MangaSuggestions.load() }
+
+    NuvioScreen(
+        horizontalPadding = 0.dp,
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        item(key = "header") {
+            NuvioScreenHeader(
+                title = "Suggestions",
+                onBack = onBack,
+                modifier = Modifier.padding(horizontal = 8.dp),
+                actions = {
+                    IconButton(
+                        onClick = {
+                            message = null
+                            scope.launch { MangaSuggestions.load(force = true) }
+                        },
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Refresh,
+                            contentDescription = "Refresh suggestions",
+                            tint = tokens.colors.textMuted,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                },
+            )
+        }
+
+        item(key = "intro") {
+            Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+                Text(
+                    text = "Titles readers recommend to everyone.",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = tokens.colors.textPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "Open a manga and tap Recommend to put yours here.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = tokens.colors.textMuted,
+                )
+                if (!signedIn) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = MangaSuggestions.SIGN_IN_HINT,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = tokens.colors.textMuted,
+                    )
+                }
+                if (message != null) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = message.orEmpty(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                if (MangaSuggestions.error != null && feed.isNotEmpty()) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = "Could not refresh - showing the last list.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = tokens.colors.textMuted,
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+            }
+        }
+
+        if (MangaSuggestions.loading && feed.isEmpty()) {
+            item(key = "loading") {
+                Box(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 36.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    NuvioLoadingIndicator()
+                }
+            }
+        }
+
+        if (!MangaSuggestions.loading && feed.isEmpty()) {
+            item(key = "empty") {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 36.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Star,
+                        contentDescription = null,
+                        tint = tokens.colors.textMuted,
+                        modifier = Modifier.size(34.dp),
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        text = "No suggestions yet.",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = tokens.colors.textPrimary,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = if (MangaSuggestions.error != null) {
+                            MangaSuggestions.error.orEmpty()
+                        } else {
+                            "Be the first: open a manga and tap Recommend."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = tokens.colors.textMuted,
+                        textAlign = TextAlign.Center,
+                    )
+                    if (MangaSuggestions.error != null) {
+                        TextButton(onClick = { scope.launch { MangaSuggestions.load(force = true) } }) {
+                            Text("Try again")
+                        }
+                    }
+                }
+            }
+        }
+
+        items(
+            items = feed,
+            key = { suggestion -> "${suggestion.source}|${suggestion.id}" },
+        ) { suggestion ->
+            val key = "${suggestion.source}|${suggestion.id}"
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onOpen(suggestion) }
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Poster(
+                    url = suggestion.poster,
+                    modifier = Modifier.width(58.dp).aspectRatio(0.68f),
+                )
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = suggestion.title.ifBlank { suggestion.id },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = tokens.colors.textPrimary,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.height(3.dp))
+                    Text(
+                        text = listOfNotNull(
+                            suggestion.sourceLabel.ifBlank { null },
+                            readerCountLabel(suggestion.readers),
+                        ).joinToString(" · "),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = tokens.colors.textMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (suggestion.mine) {
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            text = "Your recommendation",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = tokens.colors.accent,
+                        )
+                    }
+                }
+                if (suggestion.mine) {
+                    IconButton(
+                        enabled = withdrawing != key,
+                        onClick = {
+                            withdrawing = key
+                            message = null
+                            scope.launch {
+                                val result = MangaSuggestions.withdraw(
+                                    suggestion.id,
+                                    suggestion.source,
+                                )
+                                withdrawing = null
+                                message = result.exceptionOrNull()?.message
+                            }
+                        },
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.DeleteOutline,
+                            contentDescription = "Remove your recommendation",
+                            tint = tokens.colors.textMuted,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
+            }
+            HorizontalDivider(
+                color = tokens.colors.borderDefault.copy(alpha = 0.5f),
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+        }
+
+        item(key = "tail") { Spacer(Modifier.height(24.dp)) }
     }
 }
 
@@ -1104,6 +1445,18 @@ private fun MangaTitleScreen(
     var downloading by remember(id) { mutableStateOf(false) }
     var migrating by remember(id) { mutableStateOf(false) }
 
+    // The shared suggestion list, as it bears on this title. A real account is
+    // what makes the action a write; an anonymous profile can still see the
+    // list and the reader count, but tapping it explains how to sign in.
+    val authState by AuthRepository.state.collectAsStateWithLifecycle()
+    val account = authState as? AuthState.Authenticated
+    val canRecommend = account != null && !account.isAnonymous
+    val suggestionSource = card.source.ifBlank { mangaSourceId(id) }
+    val recommended = MangaSuggestions.isMine(id, suggestionSource)
+    val suggestionReaders = MangaSuggestions.readersOf(id, suggestionSource)
+    var recommending by remember(id) { mutableStateOf(false) }
+    var recommendMessage by remember(id) { mutableStateOf<String?>(null) }
+
     // Keyed on the record's revision as well as the title: coming back from the
     // reader re-reads it, which is what puts the chapter just finished into the
     // fraction and under a *read* mark without either screen telling the other.
@@ -1187,11 +1540,15 @@ private fun MangaTitleScreen(
     val readNumbers = remember(chapters.size, resumeChapterId, lookup, recorded, accountRead) {
         readChapterNumbers(chapters.toList(), recorded, accountRead, resumeChapterId)
     }
-    val readCount = readNumbers.size
+    // Whole chapters, not rows and not marks: `167` and `167.1` are one chapter
+    // of the series, and a title's length ignores the extras in the same way
+    // (see `mangaChapterTotal`). Two screens of one app must not disagree.
+    val readCount = readChapterWholeCount(readNumbers)
+    val total = mangaChapterTotal(chapters.toList())
 
     // A title read before this record existed has a position and no marks. The
     // chapters the old boundary rule claims are offered once, so the count does
-    // not drop from "12 of 33" to "1 of 33" the first time the reader opens a
+    // not drop from "12 of 167" to "1 of 167" the first time the reader opens a
     // chapter on this build. The server refuses the write if a record exists,
     // so this can never overwrite the reader's own history.
     LaunchedEffect(id, chapters.size, resumeChapterId, recorded) {
@@ -1273,7 +1630,7 @@ private fun MangaTitleScreen(
                     if (chapters.isNotEmpty()) {
                         Spacer(Modifier.height(2.dp))
                         Text(
-                            text = "${chapters.size} chapters",
+                            text = savedCount(total, "chapter", "chapters"),
                             style = MaterialTheme.typography.bodySmall,
                             color = tokens.colors.textMuted,
                         )
@@ -1344,6 +1701,52 @@ private fun MangaTitleScreen(
             Spacer(Modifier.height(14.dp))
         }
 
+        // One title, in front of everybody. The row is separate from the four
+        // action tiles because recommending is a social act, not a setting:
+        // it has a sentence to say - how many readers are already behind the
+        // title - that a fifth tile would have to truncate.
+        item(key = "recommend") {
+            MangaRecommendRow(
+                mine = recommended,
+                readers = suggestionReaders,
+                signedIn = canRecommend,
+                busy = recommending,
+                message = recommendMessage,
+                onClick = {
+                    when {
+                        !canRecommend -> recommendMessage = MangaSuggestions.SIGN_IN_HINT
+                        recommending -> Unit
+                        else -> {
+                            val name = card.title.ifBlank { title }
+                            val art = card.poster.ifBlank { poster }
+                            val catalogue = card.sourceName.ifBlank {
+                                if (suggestionSource == "mangafire") "Mangafire" else ""
+                            }
+                            scope.launch {
+                                recommending = true
+                                recommendMessage = null
+                                val result = if (recommended) {
+                                    MangaSuggestions.withdraw(id, suggestionSource)
+                                } else {
+                                    MangaSuggestions.recommend(
+                                        id = id,
+                                        title = name,
+                                        poster = art,
+                                        source = suggestionSource,
+                                        sourceName = catalogue,
+                                        language = card.sourceLang,
+                                    )
+                                }
+                                recommending = false
+                                recommendMessage = result.exceptionOrNull()?.message
+                            }
+                        }
+                    }
+                },
+            )
+            Spacer(Modifier.height(8.dp))
+        }
+
         if (card.description.isNotEmpty()) {
             item(key = "synopsis") {
                 Text(
@@ -1393,13 +1796,13 @@ private fun MangaTitleScreen(
                     Spacer(Modifier.weight(1f))
                     if (readCount > 0) {
                         Text(
-                            text = "$readCount of ${chapters.size} read",
+                            text = "$readCount of $total read",
                             style = MaterialTheme.typography.labelSmall,
                             color = tokens.colors.textMuted,
                         )
                     }
                 }
-                if (readCount > 0 && chapters.isNotEmpty()) {
+                if (readCount > 0 && total > 0) {
                     Spacer(Modifier.height(8.dp))
                     // The bar is drawn rather than asked for: three pixels of
                     // accent under a heading is a track and a fill, and a
@@ -1414,7 +1817,9 @@ private fun MangaTitleScreen(
                     ) {
                         Box(
                             modifier = Modifier
-                                .fillMaxWidth(readCount.toFloat() / chapters.size)
+                                .fillMaxWidth(
+                                    (readCount.toFloat() / total).coerceIn(0f, 1f),
+                                )
                                 .height(3.dp)
                                 .clip(CircleShape)
                                 .background(tokens.colors.accent),
@@ -1837,6 +2242,81 @@ private fun MangaActionTile(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+    }
+}
+
+/**
+ * "Recommend this to everyone", as a row under the action tiles.
+ *
+ * The row toggles: an unmarked title is added to the shared list, a title this
+ * reader already recommended is taken back. The count is the whole list's
+ * count, not a per-source one, because that is what "everyone" means here.
+ * Without an account the row still draws - the reader should know the feature
+ * exists - and its subtitle says what signing in would buy.
+ */
+@Composable
+private fun MangaRecommendRow(
+    mine: Boolean,
+    readers: Long,
+    signedIn: Boolean,
+    busy: Boolean,
+    message: String?,
+    onClick: () -> Unit,
+) {
+    val tokens = MaterialTheme.nuvio
+    val shape = RoundedCornerShape(NuvioTokens.Radius.md)
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(shape)
+                .background(tokens.colors.surfaceCard)
+                .clickable(enabled = !busy, onClick = onClick)
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Star,
+                contentDescription = null,
+                tint = if (mine) tokens.colors.accent else tokens.colors.textMuted,
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = if (mine) "Recommended to everyone" else "Recommend to everyone",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = tokens.colors.textPrimary,
+                    fontWeight = FontWeight.Medium,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = when {
+                        !signedIn -> "Sign in to add yours"
+                        busy -> "Saving"
+                        else -> recommendationLine(mine, readers)
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = tokens.colors.textMuted,
+                )
+            }
+            if (signedIn) {
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = if (mine) "Remove" else "Add",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (mine) tokens.colors.textMuted else tokens.colors.accent,
+                )
+            }
+        }
+        if (message != null) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
     }
 }
 
