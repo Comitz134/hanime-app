@@ -1,13 +1,13 @@
 # Brain Index
 
-_Auto-generated. Last updated 2026-10-27T19:24:08.389Z._
+_Auto-generated. Last updated 2026-10-27T19:58:19.909Z._
 
 - [account-carries-manga-shelf-and-mal](pages/account-carries-manga-shelf-and-mal.md) — category: decision | tags: [account, sync, manga, mal] | The account's per-profile settings blob (v5) carries two fork fields: `manga_library`, the JSON that `MangaApi.library()` returns, and `mal_
 - [account-settings-push-is-three-args](pages/account-settings-push-is-three-args.md) — category: decision | tags: [account, sync, supabase, gotcha] | This app uses a Nuvio Supabase project whose `sync_push_profile_settings_blob` has exactly three parameters: `p_platform`, `p_profile_id`, `
 - [brain-installed-in-repo](pages/brain-installed-in-repo.md) — category: decision | tags: [process, agents, tooling] | The brain is committed to this repository - BRAIN.md, brain/, the skills bundle and the CLI - and the bundled installer must never be run in
 - [desktop-releases-tagged-namespaced](pages/desktop-releases-tagged-namespaced.md) — category: decision | tags: [release, desktop, github] | Desktop builds ship as GitHub prereleases tagged desktop-v<version>, so the phone's manifest URL keeps resolving to phone releases.
 - [fork-carried-as-overrides](pages/fork-carried-as-overrides.md) — category: concept | tags: [shell, shell-mobile, upstream, licensing] | shell/ and shell-mobile/ are upstream Nuvio forks kept as overrides/ slices applied over .upstream/, so every edit belongs in overrides/ or
-- [manga-cdn-page-referer](pages/manga-cdn-page-referer.md) — category: concept | tags: [manga, mangafire, reader, cdn, 403] | <current best understanding — replace this with the real content>
+- [manga-cdn-page-referer](pages/manga-cdn-page-referer.md) — category: concept | tags: [manga, mangafire, reader, cdn, 403] | Reading a chapter from mangafire opened black: the page list arrived, but every image in it failed. The cause was how the image proxy decide
 - [manga-downloads-are-files](pages/manga-downloads-are-files.md) — category: decision | tags: [manga, downloads, offline, reader] | The Manga tab can keep chapters on the phone. A saved chapter is a directory of page images under the app's own files (`filesDir/manga-offli
 - [manga-extension-repositories](pages/manga-extension-repositories.md) — category: decision | tags: [manga, sources, mihon, extensions, settings] | The Manga tab's catalogues come from repositories, plural. Settings -> Content & discovery -> Manga sources lists them under one plus, and t
 - [manga-extensions-survive-r8](pages/manga-extensions-survive-r8.md) — category: decision | tags: [build, r8, release, manga, extensions] | The release build is minified (R8 + resource shrinking), and the manga sources only survive it because `composeApp/proguard-rules.pro` keeps
