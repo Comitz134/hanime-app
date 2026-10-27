@@ -767,7 +767,14 @@ final class Manga {
      * and inventing one (mangafire's) would be a lie another host might act on.
      */
     private static boolean mangafireHost(String url) {
-        return url != null && (url.contains("mangafire.") || url.contains("mfcdn."));
+        if (url == null) return false;
+        // The CDN's hosts are numbered and rotate: mfcdn.to was joined (and
+        // then replaced) by mfcdn2.xyz, pw6.mfcdn2.xyz style shuffles. Matching
+        // the old `mfcdn.` exactly missed every `mfcdn2.` page host, so the
+        // referer was never sent and the CDN answered 403 to every image: a
+        // black chapter with a page list that looked perfectly fine.
+        String lower = url.toLowerCase(java.util.Locale.ROOT);
+        return lower.contains("mangafire.") || lower.contains("mfcdn");
     }
 
     // ------------------------------------------------------------- positions
