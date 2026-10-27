@@ -1,6 +1,6 @@
 # Brain Index
 
-_Auto-generated. Last updated 2026-10-26T23:51:49.054Z._
+_Auto-generated. Last updated 2026-10-27T18:42:37.528Z._
 
 - [account-carries-manga-shelf-and-mal](pages/account-carries-manga-shelf-and-mal.md) — category: decision | tags: [account, sync, manga, mal] | The account's per-profile settings blob (v5) carries two fork fields: `manga_library`, the JSON that `MangaApi.library()` returns, and `mal_
 - [account-settings-push-is-three-args](pages/account-settings-push-is-three-args.md) — category: decision | tags: [account, sync, supabase, gotcha] | This app uses a Nuvio Supabase project whose `sync_push_profile_settings_blob` has exactly three parameters: `p_platform`, `p_profile_id`, `
@@ -16,5 +16,6 @@ _Auto-generated. Last updated 2026-10-26T23:51:49.054Z._
 - [manga-read-record](pages/manga-read-record.md) — category: decision | tags: [manga, shelf, tracking, reader] | The reader stores which chapter numbers it has actually opened, per title, and the
 - [manga-reader-panel-and-migration](pages/manga-reader-panel-and-migration.md) — category: decision | tags: [manga, reader, migration, downloads, sources, ui] | Four changes in `shell-mobile/overrides`: the title page's fourth tile is Migrate instead of a WebView onto the site, the reader's settings
 - [manga-search-sections](pages/manga-search-sections.md) — category: decision | tags: [manga, search, sources, ui] | A keyword search asks every enabled source and the server answers one interleaved list, each card tagged with `source`, `sourceName` and (ne
+- [manga-signer-one-answer-per-request](pages/manga-signer-one-answer-per-request.md) — category: concept | tags: [manga, mangafire, signer, 403, webview] | Opening a manga sometimes answered `upstream http 403`, and tapping back in usually worked. The signer page parked every answer in one share
 - [phone-release-is-two-publishes](pages/phone-release-is-two-publishes.md) — category: decision | tags: [release, phone, github] | A phone release needs publish-apk.mjs and publish-github.mjs; only the GitHub upload is what an installed phone updates from.
 - [phone-ships-no-addon-by-default](pages/phone-ships-no-addon-by-default.md) — category: concept | tags: [phone, addons, home, release] | A fresh install seeds the app's own loopback addon (http://127.0.0.1:8787/addon/manifest.json) into the first profile's addon list before th

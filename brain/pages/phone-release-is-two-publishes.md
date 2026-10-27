@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [release, phone, github]
 created: "2026-10-21T02:06:28"
-updated: "2026-10-26T23:49:27"
+updated: "2026-10-27T18:38:00"
 ---
 
 <!-- compiled_truth -->
@@ -93,3 +93,9 @@ is why `AGENTS.md` states the rule twice.
   summary: "2.0.8 (208) published through both scripts from 3bb6e44; publish-apk and publish-github agreed on sha256 92c81e68, /releases/latest/download/version.json names 208 with size 128045483, the release is not a prerelease, and v2.0.8 points at 3bb6e44. The universal APK carries the account-carried shelf and MAL session, the last-chapter-number length rule and the global suggestion list. No phone was attached to adb at publish time, so no install was attempted."
   source: "publish-apk.mjs, publish-github.mjs, GitHub API, git ls-remote, adb devices"
   affects: [phone-release-is-two-publishes, account-carries-manga-shelf-and-mal, manga-length-is-last-chapter-number, manga-global-suggestions]
+
+- time: 2026-10-27T18:38:00
+  kind: note
+  summary: "2.0.9 (209) published through both scripts from fc7b138; both agreed on sha256 a6fa73b5, /releases/latest/download/version.json names 209 with size 128046943, the release is not a prerelease, and v2.0.9 carries the per-request signer fix and the seeded Keiyoushi repository. The build was installed on 52070e9f and the reader's back-and-forth loop was walked there: no 403. The universal APK is named androidApp-full-universal-release.apk now, not app-universal-release.apk as AGENTS.md still says."
+  source: "publish-apk.mjs, publish-github.mjs, GitHub API, adb on 52070e9f"
+  affects: [phone-release-is-two-publishes, manga-signer-one-answer-per-request, manga-extension-repositories]

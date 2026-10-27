@@ -86,7 +86,7 @@ export NUVIO_RELEASE_KEY_PASSWORD="$(sed -n 's/^keyPassword=//p' "$ks" | tr -d '
   org.gradle.wrapper.GradleWrapperMain :androidApp:assembleFullRelease --no-daemon --console=plain)
 
 cd server
-node scripts/publish-apk.mjs ../shell-mobile/.upstream/androidApp/build/outputs/apk/full/release/app-universal-release.apk --notes "..."
+node scripts/publish-apk.mjs ../shell-mobile/.upstream/androidApp/build/outputs/apk/full/release/androidApp-full-universal-release.apk --notes "..."
 node --env-file=../.env scripts/publish-github.mjs --repo Comitz134/hanime-app --notes "..."
 ```
 

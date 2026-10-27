@@ -5,7 +5,7 @@ category: decision
 status: active
 tags: [manga, sources, mihon, extensions, settings]
 created: "2026-10-23T22:32:36"
-updated: "2026-10-25T00:44:27"
+updated: "2026-10-27T18:42:37"
 ---
 
 <!-- compiled_truth -->
@@ -16,6 +16,14 @@ The Manga tab's catalogues come from repositories, plural. Settings -> Content &
 Decoded from keiyoushi's published `index.pb`: field 1 name, 2 shortName, 3 signingKeyFingerprint, and **101 is one wrapper message whose field 1 repeats once per extension** - not a repeated 101. Each extension is 1 name, 2 pkg, 3 urls (1 apk, 2 icon, 31 jar), 5 versionCode, 6 version, 7 contentWarning, 8 repeated sources; a source is 1 id (64-bit varint), 2 name, 3 lang, 4 baseUrl. The parser was checked against the real file: 1,426 extensions, 2,422 sources, every apk present. A hand-built fixture in `MangaSourceTest` (gzipped, same layout) keeps it that way, including a relative apk address being resolved against the index URL.
 
 The user's example URL `github.com/yuzono/manga-repo/raw/repo/index.pb` answers 404 - that repository publishes `index.min.json` only. Both shapes work; the dead URL is a gotcha, not a format.
+
+## Keiyoushi arrives with the app
+
+Every install is seeded with `https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.pb` (`MangaSources.KEIYOUSHI`), so a reader who never pastes a URL still gets the extension ecosystem a Mihon reader would have. `seedKeiyoushi()` runs from `load()`: the row is added **without** reading the index - 109 KB of protobuf naming 1,400 extensions does not belong on the thread opening the app - and `fillSeededCounts()` reads it on a daemon thread afterwards, because a row reading "0 of 0 on" cannot be judged. The picker's own read waits on the same lock and gets the same index.
+
+The flag (`keiyoushi.v1`) means **offered**, not required: a repository the reader already added by hand is left alone (and only marked), and one they remove later stays removed. A first run with no connection leaves the row without counts; the read is retried on the next start.
+
+Verified on 52070e9f (2.0.9): on a fresh install the row is there with `1431 extensions / 2344 sources` once the background read lands, it survives a force-stop and relaunch with no second seed line in the log, and opening it answers the index as before.
 
 ## Installed is not offered
 
@@ -75,3 +83,15 @@ After the Injekt fix, same phone and the same enabled sources (ComicK, MangaDex,
   summary: "2.0.5 ships repositories and extensions to phones; the minified release needed three R8 keeps, recorded in [[manga-extensions-survive-r8]]"
   source: "release session, proguard-rules.pro"
   affects: [manga-extension-repositories, manga-extensions-survive-r8]
+
+- time: 2026-10-27T18:38:00
+  kind: decision
+  summary: "Keiyoushi is seeded on every install, added without a blocking index read and counted in the background; the flag means offered, so a repository the reader removes stays removed"
+  source: "MangaSources.java seedKeiyoushi / fillSeededCounts, 2.0.9 release, 52070e9f"
+  affects: [manga-extension-repositories, manga-signer-one-answer-per-request, phone-release-is-two-publishes]
+
+- time: 2026-10-27T18:42:37
+  kind: decision
+  summary: Rewrote compiled_truth to the new best understanding
+  source: "MangaSources.java seedKeiyoushi / fillSeededCounts, 2.0.9 on 52070e9f"
+  affects: [manga-extension-repositories]

@@ -80,7 +80,7 @@ export NUVIO_RELEASE_KEY_PASSWORD="$(sed -n 's/^keyPassword=//p' "$ks" | tr -d '
   org.gradle.wrapper.GradleWrapperMain :androidApp:assembleFullRelease --no-daemon --console=plain)
 ```
 
-The ABI splits are written beside one `app-universal-release.apk`; the
+The ABI splits are written beside one `androidApp-full-universal-release.apk`; the
 universal file is the one published, because a release is one download that
 installs on every phone (the updater prefers an ABI-named asset when a future
 release carries several, and falls back to the single APK).
@@ -90,7 +90,7 @@ GitHub release that phones actually update from:
 
 ```bash
 cd server
-node scripts/publish-apk.mjs ../shell-mobile/.upstream/androidApp/build/outputs/apk/full/release/app-universal-release.apk --notes "..."
+node scripts/publish-apk.mjs ../shell-mobile/.upstream/androidApp/build/outputs/apk/full/release/androidApp-full-universal-release.apk --notes "..."
 node --env-file=../.env scripts/publish-github.mjs --repo Comitz134/hanime-app --notes "..."
 ```
 
