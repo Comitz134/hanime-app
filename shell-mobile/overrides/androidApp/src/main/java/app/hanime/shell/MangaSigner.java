@@ -161,22 +161,27 @@ final class MangaSigner {
      * Sign one request. Returns `{query, token}` — the query string that was
      * signed and the `vrf` for it — or null when the bundle had nothing to give.
      *
-     * Safe to call from any thread: the work is posted to the UI thread, and the
-     * caller waits only for one expression plus the interceptor's own promise.
+     * Safe to call from any thread, and safe to call while another call is
+     * waiting: the page answers each request under its own id, so two calls in
+     * flight at once cannot be handed the same token. They used to be - a title
+     * page asks for the title and its chapters together, and the shared slot
+     * gave both the token minted last, which upstream refused as 403.
      */
     String[] sign(String path, String paramsJson) {
         String quotedPath = JSONObject.quote(path);
         String quotedParams = JSONObject.quote(paramsJson);
 
         // The interceptor may answer on a later turn of the event loop, so the
-        // page parks its answer in `window.__mfResult` and this polls for it.
-        String[] fired = evaluate("(function(){window.__mfSign(" + quotedPath + ","
-                + quotedParams + ");return 'ok';})()", DEFAULT_TIMEOUT_MS);
+        // page parks its answer under the id it returned and this polls for it.
+        String[] fired = evaluate("(function(){return String(window.__mfSign(" + quotedPath + ","
+                + quotedParams + "));})()", DEFAULT_TIMEOUT_MS);
         if (fired == null) return null;
+        String id = fired[0];
 
         for (int i = 0; i < POLLS; i++) {
             String[] value = evaluate(
-                    "(function(){return window.__mfResult===null?null:window.__mfResult;})()",
+                    "(function(){var v=window.__mfResultFor(" + JSONObject.quote(id) + ");"
+                            + "return v===undefined||v===null?null:v;})()",
                     2_000);
             if (value != null && value[0] != null && !value[0].isEmpty()) {
                 try {

@@ -109,12 +109,22 @@ Object.defineProperty(window, '__mfReady', {
 });
 
 /**
- * Sign one request. `paramsJson` is the request's parameters as JSON; the
- * answer lands in `window.__mfResult` as `{"qs":…,"vrf":…}` — Java polls for it,
- * because the interceptor is allowed to be asynchronous.
+ * Sign one request, and keep every answer apart from the others.
+ *
+ * `paramsJson` is the request's parameters as JSON. The id comes back
+ * synchronously and the answer lands under that id, because more than one
+ * request is in flight at a time: a title page asks for the title and its
+ * chapter list together. A single shared slot handed both callers whichever
+ * token was minted last, and since the token is minted from the path, the
+ * request that carried another one's token was answered 403 — intermittently,
+ * depending on which promise settled first, which is how the reader saw it:
+ * one tap failed, the next worked.
  */
+let mfSeq = 0;
+const mfAnswers = Object.create(null);
+
 window.__mfSign = function (path, paramsJson) {
-  window.__mfResult = null;
+  const id = ++mfSeq;
   let params;
   try {
     params = clean(JSON.parse(paramsJson || '{}'));
@@ -124,9 +134,12 @@ window.__mfSign = function (path, paramsJson) {
   const qs = encode(params);
   const done = (vrf, why, debug) => {
     if (why) diag(`sign ${path}: ${why}`);
-    window.__mfResult = JSON.stringify({ qs, vrf: vrf || '', why: why || '', debug: debug || '' });
+    mfAnswers[id] = JSON.stringify({ qs, vrf: vrf || '', why: why || '', debug: debug || '' });
   };
-  if (!signRequest) return done('', 'no interceptor');
+  if (!signRequest) {
+    done('', 'no interceptor');
+    return id;
+  }
   try {
     Promise.resolve(signRequest({ url: path, method: 'get', params, headers: {}, baseURL: '/api' }))
       .then((cfg) => {
@@ -149,6 +162,16 @@ window.__mfSign = function (path, paramsJson) {
   } catch (e) {
     done('', `signer threw: ${e && e.message}`);
   }
+  return id;
+};
+
+/** One request's answer, once: Java polls this until it lands. */
+window.__mfResultFor = function (id) {
+  const key = String(id);
+  const value = mfAnswers[key];
+  if (value === undefined) return null;
+  delete mfAnswers[key];
+  return value;
 };
 
 /**

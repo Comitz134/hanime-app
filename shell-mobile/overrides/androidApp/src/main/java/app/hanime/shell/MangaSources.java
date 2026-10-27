@@ -77,6 +77,19 @@ final class MangaSources {
     /** The built-in repository's address. Not fetched: its files are in the APK. */
     static final String BUILTIN = "builtin://sekai";
 
+    /**
+     * The extension repository every install starts with.
+     *
+     * Keiyoushi is where Mihon readers get their catalogues, and the Manga tab
+     * is a thin thing without it: two built-in sources against an ecosystem.
+     * The address is the one the Add dialog suggests, so the row a reader finds
+     * on first run is the row they would have pasted themselves.
+     */
+    static final String KEIYOUSHI = "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.pb";
+
+    /** Written once the seed has been offered, so a repository the reader removed stays removed. */
+    private static final String SEEDED = "keiyoushi.v1";
+
     private static final int MAX_REPOS = 20;
     private static final int MAX_SOURCES = 200;
     private static final int MAX_SCRIPT = 256 * 1024;
@@ -238,6 +251,7 @@ final class MangaSources {
             }
         }
         if (repos.isEmpty()) installBuiltin();
+        seedKeiyoushi();
         persist();
     }
 
@@ -340,6 +354,93 @@ final class MangaSources {
             repo.sources.add(nativeSource());
         }
         repos.add(repo);
+    }
+
+    /**
+     * Put the extension repository in the list once, on every install.
+     *
+     * The row is added without reading the index: 109 KB of protobuf naming
+     * 1,400 extensions does not belong on the thread that is opening the app,
+     * and nothing on the settings page needs it until a row is tapped. The
+     * counts are filled in behind it, because a repository that says "0 of 0
+     * on" is not one a reader can judge.
+     *
+     * A repository the reader already added by hand is left alone (and only
+     * marked as seeded), as is one they remove later: the flag means "offered",
+     * not "required".
+     */
+    private static void seedKeiyoushi() {
+        SharedPreferences prefs = prefs();
+        if (prefs == null) return;
+
+        Repo seeded = null;
+        for (Repo repo : repos) {
+            if (KEIYOUSHI.equals(repo.url)) {
+                seeded = repo;
+                break;
+            }
+        }
+
+        if (!prefs.getBoolean(SEEDED, false)) {
+            boolean handAdded = false;
+            for (Repo repo : repos) {
+                if (repo.url != null && repo.url.toLowerCase().contains("keiyoushi")) {
+                    handAdded = true;
+                    break;
+                }
+            }
+            prefs.edit().putBoolean(SEEDED, true).apply();
+            if (handAdded) return;
+            if (repos.size() >= MAX_REPOS) {
+                Log.w(TAG, "no room for the seeded repository: " + repos.size() + " already installed");
+                return;
+            }
+            Repo repo = new Repo();
+            repo.url = KEIYOUSHI;
+            repo.name = "Keiyoushi";
+            repo.format = "mihon";
+            repo.updated = System.currentTimeMillis();
+            repos.add(repo);
+            seeded = repo;
+            Log.i(TAG, "seeded " + KEIYOUSHI);
+        }
+
+        // A first run with no connection left the row without counts; the read is
+        // tried again on the next start rather than waited for here.
+        if (seeded != null && seeded.totalExtensions == 0) fillSeededCounts();
+    }
+
+    /**
+     * Read the seeded repository's index once, off the caller's thread.
+     *
+     * The settings row draws `totalExtensions` and `totalSources`, which are
+     * stored; without this the row would say nothing until the reader opened
+     * it. A reader who opens the picker while this runs waits on the same lock
+     * and gets the same index.
+     */
+    private static void fillSeededCounts() {
+        Thread worker = new Thread(() -> {
+            synchronized (MangaSources.class) {
+                Repo found = null;
+                for (Repo candidate : repos) {
+                    if (KEIYOUSHI.equals(candidate.url)) {
+                        found = candidate;
+                        break;
+                    }
+                }
+                if (found == null) return;
+                try {
+                    ensureExtensions(found);
+                    persist();
+                    Log.i(TAG, "seeded repository read: " + found.totalExtensions
+                            + " extensions, " + found.totalSources + " sources");
+                } catch (Exception failed) {
+                    Log.w(TAG, "the seeded repository's index could not be read: " + message(failed));
+                }
+            }
+        }, "manga-seed-counts");
+        worker.setDaemon(true);
+        worker.start();
     }
 
     private static String readAsset(String name) throws Exception {
@@ -917,6 +1018,7 @@ final class MangaSources {
                         .put("extensions", new JSONArray());
             }
             ensureExtensions(repo);
+            persist();
             Map<String, Boolean> on = new HashMap<>();
             for (Source source : repo.sources) on.put(source.id, source.enabled);
             JSONArray extensions = new JSONArray();
