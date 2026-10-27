@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -43,6 +44,9 @@ final class Manga {
     private static final String TAG = "ShellManga";
     private static final String API = "https://mangafire.to/api";
     private static final String SITE = "https://mangafire.to/";
+    private static final String SITE_HOST = "mangafire.to";
+    /** Hosts that have told us, by accepting a retry, which referer they want. */
+    private static final Map<String, String> REFERERS = new ConcurrentHashMap<>();
     private static final int TIMEOUT_MS = 15_000;
 
     /**
@@ -702,21 +706,70 @@ final class Manga {
             if (hit != null) return hit;
         }
 
-        byte[] body;
-        String type;
+        String host = hostOf(target);
+        String referer = refererFor(host);
+        PageResponse response = download(target, referer);
+
+        // A host this build has never seen gets one retry with the site
+        // referer when it answers 403, because that is the answer "no referer"
+        // earns on their CDN. The answer is remembered per host, so a rename
+        // costs one refused page rather than a black chapter.
+        if (response.code == 403 && referer == null) {
+            PageResponse retried = download(target, SITE);
+            if (retried.code == 200) {
+                REFERERS.put(host, SITE);
+                Log.i(TAG, "page host " + host + " takes the site referer");
+            }
+            response = retried;
+        }
+
+        if (response.code != 200 || response.body == null) {
+            Log.w(TAG, "page failed: " + target + " HTTP " + response.code);
+            return null;
+        }
+
+        byte[] body = response.body;
+        Page page = new Page(
+                body, response.type == null || response.type.isEmpty() ? "image/jpeg" : response.type);
+        if (keep) {
+            synchronized (PAGES) {
+                if (pageBytes + body.length <= PAGE_CACHE_BYTES) {
+                    PAGES.put(target, page);
+                    pageBytes += body.length;
+                }
+            }
+        }
+        return page;
+    }
+
+    /** One page host's answer, usable or not. */
+    private static final class PageResponse {
+        final byte[] body;
+        final String type;
+        final int code;
+
+        PageResponse(byte[] body, String type, int code) {
+            this.body = body;
+            this.type = type;
+            this.code = code;
+        }
+    }
+
+    /** Fetch one page's bytes, with the given referer when there is one. */
+    private static PageResponse download(String target, String referer) {
         try {
             HttpURLConnection conn = (HttpURLConnection) new URL(target).openConnection();
             conn.setConnectTimeout(TIMEOUT_MS);
             conn.setReadTimeout(30_000);
-            if (mangafireHost(target)) conn.setRequestProperty("Referer", SITE);
+            if (referer != null) conn.setRequestProperty("Referer", referer);
             conn.setRequestProperty("Accept", "image/avif,image/webp,image/*,*/*;q=0.8");
             conn.setRequestProperty("User-Agent", Streams.USER_AGENT);
             try {
                 int code = conn.getResponseCode();
-                if (code != 200) throw new IllegalStateException("page returned HTTP " + code);
-                type = conn.getContentType();
+                if (code != 200) return new PageResponse(null, null, code);
+                String type = conn.getContentType();
                 try (InputStream in = conn.getInputStream()) {
-                    body = readBytes(in);
+                    return new PageResponse(readBytes(in), type, code);
                 }
             } finally {
                 conn.disconnect();
@@ -729,52 +782,61 @@ final class Manga {
                         .url(target)
                         .header("Accept", "image/avif,image/webp,image/*,*/*;q=0.8")
                         .header("User-Agent", Streams.USER_AGENT);
-                if (mangafireHost(target)) request.header("Referer", SITE);
+                if (referer != null) request.header("Referer", referer);
                 try (okhttp3.Response response = CLIENT.newCall(request.build()).execute()) {
                     if (!response.isSuccessful() || response.body() == null) {
-                        Log.w(TAG, "page failed: " + target + " HTTP " + response.code());
-                        return null;
+                        return new PageResponse(null, null, response.code());
                     }
-                    type = response.header("Content-Type");
-                    body = response.body().bytes();
+                    return new PageResponse(
+                            response.body().bytes(), response.header("Content-Type"), response.code());
                 }
             } catch (Exception failure) {
                 Log.w(TAG, "page failed: " + target, failure);
-                return null;
+                return new PageResponse(null, null, -1);
             }
         } catch (Exception e) {
             Log.w(TAG, "page failed: " + target, e);
-            return null;
+            return new PageResponse(null, null, -1);
         }
-
-        Page page = new Page(body, type == null || type.isEmpty() ? "image/jpeg" : type);
-        if (keep) {
-            synchronized (PAGES) {
-                if (pageBytes + body.length <= PAGE_CACHE_BYTES) {
-                    PAGES.put(target, page);
-                    pageBytes += body.length;
-                }
-            }
-        }
-        return page;
     }
 
     /**
-     * Their CDN wants their referer; nobody else's does.
+     * Which referer a page host wants, decided from the host itself.
      *
-     * A page from a script source is fetched with the app's own user agent and
-     * no referer at all, because the script cannot say which site it is reading
-     * and inventing one (mangafire's) would be a lie another host might act on.
+     * Their CDN is a family of numbered names (`mfcdn.to`, `mfcdn2.xyz`,
+     * `pw6.mfcdn2.xyz`), and a substring test written against today's name is
+     * how a whole chapter went black: the next rename answered 403 to every
+     * page. The host is parsed into DNS labels here - their site and any
+     * `mfcdn*` domain belong to mangafire, anything else gets no referer,
+     * because a script source cannot say which site it is reading and inventing
+     * one would be a lie another host might act on.
      */
-    private static boolean mangafireHost(String url) {
-        if (url == null) return false;
-        // The CDN's hosts are numbered and rotate: mfcdn.to was joined (and
-        // then replaced) by mfcdn2.xyz, pw6.mfcdn2.xyz style shuffles. Matching
-        // the old `mfcdn.` exactly missed every `mfcdn2.` page host, so the
-        // referer was never sent and the CDN answered 403 to every image: a
-        // black chapter with a page list that looked perfectly fine.
-        String lower = url.toLowerCase(java.util.Locale.ROOT);
-        return lower.contains("mangafire.") || lower.contains("mfcdn");
+    private static String refererFor(String host) {
+        String learned = REFERERS.get(host);
+        if (learned != null) return learned;
+        return defaultReferer(host);
+    }
+
+    private static String defaultReferer(String host) {
+        if (host == null || host.isEmpty()) return null;
+        if (host.equals(SITE_HOST) || host.endsWith("." + SITE_HOST)) return SITE;
+        for (String label : host.split("\\.")) {
+            if (label.startsWith("mfcdn")) return SITE;
+        }
+        return null;
+    }
+
+    /** The URL's host, lowercased and without a trailing dot, or empty. */
+    private static String hostOf(String url) {
+        try {
+            String host = new URL(url).getHost();
+            if (host == null) return "";
+            host = host.toLowerCase(java.util.Locale.ROOT);
+            if (host.endsWith(".")) host = host.substring(0, host.length() - 1);
+            return host;
+        } catch (Exception e) {
+            return "";
+        }
     }
 
     // ------------------------------------------------------------- positions
